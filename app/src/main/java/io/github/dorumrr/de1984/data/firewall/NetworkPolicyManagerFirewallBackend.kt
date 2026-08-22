@@ -67,6 +67,11 @@ class NetworkPolicyManagerFirewallBackend(
         // System service name
         private const val SERVICE_NAME = "netpolicy"
 
+        // Android packs a UID as userId * 100000 + appId, and only an appId in this range is
+        // an installed app. NetworkPolicyManagerService throws for anything else.
+        private const val PER_USER_RANGE = 100000
+        private val APP_APP_ID_RANGE = 10000..19999
+
         /**
          * Guards the record of "what each UID looked like before this backend touched it".
          *
@@ -91,8 +96,9 @@ class NetworkPolicyManagerFirewallBackend(
     private val appliedPolicies = mutableMapOf<Int, Boolean>()
 
     // Track which policy constant works on this device
-    // Calibrated on the first UID actually blocked - see calibrateBlockingPolicy.
-    private var blockingPolicy: Int = POLICY_REJECT_ALL
+    // Starts at the value every ROM enforces, and is upgraded only once calibration proves this ROM
+    // implements POLICY_REJECT_ALL - see calibrateBlockingPolicy.
+    private var blockingPolicy: Int = POLICY_REJECT_METERED_BACKGROUND
     private var policyTested: Boolean = false
 
     // Cached reflection objects
@@ -538,8 +544,12 @@ class NetworkPolicyManagerFirewallBackend(
                             // is already recorded by the pass above, so a calibration write is
                             // recoverable, and the real blocking write follows immediately.
                             if (!policyTested) {
-                                blockingPolicy = calibrateBlockingPolicy(networkPolicyManager, uid)
-                                policyTested = true
+                                // A null answer means this UID could not settle the question, so
+                                // try again on the next one instead of latching a verdict.
+                                calibrateBlockingPolicy(networkPolicyManager, uid)?.let { calibrated ->
+                                    blockingPolicy = calibrated
+                                    policyTested = true
+                                }
                             }
                             setUidPolicyMethod?.invoke(networkPolicyManager, uid, blockingPolicy)
                         } else {
@@ -763,48 +773,87 @@ class NetworkPolicyManagerFirewallBackend(
     }
 
     /**
-     * Decide which policy value actually blocks on this ROM, by writing the strongest one to a real
-     * app UID and reading it back.
+     * Decide which policy value actually blocks on this ROM.
      *
      * The previous probe wrote to **UID 0** and treated "did not throw" as support. Android's
      * NetworkPolicyManagerService rejects a policy on any non-app UID, so that call threw on every
      * device and every Android version, and the backend permanently degraded to blocking metered
-     * background data only - while the UI kept saying the app was Blocked. Verified on hardware:
-     * the same run threw `cannot apply policy to UID 1001001` for real system UIDs.
+     * background data only - while the UI kept saying the app was Blocked.
      *
-     * Reading the value back is also stricter than "did not throw": a ROM can accept the call and
-     * store something else.
-     *
-     * @param uid a UID that is about to be blocked, and whose original policy is already recorded.
+     * @return the policy to block with, or null if this UID could not settle the question. Null must
+     * not latch a verdict: [desiredPolicies] contains system and work-profile system UIDs, and
+     * calibrating on one of those would throw and pin the weakest policy for the whole process.
      */
-    private fun calibrateBlockingPolicy(networkPolicyManager: Any, uid: Int): Int {
+    private suspend fun calibrateBlockingPolicy(networkPolicyManager: Any, uid: Int): Int? {
+        if (uid % PER_USER_RANGE !in APP_APP_ID_RANGE) {
+            AppLogger.d(TAG, "UID $uid is not an app UID - not calibrating on it")
+            return null
+        }
+
         return try {
             setUidPolicyMethod?.invoke(networkPolicyManager, uid, POLICY_REJECT_ALL)
 
             val storedPolicy = readUidPolicy(networkPolicyManager, uid)
 
-            if (storedPolicy == POLICY_REJECT_ALL) {
-                AppLogger.d(TAG, "✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile")
-                POLICY_REJECT_ALL
-            } else if (storedPolicy == POLICY_ALLOW_METERED_BACKGROUND) {
-                // The historical trap: 0x4 used to be hard-coded here as "REJECT_ALL". If a ROM ever
-                // stores it in response to our write, we are granting an allowance to an app the UI
-                // shows as blocked. Never keep it.
-                AppLogger.e(TAG, "❌ This ROM stored POLICY_ALLOW_METERED_BACKGROUND for a blocking " +
-                        "write - that is an ALLOWANCE, not a block. Falling back to " +
-                        "POLICY_REJECT_METERED_BACKGROUND")
-                POLICY_REJECT_METERED_BACKGROUND
-            } else {
-                AppLogger.w(TAG, "⚠️  This ROM did not store POLICY_REJECT_ALL - falling back to " +
-                        "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked, only metered " +
-                        "background data | For full blocking use the iptables backend")
-                POLICY_REJECT_METERED_BACKGROUND
+            when {
+                storedPolicy == POLICY_ALLOW_METERED_BACKGROUND -> {
+                    // The historical trap: 0x4 used to be hard-coded here as "REJECT_ALL". If a ROM
+                    // ever stores it in response to a blocking write, we are granting an allowance to
+                    // an app the UI shows as blocked. Never keep it.
+                    AppLogger.e(TAG, "❌ This ROM stored POLICY_ALLOW_METERED_BACKGROUND for a " +
+                            "blocking write - that is an ALLOWANCE, not a block. Falling back to " +
+                            "POLICY_REJECT_METERED_BACKGROUND")
+                    POLICY_REJECT_METERED_BACKGROUND
+                }
+
+                storedPolicy != POLICY_REJECT_ALL -> {
+                    AppLogger.w(TAG, "⚠️  This ROM did not store POLICY_REJECT_ALL - falling back to " +
+                            "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked, only " +
+                            "metered background data | For full blocking use the iptables backend")
+                    POLICY_REJECT_METERED_BACKGROUND
+                }
+
+                romEnforcesRejectAll(uid) -> {
+                    AppLogger.d(TAG, "✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile")
+                    POLICY_REJECT_ALL
+                }
+
+                else -> {
+                    AppLogger.w(TAG, "⚠️  This ROM stored POLICY_REJECT_ALL but does not know the " +
+                            "constant, so nothing enforces it - falling back to " +
+                            "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked")
+                    POLICY_REJECT_METERED_BACKGROUND
+                }
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "⚠️  This ROM rejected POLICY_REJECT_ALL - falling back to " +
-                    "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked, only metered " +
-                    "background data | For full blocking use the iptables backend", e)
-            POLICY_REJECT_METERED_BACKGROUND
+            AppLogger.d(TAG, "Calibration on UID $uid was inconclusive - will try another UID", e)
+            null
+        }
+    }
+
+    /**
+     * Whether this ROM actually implements POLICY_REJECT_ALL, rather than merely storing the number.
+     *
+     * Reading the value back is not enough. AOSP's `setUidPolicy` does not validate the policy bits,
+     * so a ROM with no REJECT_ALL support stores `0x40000` and hands it back unchanged while nothing
+     * enforces it - every "blocked" app would then have full network access, which is worse than the
+     * metered-background fallback. `POLICY_REJECT_ALL` is not in AOSP at all; LineageOS and similar
+     * ROMs add it.
+     *
+     * The ROM's own dumpsys decoder is the honest signal: it prints the constant's name only for a
+     * value it knows about.
+     */
+    private suspend fun romEnforcesRejectAll(uid: Int): Boolean {
+        return try {
+            val (exitCode, output) = shizukuManager.executeShellCommand("dumpsys netpolicy")
+            if (exitCode != 0) {
+                AppLogger.w(TAG, "Could not read dumpsys netpolicy to confirm REJECT_ALL support")
+                return false
+            }
+            output.lineSequence().any { it.contains("UID=$uid ") && it.contains("REJECT_ALL") }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to confirm REJECT_ALL support", e)
+            false
         }
     }
 

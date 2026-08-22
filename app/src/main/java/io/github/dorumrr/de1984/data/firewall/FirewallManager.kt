@@ -18,10 +18,10 @@ import io.github.dorumrr.de1984.data.common.RootStatus
 import io.github.dorumrr.de1984.data.common.ShizukuManager
 import io.github.dorumrr.de1984.data.common.ShizukuStatus
 import io.github.dorumrr.de1984.data.monitor.NetworkStateMonitor
+import io.github.dorumrr.de1984.data.monitor.ScreenStateMonitor
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackend
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
-import io.github.dorumrr.de1984.domain.model.NetworkType
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.ui.MainActivity
 import io.github.dorumrr.de1984.utils.AppLogger
@@ -55,17 +55,16 @@ class FirewallManager(
     private val shizukuManager: ShizukuManager,
     private val errorHandler: ErrorHandler,
     private val firewallRepository: FirewallRepository,
-    private val networkStateMonitor: NetworkStateMonitor
+    private val networkStateMonitor: NetworkStateMonitor,
+    private val screenStateMonitor: ScreenStateMonitor
 ) {
     companion object {
         private const val TAG = "FirewallManager"
-        private const val RULE_APPLICATION_DEBOUNCE_MS = 300L
         private const val VPN_CONFLICT_NOTIFICATION_DEBOUNCE_MS = 30_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob())
     private val startStopMutex = Mutex()  // Synchronize start/stop operations
-    private var ruleApplicationJob: Job? = null
     private var healthMonitoringJob: Job? = null
     private var privilegeMonitoringJob: Job? = null
     private var vpnPermissionMonitoringJob: Job? = null
@@ -134,8 +133,6 @@ class FirewallManager(
     private val _firewallState = MutableStateFlow<FirewallState>(FirewallState.Stopped)
     val firewallState: StateFlow<FirewallState> = _firewallState.asStateFlow()
 
-    private var currentNetworkType: NetworkType = NetworkType.NONE
-    private var isScreenOn: Boolean = true
 
     // Track last processed privilege status to prevent duplicate restarts
     private var lastProcessedRootStatus: RootStatus? = null
@@ -931,8 +928,6 @@ class FirewallManager(
      */
     private fun stopMonitoring() {
         AppLogger.d(TAG, "Stopping state monitoring")
-        ruleApplicationJob?.cancel()
-        ruleApplicationJob = null
         healthMonitoringJob?.cancel()
         healthMonitoringJob = null
         vpnPermissionMonitoringJob?.cancel()
@@ -1691,17 +1686,6 @@ class FirewallManager(
     }
 
     /**
-     * Schedule rule application with debouncing.
-     */
-    private fun scheduleRuleApplication() {
-        ruleApplicationJob?.cancel()
-        ruleApplicationJob = scope.launch {
-            delay(RULE_APPLICATION_DEBOUNCE_MS)
-            applyRules()
-        }
-    }
-
-    /**
      * Trigger rule re-application (e.g., when policy changes).
      * This is a public method that can be called from outside to force rule re-application.
      *
@@ -1722,7 +1706,13 @@ class FirewallManager(
             AppLogger.d(TAG, "Cleared NetworkPolicyManager applied policies cache")
         }
 
-        scheduleRuleApplication()
+        // No pass is scheduled here. The only caller, SettingsViewModel.setDefaultFirewallPolicy,
+        // also broadcasts FIREWALL_RULES_CHANGED, which PrivilegedFirewallService and
+        // FirewallVpnService already turn into a rule application on the instance that owns
+        // enforcement. Scheduling one here as well ran a second full pass over every package from
+        // this class's own backend instance - the duplication the monitoring change removed
+        // everywhere else. The cache clear above stays: it belongs to this instance and matters for
+        // the next backend switch.
     }
 
     /**
@@ -1749,8 +1739,16 @@ class FirewallManager(
             // Get all rules from repository
             val rules = firewallRepository.getAllRules().first()
 
+            // Read the live state rather than caching it. These used to be fields fed by this
+            // class's own monitoring loop; that loop duplicated PrivilegedFirewallService and was
+            // removed, which left the fields frozen at their initial values - and
+            // FirewallRule.isBlockedOn(NetworkType.NONE) now blocks, so a frozen NONE would have
+            // over-blocked every rule on each backend switch until the service corrected it.
+            val networkType = networkStateMonitor.getCurrentNetworkType()
+            val screenOn = screenStateMonitor.isScreenOn()
+
             // Apply rules
-            backend.applyRules(rules, currentNetworkType, isScreenOn).getOrElse { error ->
+            backend.applyRules(rules, networkType, screenOn).getOrElse { error ->
                 AppLogger.e(TAG, "Failed to apply rules to ${backend.getType()}: ${error.message}")
                 return Result.failure(error)
             }

@@ -256,7 +256,8 @@ class De1984Dependencies(private val context: Context) {
             shizukuManager = shizukuManager,
             errorHandler = errorHandler,
             firewallRepository = firewallRepository,
-            networkStateMonitor = networkStateMonitor
+            networkStateMonitor = networkStateMonitor,
+            screenStateMonitor = screenStateMonitor
         )
     }
 

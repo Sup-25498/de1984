@@ -1624,6 +1624,118 @@ without his say-so.
 
 ---
 
+# AUDIT ROUND 2 — 4 CODE DEFECTS FIXED, 1 DOC FINDING PENDING — 2026-08-22
+
+Scope: commits `c5ee247` and `a661f7c`. 12 agents, 4 lenses, each finding put to a skeptic.
+**8 raised, 5 survived, 3 refuted.** Four were code and are fixed; one is documentation and needs
+Doru's approval. Two more were found by direct reading before the fan-out returned.
+
+## FIXED (found by direct reading) — capture without privileges would wipe the user's config
+`captureOriginalSettings` had **no privilege check** and is called unconditionally from
+`SettingsViewModel:1029` whenever the captive-portal screen opens. Without root or Shizuku the
+`settings get global` command cannot run, so `getSystemSetting` returns null for **every** key -
+identical to a key being genuinely unset. The backup would record "all six unset", and a later
+restore, which *does* require privileges, deletes a key recorded as unset. All six keys gone.
+
+Before the raw-capture change this path stored `mode=DEFAULT_MODE` and skipped null URLs, so it was
+wrong but harmless. The raw-capture change turned it destructive. **A regression introduced by
+a661f7c.** Fix: capture now requires privileges and refuses otherwise.
+
+## FIXED (found by direct reading) — frozen network and screen state
+Removing `startMonitoring()` left `currentNetworkType` and `isScreenOn` with **no assignment
+anywhere** - read only by `applyRulesToBackend`. Frozen at `NetworkType.NONE`, and
+`isBlockedOn(NONE)` now blocks, so every backend switch over-blocked until the service corrected it.
+
+Fix: both fields deleted; `applyRulesToBackend` reads the live state via
+`networkStateMonitor.getCurrentNetworkType()` and `screenStateMonitor.isScreenOn()`. The
+`screenStateMonitor` dependency is back, but fed on demand rather than by a duplicate monitoring loop,
+so the duplication fix stands. (The fan-out raised this too and its own skeptic refuted it — correctly,
+because it read the code after the fix had landed.)
+
+## FIXED — calibration could latch the weakest policy forever
+`calibrateBlockingPolicy` was handed whatever uid came first in `desiredPolicies` with
+`shouldBlock=true`. That map is built from every package across every profile with **no uid-range
+filter**, so system uids are in it — proven on hardware earlier in the session by
+`cannot apply policy to UID 1001001` and `UID 1001002`. `getUidPolicy` does *not* throw for those, so
+the pre-pass records them and `isOurs` is true, which bypasses the bail-out. `setUidPolicy` then
+throws, the catch returned `POLICY_REJECT_METERED_BACKGROUND`, and `policyTested` latched — restoring
+the exact permanent degradation P0-8 was meant to end.
+
+Fix: calibration skips any uid whose appId is outside `10000..19999`, and a thrown write now returns
+**null** meaning "inconclusive", which does not latch — the next uid is tried instead.
+
+## FIXED — read-back proved storage, not enforcement
+AOSP's `setUidPolicy` does not validate the policy bits: it stores the int and `getUidPolicy` hands it
+straight back. `POLICY_REJECT_ALL` does not exist in AOSP at all. So on stock AOSP, writing `0x40000`
+and reading `0x40000` back was **guaranteed** to succeed while nothing enforced it — every "blocked"
+app would have had full network access. Worse than the old fallback, which at least blocked metered
+background data.
+
+Fix: `blockingPolicy` now starts at `POLICY_REJECT_METERED_BACKGROUND` — the value every ROM enforces
+— and is upgraded only when the ROM's own `dumpsys netpolicy` decoder **names** the value `REJECT_ALL`
+for that uid. A ROM prints that name only for a constant it implements.
+
+Verified live on LineageOS:
+```
+23:25:42.707  ✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile
+23:25:42.727  happytaxes (UID 10212, has rule): policy=BLOCK (REJECT_ALL (WiFi+Mobile))
+```
+**The negative case is untested** — no stock-AOSP device here to confirm it correctly falls back.
+
+## FIXED — a default-policy change still ran two full passes
+`SettingsViewModel.setDefaultFirewallPolicy` calls `triggerRuleReapplication()` **and** broadcasts
+`FIREWALL_RULES_CHANGED`, which `PrivilegedFirewallService` and `FirewallVpnService` already turn into
+a pass. The duplication removed everywhere else survived on this one path.
+
+Fix: `triggerRuleReapplication` still clears this instance's cache — that matters for the next backend
+switch — but no longer schedules its own pass. That orphaned `scheduleRuleApplication()`,
+`ruleApplicationJob` and `RULE_APPLICATION_DEBOUNCE_MS`, all removed.
+
+## FIXED — a legacy backup would write a key the old restore never touched
+The old capture stored `useHttps` as `raw?.toIntOrNull() == 1`, so an **unset** key became `false`, and
+the old restore never wrote `captive_portal_use_https` at all. The new six-key loop would have written
+`captive_portal_use_https=0` on a device that never had the key, turning off the HTTPS portal probe.
+The claim in the KDoc that "nothing gets worse" was true for `mode` and **false** for this key.
+
+Fix: a legacy backup (neither raw key present) restores exactly the three keys the old code did.
+
+## Refuted, worth recording
+- *"Pre-upgrade backups turn ambiguous nulls into `settings delete`"* — refuted; the legacy path never
+  reaches the delete branch for the affected keys.
+- *"FIREWALL.md:521 describes the NetworkPolicyManager health check as a shell command"* — refuted; the
+  quoted text does not say that.
+
+---
+
+# FIREWALL.md — ONE VERIFIED DRIFT, WORDING AWAITING APPROVAL
+
+## D5 — line 314 says the ConnectivityManager backend ignores network changes
+Current text at `FIREWALL.md:314`:
+> Network changes have no effect on blocking decisions since all apps are either blocked everywhere or
+> allowed everywhere. The backend does not recalculate rules when switching between WiFi/Mobile/Roaming.
+
+Contradicted by the code: `PrivilegedFirewallService:383-392` observes the network type and calls
+`applyRules` on every change, and `ConnectivityManagerFirewallBackend:271` evaluates
+`rule.isBlockedOn(networkType)`.
+
+The outcome is *usually* the same, because only a single Block Network toggle is offered and
+`migrateRulesToSimple` flattens granular rules. But a non-uniform rule can survive: when the firewall
+is restarted through `SettingsViewModel.restartFirewallIfRunning`, `stopFirewall` nulls
+`currentBackend` first, so `FirewallManager` sees `wasGranular=false` and skips the migration.
+
+Proposed replacement:
+> Rules are re-applied on every network change: PrivilegedFirewallService observes the network type
+> and calls `applyRules`, which evaluates `rule.isBlockedOn(networkType)`. The result is normally
+> identical, because this backend offers only a single Block Network toggle and granular rules are
+> flattened by `migrateRulesToSimple` when switching from VPN or iptables. A rule that is still
+> non-uniform — for example one that survived a restart where the migration did not run — will
+> therefore change behaviour between WiFi and Mobile.
+
+The two lines below it ("Switching between WiFi and Mobile has no effect...") carry the same claim and
+would need the same treatment.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

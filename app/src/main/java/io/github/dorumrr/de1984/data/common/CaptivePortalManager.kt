@@ -94,6 +94,20 @@ class CaptivePortalManager(
                 return@withContext Result.success(Unit)
             }
 
+            // Capturing without privileges would record a lie. getSystemSetting returns null for a
+            // failed read exactly as it does for a key that is genuinely unset, and without root or
+            // Shizuku the `settings get global` command cannot run at all, so every key would read
+            // as null. The backup would say "all six unset", and a later restore - which does
+            // require privileges - deletes a key recorded as unset. That would wipe the user's real
+            // captive portal configuration.
+            if (!hasPrivileges()) {
+                AppLogger.w(TAG, "No root or Shizuku - not capturing originals, because a failed " +
+                        "read cannot be told apart from an unset key")
+                return@withContext Result.failure(
+                    Exception("Root or Shizuku access required to capture original settings")
+                )
+            }
+
             // Read the raw system values, not getCurrentSettings(). That helper substitutes a
             // default for an unset key, and storing the substitute as the "original" meant restore
             // would later write a setting the device never had. Verified on a device where
@@ -254,17 +268,32 @@ class CaptivePortalManager(
             // deleted rather than written. Restore used to skip nulls entirely and always write the
             // mode, so it left De1984's own URLs in place while reporting success, and created a
             // captive_portal_mode on devices that never had one.
-            val toRestore = listOf(
+            // A backup written before the raw keys existed cannot describe these three: the old
+            // capture stored useHttps as a Boolean, so an unset key became `false`, and the old
+            // restore never wrote fallback_url, other_fallback_urls or use_https at all. Writing
+            // them now would push `captive_portal_use_https=0` onto a device that never had the key
+            // and turn off the HTTPS portal probe. Legacy backups therefore restore exactly the
+            // three keys the old code did.
+            val isLegacyBackup = !prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW) &&
+                    !prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW)
+            if (isLegacyBackup) {
+                AppLogger.d(TAG, "Legacy backup - restoring mode, HTTP and HTTPS URL only")
+            }
+
+            val toRestore = listOfNotNull(
                 Constants.CaptivePortal.SYSTEM_KEY_MODE to originalRawMode(),
                 Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL to
                         prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, null),
                 Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL to
                         prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, null),
-                Constants.CaptivePortal.SYSTEM_KEY_FALLBACK_URL to
-                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, null),
-                Constants.CaptivePortal.SYSTEM_KEY_OTHER_FALLBACK_URLS to
-                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, null),
-                Constants.CaptivePortal.SYSTEM_KEY_USE_HTTPS to originalRawUseHttps()
+                (Constants.CaptivePortal.SYSTEM_KEY_FALLBACK_URL to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, null))
+                        .takeUnless { isLegacyBackup },
+                (Constants.CaptivePortal.SYSTEM_KEY_OTHER_FALLBACK_URLS to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, null))
+                        .takeUnless { isLegacyBackup },
+                (Constants.CaptivePortal.SYSTEM_KEY_USE_HTTPS to originalRawUseHttps())
+                        .takeUnless { isLegacyBackup }
             )
 
             toRestore.forEach { (key, value) ->
@@ -295,8 +324,9 @@ class CaptivePortalManager(
      * The captured `captive_portal_mode`, or null if the key was unset when captured.
      *
      * Backups written before the raw keys existed stored an Int, which could not express "unset".
-     * Those are read verbatim, which is exactly what the old restore would have written, so nothing
-     * gets worse for a backup that already exists.
+     * Those are read verbatim, which is exactly what the old restore would have written for this
+     * key. The three keys the old restore never wrote are skipped entirely for such a backup - see
+     * `isLegacyBackup` in [restoreOriginalSettings].
      */
     private fun originalRawMode(): String? {
         if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW)) {
