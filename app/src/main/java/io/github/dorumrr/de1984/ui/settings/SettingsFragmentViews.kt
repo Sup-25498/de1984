@@ -500,11 +500,24 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
         // Boot protection switch
         binding.bootProtectionSwitch.setOnCheckedChangeListener(null)
 
-        // If boot protection is unavailable, force switch to OFF and disable it
+        // If boot protection is unavailable, disable the switch.
         if (!state.bootProtectionAvailable) {
-            binding.bootProtectionSwitch.isChecked = false
             binding.bootProtectionSwitch.isEnabled = false
-            binding.bootProtectionDescription.text = getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_unavailable)
+
+            if (state.bootProtection) {
+                // Boot protection was enabled and privileged access has since been lost. The script
+                // is almost certainly still installed, and we cannot even confirm it: /data/adb is
+                // root-only, so without root the app can neither read nor remove it. Showing the
+                // switch as OFF here would be a lie, and offering a Remove button would be a button
+                // that cannot work. Tell the user the truth and give the only recovery that does.
+                binding.bootProtectionSwitch.isChecked = true
+                binding.bootProtectionDescription.text =
+                    getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_stuck)
+            } else {
+                binding.bootProtectionSwitch.isChecked = false
+                binding.bootProtectionDescription.text =
+                    getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_unavailable)
+            }
         } else {
             binding.bootProtectionSwitch.isChecked = state.bootProtection
             binding.bootProtectionSwitch.isEnabled = true

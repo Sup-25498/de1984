@@ -226,7 +226,7 @@ class FirewallManager(
                     val npmBackend = NetworkPolicyManagerFirewallBackend(context, shizukuManager, errorHandler)
                     if (npmBackend.isActive()) {
                         AppLogger.d(TAG, "Detected NetworkPolicyManager backend running on startup (attempt ${attempts + 1})")
-                        currentBackend
+                        currentBackend = npmBackend
                         _activeBackendType.value = FirewallBackendType.NETWORK_POLICY_MANAGER
                         _firewallState.value = FirewallState.Running(FirewallBackendType.NETWORK_POLICY_MANAGER)
                         emitStateChangeBroadcast(_firewallState.value)

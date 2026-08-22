@@ -434,6 +434,7 @@
     <string name="settings_boot_protection_title">启动保护</string>
     <string name="settings_boot_protection_description">在设备启动期间阻止所有网络流量，直到防火墙激活（需要 Root）</string>
     <string name="settings_boot_protection_unavailable">需要 Root 访问权限</string>
+    <string name="settings_boot_protection_stuck">⚠️ 启动保护仍已安装，但 De1984 已失去 root 权限，无法从此处移除。每次启动后它将阻止应用最多 2 分钟，然后自动解除。要永久移除：\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">新应用通知</string>
     <string name="settings_new_app_notifications_description">安装具有网络权限的新应用时显示通知</string>

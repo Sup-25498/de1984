@@ -85,17 +85,25 @@ class FirewallWidget : AppWidgetProvider() {
             val stateString = intent.getStringExtra(Constants.Firewall.EXTRA_FIREWALL_STATE)
             AppLogger.d(TAG, "Broadcast state string: '$stateString'")
             
-            // Derive boolean state from broadcast
-            val isEnabledFromBroadcast = stateString?.contains("Running") == true || 
+            // Derive boolean state from broadcast, for DISPLAY ONLY.
+            val isEnabledFromBroadcast = stateString?.contains("Running") == true ||
                                           stateString?.contains("Starting") == true
             AppLogger.d(TAG, "Derived isEnabled from broadcast: $isEnabledFromBroadcast")
-            
-            // Update SharedPreferences to match broadcast (source of truth)
-            val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-            val oldValue = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, false)
-            prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, isEnabledFromBroadcast).apply()
-            AppLogger.d(TAG, "SharedPrefs updated: $oldValue -> $isEnabledFromBroadcast")
-            
+
+            // This receiver must be exported so the system can deliver APPWIDGET_UPDATE, and the
+            // custom action carries no permission, so ANY installed app can send this broadcast with
+            // any payload. It therefore must never write app state.
+            //
+            // It used to persist KEY_FIREWALL_ENABLED from this extra. A third-party app could send
+            // a "Stopped" state, the flag would be cleared, and BootReceiver/BootWorker would then
+            // skip firewall restoration on every subsequent boot - silently disabling the firewall
+            // for good. Verified reproducible over adb.
+            //
+            // Every genuine state change already persists the flag through FirewallViewModel,
+            // FirewallToggleReceiver, VpnPermissionActivity or FirewallManager, so nothing is lost.
+            // A spoofed broadcast can now do no more than paint a wrong icon until the next real
+            // update.
+
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(
                 android.content.ComponentName(context, FirewallWidget::class.java)

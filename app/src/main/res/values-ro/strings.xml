@@ -426,6 +426,7 @@
     <string name="settings_boot_protection_title">Protecție la Pornire</string>
     <string name="settings_boot_protection_description">Blochează tot traficul de rețea în timpul pornirii dispozitivului până când firewall-ul se activează (necesită root)</string>
     <string name="settings_boot_protection_unavailable">Necesită acces root</string>
+    <string name="settings_boot_protection_stuck">⚠️ Protecția la Pornire este încă instalată, dar De1984 a pierdut accesul root și nu o mai poate elimina de aici. Va bloca aplicațiile până la 2 minute după fiecare pornire, apoi se dezactivează automat. Pentru a o elimina definitiv:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">Notificare pentru aplicațiile noi</string>
     <string name="settings_new_app_notifications_description">Arată notificări când aplicații noi cu permisiuni de rețea sunt instalate</string>

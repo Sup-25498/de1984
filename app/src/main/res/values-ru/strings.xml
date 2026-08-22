@@ -427,6 +427,7 @@
     <string name="settings_boot_protection_title">Защита при загрузке</string>
     <string name="settings_boot_protection_description">Блокировать весь сетевой трафик при запуске устройства до активации файрволла (требуется root)</string>
     <string name="settings_boot_protection_unavailable">Требуется root-доступ</string>
+    <string name="settings_boot_protection_stuck">⚠️ Защита при загрузке всё ещё установлена, но De1984 потерял root-доступ и больше не может удалить её отсюда. После каждой загрузки она будет блокировать приложения до 2 минут, затем отключится сама. Чтобы удалить её навсегда:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">Уведомления о новых приложениях</string>
     <string name="settings_new_app_notifications_description">Показывать уведомления при установке новых приложений с сетевыми разрешениями</string>

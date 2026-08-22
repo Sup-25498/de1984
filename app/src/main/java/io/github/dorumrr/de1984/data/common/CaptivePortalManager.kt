@@ -27,6 +27,11 @@ class CaptivePortalManager(
 ) {
     companion object {
         private const val TAG = "CaptivePortalManager"
+
+        /** Characters with meaning to a POSIX shell. A URL never legitimately contains these. */
+        private val SHELL_METACHARACTERS = charArrayOf(
+            '$', '`', '\\', '"', '\'', ';', '&', '|', '<', '>', '(', ')', '{', '}', '[', ']', '\n', '\r'
+        )
     }
 
     private val prefs: SharedPreferences by lazy {
@@ -365,7 +370,14 @@ class CaptivePortalManager(
      */
     private suspend fun setSystemSetting(key: String, value: String): Pair<Int, String> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val command = "settings put global $key \"$value\""
+            // Single-quote the value and escape any embedded single quote. Inside single quotes the
+            // shell expands nothing, so $(...) or backticks in a user-supplied URL cannot execute.
+            //
+            // This runs as root. With the previous double-quoted form, a URL of
+            // http://example.com$(touch /data/local/tmp/INJECTED) created a root-owned file while the
+            // stored setting still read back as a plain URL, leaving no trace in the UI. Verified.
+            val quotedValue = "'" + value.replace("'", "'\\''") + "'"
+            val command = "settings put global $key $quotedValue"
 
             when {
                 rootManager.hasRootPermission -> rootManager.executeRootCommand(command)
@@ -392,6 +404,14 @@ class CaptivePortalManager(
         // Basic validation: must have a hostname after protocol
         val withoutProtocol = url.substringAfter("://")
         if (withoutProtocol.isBlank() || withoutProtocol.startsWith("/")) {
+            return false
+        }
+
+        // Reject anything that could be meaningful to a shell. setSystemSetting already single-quotes
+        // the value, so this is a second line of defence rather than the only one - but a URL has no
+        // legitimate reason to contain these, and this value is passed to a command running as root.
+        if (url.any { it in SHELL_METACHARACTERS } || url.any { it.isWhitespace() }) {
+            AppLogger.w(TAG, "Rejected URL containing shell metacharacters or whitespace")
             return false
         }
 
