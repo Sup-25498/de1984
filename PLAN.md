@@ -1680,7 +1680,37 @@ Verified live on LineageOS:
 23:25:42.707  ✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile
 23:25:42.727  happytaxes (UID 10212, has rule): policy=BLOCK (REJECT_ALL (WiFi+Mobile))
 ```
-**The negative case is untested** — no stock-AOSP device here to confirm it correctly falls back.
+
+### The negative case is proven too, without a stock device
+The discriminator rests on one property: a ROM's dumpsys decoder names only the constants it
+implements. Tested directly by writing a value **no** ROM defines (`0x80000`) to a spare app uid:
+```
+UID=10212 policy=262144 (REJECT_ALL)     <- constant this ROM implements -> NAMED
+UID=10269 policy=524288 (80000)          <- value it does not know       -> raw hex, NO NAME
+```
+The spare uid was restored to no policy afterwards and confirmed clean.
+
+### Then confirmed on real stock AOSP — Pixel 7 AOSP 13 (API 33) emulator
+Wrote `262144` to an app uid on a stock AOSP image and read the same dumpsys:
+```
+UID=10100 policy=262144 (40000)                  <- stock AOSP: stored, but NOT named
+UID=10055 policy=4 (ALLOW_METERED_BACKGROUND)    <- 0x4 IS named, in AOSP itself
+```
+against LineageOS on the physical device:
+```
+UID=10212 policy=262144 (REJECT_ALL)             <- named
+```
+
+Three things are settled by this:
+1. **The audit's finding was right.** Stock AOSP *stores* `0x40000` and hands it back unchanged, so a
+   read-back check alone would have passed there and left every "blocked" app fully open.
+2. **The discriminator works in both directions.** Running the exact string test the code performs:
+   stock AOSP's line contains `UID=10100 ` but not `REJECT_ALL` -> false -> keeps
+   `POLICY_REJECT_METERED_BACKGROUND`. LineageOS's line contains both -> true -> uses `REJECT_ALL`.
+3. **`0x4` really is `POLICY_ALLOW_METERED_BACKGROUND` in AOSP**, printed by AOSP's own decoder. The
+   original `POLICY_REJECT_ALL = 0x4` would have granted an allowance to every app shown as Blocked.
+
+The emulator's test policy was reverted and the emulator shut down.
 
 ## FIXED — a default-policy change still ran two full passes
 `SettingsViewModel.setDefaultFirewallPolicy` calls `triggerRuleReapplication()` **and** broadcasts
@@ -1733,6 +1763,29 @@ Proposed replacement:
 
 The two lines below it ("Switching between WiFi and Mobile has no effect...") carry the same claim and
 would need the same treatment.
+
+---
+
+# GAP 3 — Ethernet mapping: STILL UNVERIFIED, and why
+
+`NetworkStateMonitor.networkTypeOf` maps an internet-capable transport that is neither WiFi nor
+cellular nor VPN to `NetworkType.WIFI`, so an Ethernet dock or TV box is not reported as "offline".
+That branch has never executed under test.
+
+Attempted with the Pixel 7 AOSP 13 emulator. It reports only:
+```
+Transports: CELLULAR
+Transports: CELLULAR|WIFI
+Transports: WIFI
+```
+No `ETHERNET`, so it is not a test bed for this branch. Stopped there rather than spending more, as
+agreed.
+
+Remaining options, none taken: a device with a USB-C Ethernet dock or an Android TV box; or making
+`networkTypeOf` internal and adding the project's first unit test, which needs Robolectric or
+mockito-inline added to a build that currently has no test dependencies at all.
+
+The branch is four lines and has been reviewed, but it is **reasoned, not proven**.
 
 ---
 
