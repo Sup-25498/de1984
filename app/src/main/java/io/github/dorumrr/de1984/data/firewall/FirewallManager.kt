@@ -217,7 +217,7 @@ class FirewallManager(
                         _activeBackendType.value = FirewallBackendType.CONNECTIVITY_MANAGER
                         _firewallState.value = FirewallState.Running(FirewallBackendType.CONNECTIVITY_MANAGER)
                         emitStateChangeBroadcast(_firewallState.value)
-                        startMonitoring()
+                        // Note: ConnectivityManager backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
                         startBackendHealthMonitoring()
                         return@launch
                     }
@@ -230,7 +230,7 @@ class FirewallManager(
                         _activeBackendType.value = FirewallBackendType.NETWORK_POLICY_MANAGER
                         _firewallState.value = FirewallState.Running(FirewallBackendType.NETWORK_POLICY_MANAGER)
                         emitStateChangeBroadcast(_firewallState.value)
-                        startMonitoring()
+                        // Note: NetworkPolicyManager backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
                         startBackendHealthMonitoring()
                         return@launch
                     }
@@ -575,13 +575,17 @@ class FirewallManager(
             _isFirewallDown.value = false
             dismissBackendFailedNotification()
 
-            // Start monitoring for ConnectivityManager and NetworkPolicyManager backends only
-            // - VPN backend monitors internally via VpnService
-            // - Iptables backend monitors via PrivilegedFirewallService (avoid duplicate monitoring)
-            if (newBackendType == FirewallBackendType.CONNECTIVITY_MANAGER ||
-                newBackendType == FirewallBackendType.NETWORK_POLICY_MANAGER) {
-                startMonitoring()
-            }
+            // No monitoring is started here, for any backend:
+            // - VPN monitors internally via VpnService
+            // - iptables, ConnectivityManager and NetworkPolicyManager all run through
+            //   PrivilegedFirewallService, which observes the same network, screen and rule signals
+            //   and applies the rules itself.
+            //
+            // ConnectivityManager and NetworkPolicyManager used to call startMonitoring() here while
+            // the service was doing the same job, so every rule change ran two full passes over every
+            // UID from two separate backend instances - measured at ~16 s each on a real device, and
+            // the reason the two instances raced over the shared policy record. The exclusion already
+            // existed for iptables; it just never covered the other two.
 
             // Start continuous backend health monitoring for privileged backends
             // Per FIREWALL.md lines 92-96: continuously monitor backend availability

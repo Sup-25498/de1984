@@ -32,17 +32,23 @@ When in AUTO mode, the app selects the best available backend using this priorit
 ### Manual Mode
 
 User can force a specific backend from Settings.
-**Important**: The dropdown should only show backends that are currently available on the device.
+**Important**: The dropdown lists every backend. Ones that cannot run on this device are shown disabled, with a line stating what they require, so the user can see why a backend is unavailable rather than wondering where it went.
 
 **Available backends check**:
+- **AUTO**: Always available (always shown, and is the default)
 - **VPN**: Always available (always shown in dropdown)
-- **iptables**: Only show if root access OR Shizuku in root mode is available
-- **ConnectivityManager**: Only show if Shizuku is available AND Android 13+
+- **iptables**: Enabled if root access OR Shizuku in root mode is available
+- **ConnectivityManager**: Enabled if Shizuku is available AND Android 13+
+- **NetworkPolicyManager**: Enabled if Shizuku is available. No Android version requirement. On ROMs that do not implement `POLICY_REJECT_ALL` it can only block metered background data, not WiFi.
 
 **User selection**:
+- **AUTO**: Let the app pick the best available backend (see AUTO Mode above)
 - **Force VPN**: Always use VPN backend (even if root/Shizuku available)
 - **Force iptables**: Only use iptables (only selectable if root/Shizuku root mode available)
 - **Force ConnectivityManager**: Only use ConnectivityManager (only selectable if Shizuku available and Android 13+)
+- **Force NetworkPolicyManager**: Only use NetworkPolicyManager (only selectable if Shizuku is available)
+
+**Note**: AUTO never selects NetworkPolicyManager. Its priority chain is iptables → ConnectivityManager → VPN. NetworkPolicyManager is reachable only by choosing it here.
 
 If a manually selected backend becomes unavailable (e.g., Shizuku stops, user revokes root), the firewall enters an **error** state and stays on the chosen backend. The user must restore the required privileges or manually pick another backend. AUTO mode continues to fall back automatically.
 
@@ -406,6 +412,10 @@ Error → Stopped: User explicitly stops firewall
    - If should be stopped but active → Stop backend
    - If backend type mismatch → Restart with correct backend
 4. Emit correct `firewallState` to UI
+
+### No network
+
+When the device has no usable network, blocking rules stay in force rather than being lifted. Nothing can connect with no network, so holding them costs nothing, and lifting them opened a window on reconnect where every app was unblocked until the next rule pass landed. Transports the app has no separate switch for — Ethernet, USB and Bluetooth tethering — are treated as WiFi, not as "no network".
 
 ---
 

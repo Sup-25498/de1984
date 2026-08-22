@@ -1433,6 +1433,115 @@ section; wording to be drafted once Doru confirms where it belongs.
 
 ---
 
+# P0-8 FIXED AND VERIFIED ON HARDWARE — 2026-08-22
+
+Two defects, one masking the other.
+
+**The probe could never succeed.** `testPolicySupport` wrote `setUidPolicy(0, ...)` — to **uid 0** —
+and treated "did not throw" as support. Android's `NetworkPolicyManagerService` rejects a policy on
+any non-app uid, so it threw on every device and every Android version. The catch branch then pinned
+`blockingPolicy = POLICY_REJECT_METERED_BACKGROUND` permanently.
+
+**The constant was the opposite of a block.** `POLICY_REJECT_ALL` was `0x4`, which is AOSP's
+`POLICY_ALLOW_METERED_BACKGROUND` — an allowance. Had the probe ever succeeded, every app the UI
+showed as Blocked would have been granted a metered-background allowance instead.
+
+## The fix
+- `POLICY_REJECT_ALL` is now `0x40000`, the value LineageOS-family ROMs use and their dumpsys decodes
+  as `REJECT_ALL`. `0x4` is kept, named `POLICY_ALLOW_METERED_BACKGROUND`, so it cannot be mistaken
+  for a blocking value again.
+- `testPolicySupport` is gone. `calibrateBlockingPolicy` runs once, on the **first uid actually being
+  blocked** — a real app uid whose original policy the pre-pass has already recorded, so the
+  calibration write is recoverable and the real blocking write follows immediately.
+- Calibration checks the value was **stored**, by reading it back with `getUidPolicy`, not merely that
+  the call did not throw. A ROM can accept the call and store something else.
+- If a ROM ever stores `POLICY_ALLOW_METERED_BACKGROUND` in response to a blocking write, that is
+  logged as an error and rejected — the historical trap, guarded explicitly.
+
+## Verified on hardware — Android 14 / LineageOS / Shizuku as root
+```
+22:51:17.311  ✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile
+22:51:17.326  Applied policy for io.github.dorumrr.happytaxes (UID 10212, has rule): policy=BLOCK (REJECT_ALL (WiFi+Mobile))
+22:51:17.345  Applied policy for com.aurora.store (UID 10269, has rule): policy=BLOCK (REJECT_ALL (WiFi+Mobile))
+22:51:17.359  ✅ Applied 2 policies, skipped 0 unchanged, left 85 foreign policies alone, 0 errors
+```
+Policy table, `com.aurora.store`:
+```
+before: UID=10269 policy=1      (REJECT_METERED_BACKGROUND)   <- metered background only
+after:  UID=10269 policy=262144 (REJECT_ALL)                  <- WiFi and Mobile
+```
+**This device could always do full blocking.** The backend never tried, purely because of the broken
+probe. Every NetworkPolicyManager user on a ROM that supports `REJECT_ALL` was silently getting
+metered-background-only blocking while the UI said Blocked.
+
+Foreign policies untouched (`left 85 ... alone`), zero errors.
+
+## Still open — needs a product decision
+On a ROM **without** `POLICY_REJECT_ALL`, the backend still degrades to metered-background-only and
+the UI still says Blocked. The degradation is now logged loudly and correctly, but nothing surfaces it
+to the user. Options: show a warning on the backend picker and the firewall screen, refuse to run the
+backend at all, or accept the log-only behaviour. Not implemented; an unwired `blocksAllNetworks()`
+helper was written and then removed rather than left as dead code.
+
+---
+
+# DUPLICATE BACKEND MONITORING — FIXED AND VERIFIED — 2026-08-22
+
+`FirewallManager.startMonitoring()` observed network state, screen state and the rules repository, and
+applied rules to its **own** backend instance. `PrivilegedFirewallService` observes the same three
+signals and applies rules to **its** instance. Both instances are of the same backend class, so every
+rule change ran two full passes over every uid — measured at ~16 s each — and it is what let two
+instances race over the shared policy record.
+
+The codebase already had the rule, at `FirewallManager.kt:207`:
+```kotlin
+// Note: iptables backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
+```
+It was applied to iptables and never extended, although `ConnectivityManagerFirewallBackend` and
+`NetworkPolicyManagerFirewallBackend` both start the same service (`:74`/`:121` and `:115`/`:163`).
+The same one-rule-in-two-places drift as `FirewallVpnService`'s `NetworkType.NONE` workaround.
+
+Fix: the exclusion now covers all three privileged backends. Three call sites — `:220`, `:233`, and the
+`if` block in `startFirewallInternal`.
+
+## Verified on hardware — one toggle of com.aurora.store
+```
+22:59:17.725  Debounce START (300ms): source=flow
+22:59:17.812  Debounce START (300ms): source=broadcast
+22:59:18.137  Debounce END: +345ms
+22:59:27.526  Applied policy for com.aurora.store (UID 10269, has rule): policy=RESTORED
+22:59:27.537  ✅ Applied 2 policies, skipped 0 unchanged, left 85 foreign policies alone, 0 errors
+```
+Two schedule triggers collapsed into **one** pass by the service's own debounce. One `Applied` line
+where there used to be two. `FirewallManager` emits no `Rules changed in repository` or
+`State changed` at all any more.
+
+The two passes still seen at app start are not duplication: one is the service's debounced initial
+apply, one is the single `applyRulesToBackend` during the atomic backend switch.
+
+The same toggle also proved the full P0-2 / P0-9 / P0-8 chain end to end: Aurora was restored to its
+exact original (absent from the policy table, back to `0`), its entry was dropped from
+`npm_original_policies`, HappyTaxes kept its true `262144`, and the 85 foreign policies were untouched.
+
+## Left in place — needs a decision
+`startMonitoring()` now has **zero callers**, and the `monitoringJob` / `ruleChangeMonitoringJob` pair
+exists only for it — `stopMonitoring()` still has 5 callers, so it stays either way. Roughly 35 lines
+of now-dead machinery in the file that runs the firewall. Not deleted: the behaviour change was worth
+proving first, and the demolition should be deliberate.
+
+## NEW P2 — every rule change re-enumerates all 466 packages
+Observed in the same run:
+```
+22:59:18.058  HiddenApiHelper: Cleared installed apps cache
+22:59:27.526  (apply completes)                                   ~9.4 s later
+```
+The package cache is cleared immediately before each apply, so `applyRules` re-scans every package on
+every rule toggle. At app start the same scan measured `getInstalledApplicationsAsUser took 6000ms`
+for the work profile alone and `getPackages COMPLETE - Total time: 8150ms for 466 packages`. This, not
+the policy writes, is what makes a rule change feel slow. Pre-existing; not touched.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

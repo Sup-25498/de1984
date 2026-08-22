@@ -52,7 +52,17 @@ class NetworkPolicyManagerFirewallBackend(
         // NetworkPolicyManager constants
         private const val POLICY_NONE = 0x0
         private const val POLICY_REJECT_METERED_BACKGROUND = 0x1
-        private const val POLICY_REJECT_ALL = 0x4  // Android 11+ / Custom ROMs
+
+        // 0x4 is POLICY_ALLOW_METERED_BACKGROUND in AOSP - an ALLOWANCE, not a block. It was used
+        // here as POLICY_REJECT_ALL, which would have granted a metered-background allowance to
+        // every app the UI showed as blocked. It never fired only because the old probe always
+        // failed. Named here so it cannot be mistaken for a blocking value again.
+        private const val POLICY_ALLOW_METERED_BACKGROUND = 0x4
+
+        // POLICY_REJECT_ALL is not in AOSP. LineageOS and similar ROMs add it at 0x40000 and their
+        // dumpsys decodes 262144 as REJECT_ALL. ROMs without it are detected at runtime, by writing
+        // the value and reading it back - see calibrateBlockingPolicy.
+        private const val POLICY_REJECT_ALL = 0x40000
 
         // System service name
         private const val SERVICE_NAME = "netpolicy"
@@ -81,7 +91,8 @@ class NetworkPolicyManagerFirewallBackend(
     private val appliedPolicies = mutableMapOf<Int, Boolean>()
 
     // Track which policy constant works on this device
-    private var blockingPolicy: Int = POLICY_REJECT_ALL  // Try POLICY_REJECT_ALL first
+    // Calibrated on the first UID actually blocked - see calibrateBlockingPolicy.
+    private var blockingPolicy: Int = POLICY_REJECT_ALL
     private var policyTested: Boolean = false
 
     // Cached reflection objects
@@ -347,11 +358,6 @@ class NetworkPolicyManagerFirewallBackend(
                     return@withContext Result.failure(error)
                 }
 
-                // Test which policy works on first run
-                if (!policyTested) {
-                    testPolicySupport(networkPolicyManager)
-                }
-
             // Get default policy from SharedPreferences
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val defaultPolicy = prefs.getString(
@@ -528,6 +534,13 @@ class NetworkPolicyManagerFirewallBackend(
 
                     try {
                         if (shouldBlock) {
+                            // Calibrate once, on the first UID actually being blocked. Its original
+                            // is already recorded by the pass above, so a calibration write is
+                            // recoverable, and the real blocking write follows immediately.
+                            if (!policyTested) {
+                                blockingPolicy = calibrateBlockingPolicy(networkPolicyManager, uid)
+                                policyTested = true
+                            }
                             setUidPolicyMethod?.invoke(networkPolicyManager, uid, blockingPolicy)
                         } else {
                             // Ours, and no longer blocked: restore exactly what was there before.
@@ -750,48 +763,48 @@ class NetworkPolicyManagerFirewallBackend(
     }
 
     /**
-     * Test which policy constant is supported on this device.
-     * Try POLICY_REJECT_ALL first (blocks WiFi + Mobile), fall back to POLICY_REJECT_METERED_BACKGROUND.
+     * Decide which policy value actually blocks on this ROM, by writing the strongest one to a real
+     * app UID and reading it back.
+     *
+     * The previous probe wrote to **UID 0** and treated "did not throw" as support. Android's
+     * NetworkPolicyManagerService rejects a policy on any non-app UID, so that call threw on every
+     * device and every Android version, and the backend permanently degraded to blocking metered
+     * background data only - while the UI kept saying the app was Blocked. Verified on hardware:
+     * the same run threw `cannot apply policy to UID 1001001` for real system UIDs.
+     *
+     * Reading the value back is also stricter than "did not throw": a ROM can accept the call and
+     * store something else.
+     *
+     * @param uid a UID that is about to be blocked, and whose original policy is already recorded.
      */
-    private fun testPolicySupport(networkPolicyManager: Any) {
-        try {
-            AppLogger.d(TAG, "Testing policy support on this device...")
+    private fun calibrateBlockingPolicy(networkPolicyManager: Any, uid: Int): Int {
+        return try {
+            setUidPolicyMethod?.invoke(networkPolicyManager, uid, POLICY_REJECT_ALL)
 
-            // Try POLICY_REJECT_ALL first (Android 11+ / Custom ROMs)
-            try {
-                // Use a dummy UID that won't affect anything (UID 0 is root, always allowed)
-                setUidPolicyMethod?.invoke(networkPolicyManager, 0, POLICY_REJECT_ALL)
-                setUidPolicyMethod?.invoke(networkPolicyManager, 0, POLICY_NONE)  // Reset
+            val storedPolicy = readUidPolicy(networkPolicyManager, uid)
 
-                blockingPolicy = POLICY_REJECT_ALL
-                AppLogger.d(TAG, "✅ POLICY_REJECT_ALL is supported! Will block WiFi + Mobile networks")
-            } catch (e: Exception) {
-                // POLICY_REJECT_ALL not supported, fall back to POLICY_REJECT_METERED_BACKGROUND
-                AppLogger.w(TAG, "⚠️  POLICY_REJECT_ALL not supported on this device")
-                AppLogger.w(TAG, "⚠️  Falling back to POLICY_REJECT_METERED_BACKGROUND")
-                AppLogger.w(TAG, "⚠️  ⚠️  ⚠️  LIMITATION: WiFi networks will NOT be blocked! ⚠️  ⚠️  ⚠️")
-                AppLogger.w(TAG, "⚠️  Only Mobile/Roaming networks will be blocked")
-                AppLogger.w(TAG, "⚠️  For WiFi blocking, use iptables backend (requires root)")
-                blockingPolicy = POLICY_REJECT_METERED_BACKGROUND
+            if (storedPolicy == POLICY_REJECT_ALL) {
+                AppLogger.d(TAG, "✅ POLICY_REJECT_ALL is supported - blocking WiFi and Mobile")
+                POLICY_REJECT_ALL
+            } else if (storedPolicy == POLICY_ALLOW_METERED_BACKGROUND) {
+                // The historical trap: 0x4 used to be hard-coded here as "REJECT_ALL". If a ROM ever
+                // stores it in response to our write, we are granting an allowance to an app the UI
+                // shows as blocked. Never keep it.
+                AppLogger.e(TAG, "❌ This ROM stored POLICY_ALLOW_METERED_BACKGROUND for a blocking " +
+                        "write - that is an ALLOWANCE, not a block. Falling back to " +
+                        "POLICY_REJECT_METERED_BACKGROUND")
+                POLICY_REJECT_METERED_BACKGROUND
+            } else {
+                AppLogger.w(TAG, "⚠️  This ROM did not store POLICY_REJECT_ALL - falling back to " +
+                        "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked, only metered " +
+                        "background data | For full blocking use the iptables backend")
+                POLICY_REJECT_METERED_BACKGROUND
             }
-
-            policyTested = true
-
-            val policyName = when (blockingPolicy) {
-                POLICY_REJECT_ALL -> "POLICY_REJECT_ALL (blocks WiFi + Mobile)"
-                POLICY_REJECT_METERED_BACKGROUND -> "POLICY_REJECT_METERED_BACKGROUND (blocks Mobile only, WiFi NOT blocked)"
-                else -> "UNKNOWN"
-            }
-            AppLogger.d(TAG, "✅ Using policy: $policyName")
-
-            if (blockingPolicy == POLICY_REJECT_METERED_BACKGROUND) {
-                AppLogger.w(TAG, "⚠️  IMPORTANT: WiFi networks will NOT be blocked! | Only Mobile/Roaming data will be blocked. | For full WiFi blocking, root your device and use iptables.")
-            }
-
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to test policy support", e)
-            blockingPolicy = POLICY_REJECT_METERED_BACKGROUND  // Safe fallback
-            policyTested = true
+            AppLogger.w(TAG, "⚠️  This ROM rejected POLICY_REJECT_ALL - falling back to " +
+                    "POLICY_REJECT_METERED_BACKGROUND | WiFi will NOT be blocked, only metered " +
+                    "background data | For full blocking use the iptables backend", e)
+            POLICY_REJECT_METERED_BACKGROUND
         }
     }
 
