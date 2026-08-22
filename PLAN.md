@@ -1542,6 +1542,88 @@ the policy writes, is what makes a rule change feel slow. Pre-existing; not touc
 
 ---
 
+# P0-6 CAPTIVE PORTAL — 3 BUGS FIXED, 1 UNFIXABLE IN-APP, 1 WITHDRAWN — 2026-08-22
+
+## Withdrawn: "resetToDefaults silently sends privacy users to Google" — NOT A DEFECT
+The earlier entry was wrong. The UI says Google three times:
+```
+settings_captive_portal_reset_google   = "Reset to Google"
+dialog_captive_portal_reset_title      = "Reset to Google Defaults?"
+dialog_captive_portal_reset_message    = "...reset captive portal settings to Google's default servers."
+```
+and the function is named `resetToGoogleDefaults`. Nothing is silent and nothing is mislabelled. No
+change made.
+
+What genuinely does **not** exist is a "reset to this device's own defaults", which would simply
+`settings delete global` the three keys and let the ROM's built-in values apply. That is a new
+feature, not a fix, so it is not implemented — raised for Doru.
+
+## FIXED 1 — capture invented values for keys that were never set
+`captureOriginalSettings` went through `getCurrentSettings()`, whose line 55 does
+`?: Constants.CaptivePortal.DEFAULT_MODE`, and whose `useHttps` is a non-null Boolean. An unset key
+was therefore stored as a made-up default.
+
+Proven live on the test device:
+```
+device:  captive_portal_mode      = null    captive_portal_use_https = null
+app had: captive_portal_original_mode = 1   captive_portal_original_use_https = false
+```
+Tapping "Restore original" would have **created a `captive_portal_mode` the device never had**.
+
+Fix: capture now reads the raw system values directly with `getSystemSetting`, which already returns
+null for an unset key, and stores them under two new string keys (`KEY_ORIGINAL_MODE_RAW`,
+`KEY_ORIGINAL_USE_HTTPS_RAW`) that can express "unset". The four URL keys were already `String?` and
+were already correct.
+
+## FIXED 2 — restore could never un-set anything
+There was no `settings delete global` anywhere in the file. `restoreOriginalSettings` wrote the mode
+unconditionally and used `httpUrl?.let` / `httpsUrl?.let`, so a URL that was unset originally was
+skipped — leaving De1984's own URL in place while the call reported success.
+
+Fix: new `deleteSystemSetting(key)`. Restore now walks a list of key/value pairs and deletes the key
+when the recorded value is null, writes it otherwise.
+
+## FIXED 3 — only 3 of the 6 captured keys were ever written
+`SYSTEM_KEY_FALLBACK_URL`, `SYSTEM_KEY_OTHER_FALLBACK_URLS` and `SYSTEM_KEY_USE_HTTPS` were captured
+into the backup but no code path wrote them — not apply, not restore, not reset. The backup looked
+more complete than it was. Restore now covers all six.
+
+## Also removed — a dead public API that fabricated
+`getOriginalSettings()` had **zero callers** and read the legacy Int/Boolean keys, so after the capture
+change it would have returned `DEFAULT_MODE` and `true` for every fresh backup. 28 lines removed rather
+than fixed.
+
+`DEFAULT_MODE` now survives in exactly three correct places: the UI display path, the legacy-backup
+fallback, and the explicit "Reset to Google" action. Nothing writes a substitute into a backup.
+
+## Backwards compatibility
+A backup written before this change is in the legacy Int/Boolean format. `originalRawMode()` and
+`originalRawUseHttps()` read those verbatim — exactly what the old restore would have written — so an
+existing backup behaves as it did. It does not become correct, because the fabricated values are
+already baked in; only a fresh capture can fix that.
+
+## NOT FIXED — reinstall or Clear Data destroys the true original
+`KEY_ORIGINAL_CAPTURED` lives in the app's own SharedPreferences and `allowBackup=false`. After a
+reinstall the flag is gone, so the next capture records De1984's **own** current values as pristine.
+
+The mitigation proposed earlier — refuse to capture when the current values match a De1984 preset —
+**does not work**, and the test device proves why: its genuine ROM default is
+`http://cp.cloudflare.com`, which *is* the CLOUDFLARE preset. Refusing would break legitimate first
+capture on exactly the ROMs this app targets.
+
+There is no reliable in-app fix: nothing the app owns survives uninstall, and writing a marker into
+`Settings.Global` would add the very device-wide state the finding is about. The workable options are
+UI, not logic — warn at capture time when the values match a preset, and let the user view and edit
+the stored original. Both are new features; not implemented.
+
+## Verification
+Compiles; installed; no crashes; the existing backup was correctly left untouched because
+`hasOriginalSettings()` is true. **The new capture path is code-verified only** — proving it needs the
+captured flag cleared so a fresh capture runs, which would overwrite Doru's existing backup. Not done
+without his say-so.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

@@ -18,7 +18,6 @@ import io.github.dorumrr.de1984.data.common.RootStatus
 import io.github.dorumrr.de1984.data.common.ShizukuManager
 import io.github.dorumrr.de1984.data.common.ShizukuStatus
 import io.github.dorumrr.de1984.data.monitor.NetworkStateMonitor
-import io.github.dorumrr.de1984.data.monitor.ScreenStateMonitor
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackend
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
@@ -56,8 +55,7 @@ class FirewallManager(
     private val shizukuManager: ShizukuManager,
     private val errorHandler: ErrorHandler,
     private val firewallRepository: FirewallRepository,
-    private val networkStateMonitor: NetworkStateMonitor,
-    private val screenStateMonitor: ScreenStateMonitor
+    private val networkStateMonitor: NetworkStateMonitor
 ) {
     companion object {
         private const val TAG = "FirewallManager"
@@ -67,8 +65,6 @@ class FirewallManager(
 
     private val scope = CoroutineScope(SupervisorJob())
     private val startStopMutex = Mutex()  // Synchronize start/stop operations
-    private var monitoringJob: Job? = null
-    private var ruleChangeMonitoringJob: Job? = null
     private var ruleApplicationJob: Job? = null
     private var healthMonitoringJob: Job? = null
     private var privilegeMonitoringJob: Job? = null
@@ -204,7 +200,7 @@ class FirewallManager(
                         _activeBackendType.value = FirewallBackendType.IPTABLES
                         _firewallState.value = FirewallState.Running(FirewallBackendType.IPTABLES)
                         emitStateChangeBroadcast(_firewallState.value)
-                        // Note: iptables backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
+                        // Note: iptables backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
                         startBackendHealthMonitoring()
                         return@launch
                     }
@@ -217,7 +213,7 @@ class FirewallManager(
                         _activeBackendType.value = FirewallBackendType.CONNECTIVITY_MANAGER
                         _firewallState.value = FirewallState.Running(FirewallBackendType.CONNECTIVITY_MANAGER)
                         emitStateChangeBroadcast(_firewallState.value)
-                        // Note: ConnectivityManager backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
+                        // Note: ConnectivityManager backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
                         startBackendHealthMonitoring()
                         return@launch
                     }
@@ -230,7 +226,7 @@ class FirewallManager(
                         _activeBackendType.value = FirewallBackendType.NETWORK_POLICY_MANAGER
                         _firewallState.value = FirewallState.Running(FirewallBackendType.NETWORK_POLICY_MANAGER)
                         emitStateChangeBroadcast(_firewallState.value)
-                        // Note: NetworkPolicyManager backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
+                        // Note: NetworkPolicyManager backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
                         startBackendHealthMonitoring()
                         return@launch
                     }
@@ -581,11 +577,11 @@ class FirewallManager(
             //   PrivilegedFirewallService, which observes the same network, screen and rule signals
             //   and applies the rules itself.
             //
-            // ConnectivityManager and NetworkPolicyManager used to call startMonitoring() here while
-            // the service was doing the same job, so every rule change ran two full passes over every
-            // UID from two separate backend instances - measured at ~16 s each on a real device, and
-            // the reason the two instances raced over the shared policy record. The exclusion already
-            // existed for iptables; it just never covered the other two.
+            // ConnectivityManager and NetworkPolicyManager used to start their own monitoring here
+            // while the service was doing the same job, so every rule change ran two full passes over
+            // every UID from two separate backend instances - measured at ~16 s each on a real device,
+            // and the reason those instances raced over the shared policy record. The exclusion
+            // already existed for iptables; it just never covered the other two.
 
             // Start continuous backend health monitoring for privileged backends
             // Per FIREWALL.md lines 92-96: continuously monitor backend availability
@@ -926,49 +922,15 @@ class FirewallManager(
     }
 
     /**
-     * Start monitoring network and screen state changes.
-     * Used for iptables and NetworkPolicyManager backends (VPN backend monitors internally).
-     */
-    private fun startMonitoring() {
-        AppLogger.d(TAG, "Starting state monitoring for ${currentBackend?.getType()} backend")
-
-        monitoringJob?.cancel()
-        monitoringJob = scope.launch {
-            combine(
-                networkStateMonitor.observeNetworkType(),
-                screenStateMonitor.observeScreenState()
-            ) { networkType, screenOn ->
-                Pair(networkType, screenOn)
-            }.collect { (networkType, screenOn) ->
-                currentNetworkType = networkType
-                isScreenOn = screenOn
-
-                AppLogger.d(TAG, "State changed: network=$networkType, screenOn=$screenOn")
-
-                // Reapply rules with debouncing
-                scheduleRuleApplication()
-            }
-        }
-
-        // Also listen to rule changes from repository
-        ruleChangeMonitoringJob?.cancel()
-        ruleChangeMonitoringJob = scope.launch {
-            firewallRepository.getAllRules().collect { _ ->
-                AppLogger.d(TAG, "Rules changed in repository")
-                scheduleRuleApplication()
-            }
-        }
-    }
-
-    /**
-     * Stop monitoring.
+     * Cancel this manager's background jobs.
+     *
+     * There is no matching start: network, screen and rule-change monitoring for every privileged
+     * backend belongs to PrivilegedFirewallService, and the VPN backend monitors internally. This
+     * class used to duplicate that work on its own backend instance, which ran every rule change
+     * twice.
      */
     private fun stopMonitoring() {
         AppLogger.d(TAG, "Stopping state monitoring")
-        monitoringJob?.cancel()
-        monitoringJob = null
-        ruleChangeMonitoringJob?.cancel()
-        ruleChangeMonitoringJob = null
         ruleApplicationJob?.cancel()
         ruleApplicationJob = null
         healthMonitoringJob?.cancel()

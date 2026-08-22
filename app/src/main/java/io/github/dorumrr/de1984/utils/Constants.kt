@@ -169,6 +169,12 @@ object Constants {
         // Keys for original settings backup (stored in SharedPreferences)
         const val KEY_ORIGINAL_CAPTURED = "captive_portal_original_captured"
         const val KEY_ORIGINAL_MODE = "captive_portal_original_mode"
+        // Raw snapshots: the exact string the system held, or absent if the key was never set.
+        // KEY_ORIGINAL_MODE and KEY_ORIGINAL_USE_HTTPS cannot express "unset" - they are an Int and
+        // a Boolean, so an unset key was stored as a made-up default and later written back to the
+        // device, creating a setting it never had. Kept only to read backups made before this.
+        const val KEY_ORIGINAL_MODE_RAW = "captive_portal_original_mode_raw"
+        const val KEY_ORIGINAL_USE_HTTPS_RAW = "captive_portal_original_use_https_raw"
         const val KEY_ORIGINAL_HTTP_URL = "captive_portal_original_http_url"
         const val KEY_ORIGINAL_HTTPS_URL = "captive_portal_original_https_url"
         const val KEY_ORIGINAL_FALLBACK_URL = "captive_portal_original_fallback_url"

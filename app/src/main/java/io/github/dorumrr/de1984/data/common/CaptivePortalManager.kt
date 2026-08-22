@@ -84,34 +84,6 @@ class CaptivePortalManager(
     }
 
     /**
-     * Get the original settings that were captured.
-     */
-    fun getOriginalSettings(): CaptivePortalSettings? {
-        if (!hasOriginalSettings()) return null
-
-        return try {
-            val mode = prefs.getInt(Constants.CaptivePortal.KEY_ORIGINAL_MODE, Constants.CaptivePortal.DEFAULT_MODE)
-            val httpUrl = prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, null)
-            val httpsUrl = prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, null)
-            val fallbackUrl = prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, null)
-            val otherFallbackUrls = prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, null)
-            val useHttps = prefs.getBoolean(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS, true)
-
-            CaptivePortalSettings(
-                mode = CaptivePortalMode.fromValue(mode),
-                httpUrl = httpUrl,
-                httpsUrl = httpsUrl,
-                fallbackUrl = fallbackUrl,
-                otherFallbackUrls = otherFallbackUrls,
-                useHttps = useHttps
-            )
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to load original settings", e)
-            null
-        }
-    }
-
-    /**
      * Capture current system settings as "original" for later restoration.
      * This should be called the first time the user opens the Captive Portal settings.
      */
@@ -122,16 +94,29 @@ class CaptivePortalManager(
                 return@withContext Result.success(Unit)
             }
 
-            val currentSettings = getCurrentSettings().getOrThrow()
+            // Read the raw system values, not getCurrentSettings(). That helper substitutes a
+            // default for an unset key, and storing the substitute as the "original" meant restore
+            // would later write a setting the device never had. Verified on a device where
+            // captive_portal_mode was genuinely unset and the app had recorded it as 1.
+            val rawMode = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_MODE)
+            val rawHttpUrl = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL)
+            val rawHttpsUrl = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL)
+            val rawFallbackUrl = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_FALLBACK_URL)
+            val rawOtherFallbackUrls = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_OTHER_FALLBACK_URLS)
+            val rawUseHttps = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_USE_HTTPS)
+
+            AppLogger.d(TAG, "Capturing originals: mode=$rawMode, httpUrl=$rawHttpUrl, " +
+                    "httpsUrl=$rawHttpsUrl, fallbackUrl=$rawFallbackUrl, useHttps=$rawUseHttps " +
+                    "(null means the key is unset)")
 
             prefs.edit()
                 .putBoolean(Constants.CaptivePortal.KEY_ORIGINAL_CAPTURED, true)
-                .putInt(Constants.CaptivePortal.KEY_ORIGINAL_MODE, currentSettings.mode.value)
-                .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, currentSettings.httpUrl)
-                .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, currentSettings.httpsUrl)
-                .putString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, currentSettings.fallbackUrl)
-                .putString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, currentSettings.otherFallbackUrls)
-                .putBoolean(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS, currentSettings.useHttps)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW, rawMode)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, rawHttpUrl)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, rawHttpsUrl)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, rawFallbackUrl)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, rawOtherFallbackUrls)
+                .putString(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW, rawUseHttps)
                 .putString(Constants.CaptivePortal.KEY_ORIGINAL_DEVICE_MODEL, Build.MODEL)
                 .putInt(Constants.CaptivePortal.KEY_ORIGINAL_SDK_INT, Build.VERSION.SDK_INT)
                 .putString(Constants.CaptivePortal.KEY_ORIGINAL_ROM_NAME, Build.DISPLAY)
@@ -256,30 +241,45 @@ class CaptivePortalManager(
                 return@withContext Result.failure(Exception("Root or Shizuku access required"))
             }
 
-            val originalSettings = getOriginalSettings()
-                ?: return@withContext Result.failure(Exception("No original settings found. Cannot restore."))
+            if (!hasOriginalSettings()) {
+                return@withContext Result.failure(Exception("No original settings found. Cannot restore."))
+            }
 
             AppLogger.d(TAG, "Restoring original settings")
 
-            // Restore mode
-            val modeResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_MODE, originalSettings.mode.value.toString())
-            if (modeResult.first != 0) {
-                return@withContext Result.failure(Exception("Failed to restore mode: ${modeResult.second}"))
-            }
+            // All six keys, not three. The other three were captured into the backup but no code
+            // path ever wrote them, which made the backup look more complete than it was.
+            //
+            // A null recorded value means the key was unset when we captured it, so the key is
+            // deleted rather than written. Restore used to skip nulls entirely and always write the
+            // mode, so it left De1984's own URLs in place while reporting success, and created a
+            // captive_portal_mode on devices that never had one.
+            val toRestore = listOf(
+                Constants.CaptivePortal.SYSTEM_KEY_MODE to originalRawMode(),
+                Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, null),
+                Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, null),
+                Constants.CaptivePortal.SYSTEM_KEY_FALLBACK_URL to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_FALLBACK_URL, null),
+                Constants.CaptivePortal.SYSTEM_KEY_OTHER_FALLBACK_URLS to
+                        prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_OTHER_FALLBACK_URLS, null),
+                Constants.CaptivePortal.SYSTEM_KEY_USE_HTTPS to originalRawUseHttps()
+            )
 
-            // Restore HTTP URL
-            originalSettings.httpUrl?.let { url ->
-                val httpResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL, url)
-                if (httpResult.first != 0) {
-                    return@withContext Result.failure(Exception("Failed to restore HTTP URL: ${httpResult.second}"))
+            toRestore.forEach { (key, value) ->
+                val result = if (value == null) {
+                    AppLogger.d(TAG, "Restoring $key: was unset, deleting")
+                    deleteSystemSetting(key)
+                } else {
+                    AppLogger.d(TAG, "Restoring $key: $value")
+                    setSystemSetting(key, value)
                 }
-            }
 
-            // Restore HTTPS URL
-            originalSettings.httpsUrl?.let { url ->
-                val httpsResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL, url)
-                if (httpsResult.first != 0) {
-                    return@withContext Result.failure(Exception("Failed to restore HTTPS URL: ${httpsResult.second}"))
+                if (result.first != 0) {
+                    return@withContext Result.failure(
+                        Exception("Failed to restore $key: ${result.second}")
+                    )
                 }
             }
 
@@ -289,6 +289,33 @@ class CaptivePortalManager(
             AppLogger.e(TAG, "Failed to restore original settings", e)
             Result.failure(Exception("Failed to restore original settings: ${e.message}"))
         }
+    }
+
+    /**
+     * The captured `captive_portal_mode`, or null if the key was unset when captured.
+     *
+     * Backups written before the raw keys existed stored an Int, which could not express "unset".
+     * Those are read verbatim, which is exactly what the old restore would have written, so nothing
+     * gets worse for a backup that already exists.
+     */
+    private fun originalRawMode(): String? {
+        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW)) {
+            return prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW, null)
+        }
+        if (!prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE)) return null
+        return prefs.getInt(
+            Constants.CaptivePortal.KEY_ORIGINAL_MODE,
+            Constants.CaptivePortal.DEFAULT_MODE
+        ).toString()
+    }
+
+    /** As [originalRawMode], for `captive_portal_use_https`. */
+    private fun originalRawUseHttps(): String? {
+        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW)) {
+            return prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW, null)
+        }
+        if (!prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS)) return null
+        return if (prefs.getBoolean(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS, true)) "1" else "0"
     }
 
     /**
@@ -386,6 +413,27 @@ class CaptivePortalManager(
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to set system setting: $key", e)
+            Pair(-1, e.message ?: "Unknown error")
+        }
+    }
+
+    /**
+     * Remove a system setting, so the framework falls back to its own built-in value.
+     *
+     * Restore needs this: a key that was unset when captured must be put back to unset, not written
+     * with a substitute. Requires root or Shizuku.
+     */
+    private suspend fun deleteSystemSetting(key: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val command = "settings delete global $key"
+
+            when {
+                rootManager.hasRootPermission -> rootManager.executeRootCommand(command)
+                shizukuManager.hasShizukuPermission -> shizukuManager.executeShellCommand(command)
+                else -> Pair(-1, "No root or Shizuku access")
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to delete system setting: $key", e)
             Pair(-1, e.message ?: "Unknown error")
         }
     }
