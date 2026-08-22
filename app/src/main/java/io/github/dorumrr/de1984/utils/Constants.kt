@@ -173,6 +173,10 @@ object Constants {
         // KEY_ORIGINAL_MODE and KEY_ORIGINAL_USE_HTTPS cannot express "unset" - they are an Int and
         // a Boolean, so an unset key was stored as a made-up default and later written back to the
         // device, creating a setting it never had. Kept only to read backups made before this.
+        // Marks a backup written in the raw format. Presence of the raw value keys cannot be
+        // used for this: storing null removes the key, so a correct fresh capture on a device
+        // where mode and use_https are unset looks exactly like a pre-raw backup.
+        const val KEY_ORIGINAL_RAW_FORMAT = "captive_portal_original_raw_format"
         const val KEY_ORIGINAL_MODE_RAW = "captive_portal_original_mode_raw"
         const val KEY_ORIGINAL_USE_HTTPS_RAW = "captive_portal_original_use_https_raw"
         const val KEY_ORIGINAL_HTTP_URL = "captive_portal_original_http_url"

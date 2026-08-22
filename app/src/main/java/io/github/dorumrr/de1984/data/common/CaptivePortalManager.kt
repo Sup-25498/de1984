@@ -125,6 +125,7 @@ class CaptivePortalManager(
 
             prefs.edit()
                 .putBoolean(Constants.CaptivePortal.KEY_ORIGINAL_CAPTURED, true)
+                .putInt(Constants.CaptivePortal.KEY_ORIGINAL_RAW_FORMAT, 1)
                 .putString(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW, rawMode)
                 .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTP_URL, rawHttpUrl)
                 .putString(Constants.CaptivePortal.KEY_ORIGINAL_HTTPS_URL, rawHttpsUrl)
@@ -274,8 +275,12 @@ class CaptivePortalManager(
             // them now would push `captive_portal_use_https=0` onto a device that never had the key
             // and turn off the HTTPS portal probe. Legacy backups therefore restore exactly the
             // three keys the old code did.
-            val isLegacyBackup = !prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW) &&
-                    !prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW)
+            // Keyed on an explicit marker, not on whether the raw keys are present. SharedPreferences
+            // REMOVES a key when the stored value is null, so a correct fresh capture on a device
+            // where mode and use_https are both unset leaves neither raw key behind and would be
+            // misread as a pre-raw backup. Verified on hardware: a fresh capture produced exactly
+            // that shape.
+            val isLegacyBackup = !prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_RAW_FORMAT)
             if (isLegacyBackup) {
                 AppLogger.d(TAG, "Legacy backup - restoring mode, HTTP and HTTPS URL only")
             }
@@ -329,7 +334,7 @@ class CaptivePortalManager(
      * `isLegacyBackup` in [restoreOriginalSettings].
      */
     private fun originalRawMode(): String? {
-        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW)) {
+        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_RAW_FORMAT)) {
             return prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_MODE_RAW, null)
         }
         if (!prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_MODE)) return null
@@ -341,7 +346,7 @@ class CaptivePortalManager(
 
     /** As [originalRawMode], for `captive_portal_use_https`. */
     private fun originalRawUseHttps(): String? {
-        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW)) {
+        if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_RAW_FORMAT)) {
             return prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW, null)
         }
         if (!prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS)) return null

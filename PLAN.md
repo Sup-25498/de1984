@@ -1789,6 +1789,60 @@ The branch is four lines and has been reviewed, but it is **reasoned, not proven
 
 ---
 
+# P0-6 CLOSED END TO END ON HARDWARE — 2026-08-22
+
+Full round trip on the physical device, driven by a real user action rather than a staged one.
+
+**1. Capture**, with the format marker added minutes earlier:
+```
+captive_portal_original_raw_format = 1
+captive_portal_original_http_url   = http://cp.cloudflare.com
+captive_portal_original_https_url  = https://cp.cloudflare.com
+captive_portal_original_mode_raw       ABSENT
+captive_portal_original_use_https_raw  ABSENT
+captive_portal_original_fallback_url   ABSENT
+```
+Device truth at that moment: `mode`, `fallback_url`, `other_fallback_urls` and `use_https` all `null`,
+the two URLs Cloudflare. The capture matched it exactly. The old code recorded `mode=1` and
+`use_https=false`, both invented.
+
+**2. Doru applied the GrapheneOS preset.** Only the two URL keys changed; `captive_portal_mode` stayed
+`null`, confirming `applyPreset` does not create keys either.
+
+**3. Restore Original:**
+```
+Restoring captive_portal_mode: was unset, deleting
+Restoring captive_portal_http_url: http://cp.cloudflare.com
+Restoring captive_portal_https_url: https://cp.cloudflare.com
+Restoring captive_portal_fallback_url: was unset, deleting
+Restoring captive_portal_other_fallback_urls: was unset, deleting
+Restoring captive_portal_use_https: was unset, deleting
+Original settings restored successfully
+```
+Device afterwards is byte-identical to before the preset was applied, `captive_portal_mode` still
+`null`. **The old code would have created `captive_portal_mode=1` at this point** - a setting the
+device has never had - and would never have touched the other three keys at all.
+
+All three fixed defects are proven by this single run: no fabricated values, deletion of keys that were
+unset, and all six keys covered instead of three.
+
+## Also fixed during this test — legacy detection was wrong
+`isLegacyBackup` inferred the backup format from whether the raw keys were present. SharedPreferences
+**removes** a key when the stored value is null, so a correct fresh capture on a device where `mode` and
+`use_https` are both unset leaves neither raw key behind and was misread as a pre-raw backup - which
+would have skipped three keys on restore. Harmless on this device, wrong on a device where
+`fallback_url` was set.
+
+Found by running the test, not by reading. Fixed with an explicit
+`KEY_ORIGINAL_RAW_FORMAT` marker written at capture time.
+
+## Settled: Cloudflare was the ROM default, not a De1984 change
+The capture ran before any preset was applied and recorded Cloudflare, and this is a LineageOS-family
+build, which defaults to `cp.cloudflare.com`. So the earlier worry that the true original might already
+have been lost does not apply to this device.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.
