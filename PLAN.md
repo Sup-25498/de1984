@@ -69,10 +69,27 @@ reconciles pref against disk. `data/common/BootProtectionManager.kt:46`
 redirect (`:135`), never reads the file back, and on `chmod` failure returns failure **without deleting
 the file** (`:147-154`). Pref stays false, UI shows OFF, script sits on disk.
 
-**NEEDS-RUNTIME:** does `netd` flush `OUTPUT` later in boot? `post-fs-data` runs before `netd`. If netd
-rebuilds the filter table without `--noflush`, the chain is destroyed early — protection is largely
-inert AND the lockout never happens. Nothing in the repo settles this. **This single test decides how
-severe P0-1 really is.**
+**RESOLVED ON HARDWARE 2026-08-22 — the chain SURVIVES `netd`.**
+Tested on TrebleDroid GSI / LineageOS 21 / Android 14 / userdebug / Magisk root, using a harmless probe
+that mirrors the real script exactly (create chain -> add rule -> `-I OUTPUT`) but with `RETURN` instead
+of `DROP`, so nothing was blocked. After a full reboot:
+
+```
+-P OUTPUT ACCEPT
+-A OUTPUT -j de1984_probe      <- survived, and it is FIRST
+-A OUTPUT -j oem_out
+-A OUTPUT -j fw_OUTPUT
+-A OUTPUT -j st_OUTPUT
+-A OUTPUT -j bw_OUTPUT
+```
+
+Identical on `ip6tables`. Two consequences:
+1. `netd` does not flush the chain or its OUTPUT jump. **There is no self-healing.**
+2. The jump sits ahead of Android's own `oem_out` / `fw_OUTPUT` / `st_OUTPUT` / `bw_OUTPUT`, so with
+   `DROP` every non-exempt app's traffic dies before Android's rules are consulted.
+
+**Every scenario in the table above therefore stands.** This was the one open question that could have
+reduced the severity; it did not. Part A of the fix is required, not optional.
 
 **Manual recovery (root + PC required):**
 ```
@@ -87,7 +104,7 @@ done
 reboot
 ```
 
-## P0-1 DECIDED FIX DIRECTION (Doru, 2026-08-22)
+## P0-1 Boot protection — DECIDED FIX DIRECTION (Doru, 2026-08-22)
 
 **Chosen: self-healing script AND forced reboot on both toggles.**
 Rationale given: maximum certainty that on-disk state and live state always agree.
@@ -116,19 +133,60 @@ Trade-off accepted knowingly: users lose unsaved work, calls and downloads on ev
 10. **Stop returning success when nothing ran.** `resetIptablesPolicies()` must branch on exit codes and
     on the no-privilege `(-1, ...)` case.
 
-### Part B — forced reboot on both toggles (decided)
-- **Enable:** write script → read back and verify content → `chmod 755` → verify → then reboot.
-- **Disable:** `rm -f` script → verify gone → remove the live chain → then reboot.
-- Reboot via root, which is always present when this feature is available: `su -c "svc power reboot"`.
-- Never reboot if the preceding step failed. A failed write must not be followed by a reboot.
+### Part B — forced reboot on both toggles (SETTLED, reaffirmed 2026-08-22 after hardware testing)
 
-### Sub-decisions still open (to settle before implementing Part B)
-- Does the user get a confirm dialog before the reboot, or is it truly immediate?
-- If a confirm is shown and the user cancels, does the toggle revert (keeping disk and live state in
-  agreement), or does the change stand and apply at the next natural reboot?
-- What happens on the recovery action in scenario 5, where root exists but the switch is greyed out —
-  does that path also reboot?
-- Should Part A alone ship first, so devices already in the field self-heal before Part B lands?
+**Doru's rule: "You start it, confirm it, reboot. You stop it, confirm it, reboot."**
+Always. No "reboot later" option, no optional offer. This is a decision, not a preference to revisit.
+
+**Reboot is AUTOMATIC and IMMEDIATE on confirm (clarified 2026-08-22).** The existing warning dialog's
+Continue button is the ONLY gate. After it, on success, the device reboots straight away:
+- no second confirmation dialog
+- no "Reboot now?" prompt
+- no countdown, no delay, no snackbar to wait on
+The only thing that stops a reboot is a FAILED apply step (see below) — that is an error path, not a
+confirmation.
+
+Backed by hardware: turning boot protection OFF removed the script but left the live chain dropping
+traffic (335 -> 620 packets during the test). Only a reboot recovered the device.
+
+#### ENABLE flow
+1. User flips the switch ON.
+2. Warning dialog appears. **It must state that the device will reboot immediately.**
+3. User taps Continue.
+4. Write the script -> **read it back and verify the content** -> `chmod 755` -> verify.
+5. **If any step failed: revert the switch, show the error, and DO NOT REBOOT.**
+6. Save the pref only after success.
+7. **Reboot immediately** — `su -c "svc power reboot"`. Root is always present when this feature is
+   available. No further user interaction.
+
+#### DISABLE flow
+1. User flips the switch OFF.
+2. Warning dialog appears. **It must state that the device will reboot immediately.**
+3. User taps Continue.
+4. `rm -f` the script -> verify it is gone.
+5. **Also call `resetIptablesPolicies()`** — belt and braces. If the reboot never happens (user pulls
+   the battery, reboot command fails), the device still recovers. Consistent with the
+   maximum-certainty intent, not a substitute for the reboot.
+6. If script removal failed: revert the switch, show the error, DO NOT REBOOT.
+7. Save the pref only after success.
+8. **Reboot immediately** — same call, no further user interaction.
+
+#### Prerequisites — Part B is UNSAFE until these land
+- **Fix the dialog dismiss bug** (`ui/common/StandardDialog.kt` needs `setOnCancelListener`). Today a
+  dismissed dialog leaves the switch showing the new state with nothing applied and no reboot. Observed
+  live on this exact switch. Without this fix, Part B makes the lie worse, not better.
+- **`resetIptablesPolicies()` must stop returning success when nothing ran.** It currently returns
+  `Result.success` even with no privilege and zero commands executed.
+- **The dialog must be readable.** The enable warning is already truncated on a 480px screen; adding a
+  reboot announcement makes that worse. Fix the truncation before adding text.
+
+#### Sub-decisions still open
+- Scenario 5 — root lost, switch force-disabled. A recovery action is needed there regardless. Does
+  that path also reboot? (Leaning yes, for consistency with the rule above.)
+- Should Part A ship on its own first, so devices already carrying the script in the field self-heal
+  before Part B lands? Part B only helps users who touch the toggle again.
+- Micro-detail: is a brief "Rebooting..." toast wanted, or does that count as a delay? Current reading
+  of the rule is NO delay of any kind — the screen simply goes.
 
 
 ## P0-2 NetworkPolicyManager blocks survive stop, reboot AND uninstall — VERIFIED
@@ -399,10 +457,434 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 
 1. ~~Should boot protection stay at all, and under what safety contract?~~ **SETTLED 2026-08-22:**
    it stays, with a self-healing script plus a forced reboot on both toggles. See
-   "P0-1 DECIDED FIX DIRECTION". Four sub-decisions remain open there.
+   "P0-1 Boot protection — DECIDED FIX DIRECTION". Four sub-decisions remain open there.
 2. Is work/clone profile a supported dimension, or best-effort?
 3. What should "Block All" mean — wifi+mobile, or a true lockdown including LAN, roaming and screen-off?
 4. Should controls the active backend cannot enforce be hidden, or shown with an explanation?
 5. Should rules be portable across devices? (Backups store the uid captured at export time.)
 6. Should the captive-portal controller stay, given P0-5 and P0-6?
 7. Tests + CI before the next feature?
+
+---
+
+# P7 — Medium findings, adversarially verified (2026-08-22)
+
+The first pass produced 117 medium findings with **no verification**. 111 were distinct. I sent 11
+skeptics at them, each told to assume the claim was wrong, read the whole surrounding function, look
+for other code that already handles the case, and default to REFUTED when uncertain.
+
+**111/111 verdicts returned.** Result: 45 CONFIRMED · 48 PARTIAL · 16 REFUTED · 2 NEEDS-RUNTIME.
+Re-judged severity: 4 high · 21 medium · 72 low · 14 not-a-defect.
+
+**30 of 111 (27%) were dropped** as refuted or not-a-defect. 72 more were downgraded to low (real but
+no meaningful user impact). **25 survived as worth acting on.** The unverified count was not trustworthy.
+
+## Escalated to P1 — these were mislabelled medium
+
+| ID | User impact | Where | Verdict |
+|---|---|---|---|
+| M107 NetworkPolicyManager currentBackend regression | Shizuku user on the NetworkPolicyManager backend restarts the app: turning the firewall off no longer stops it (cleanupAllBackends only clears iptables), so apps stay blocked. | `data/firewall/FirewallManager.kt:229` | CONFIRMED |
+| M049 backends report success on failed rules | An app the user blocked keeps full network access while the UI shows the rule applied and no error is raised; on iptables it stays unblocked until the backend restarts. | `data/firewall/IptablesFirewallBackend.kt:733` | CONFIRMED |
+| M040 PrivilegedFirewallService not idempotent | Switching between two privileged backends leaves the old iptables chains or netpolicy uid rules installed, and the later stop tears down the new backend instead, leaving stale blocks. | `data/service/PrivilegedFirewallService.kt:283` | CONFIRMED |
+| M077 backup restore uses stale uid | Restoring a backup on another device (or after reinstalls) can block the wrong apps and leave intended apps unblocked on the root/Shizuku backends, silently. | `presentation/viewmodel/SettingsViewModel.kt:690` | CONFIRMED |
+
+**P1-28 M107 NetworkPolicyManager currentBackend regression** is datable. `git log -L 226,232` shows
+commit `4c6171c` ("Add Quick Settings Tile and Home Screen Widget") changed `currentBackend = npmBackend`
+into a bare `currentBackend` while inserting `emitStateChangeBroadcast` on the line below. A hand-edit
+slip during an unrelated feature. Kotlin only warns (UNUSED_EXPRESSION), so nothing caught it.
+
+**P1-29 M049 backends report success on failed rules** is worse than first described. In
+`data/firewall/IptablesFirewallBackend.kt:733-741` a non-zero exit is logged and deliberately ignored —
+the comment says failed *deletes* are fine — but `blockedUids` is then updated **unconditionally**. A
+failed DROP is recorded as applied and never retried. The intent was right; the granularity was wrong.
+
+## Surviving medium findings (21)
+
+| ID | User impact | Where | Verdict |
+|---|---|---|---|
+| M091 dev.sh emulator wait overruns its timeout | Emulator wait can hang ~9 minutes despite a stated 3-minute timeout while spamming a false 'Emulator is ready!' line. | `dev.sh:232-251` | CONFIRMED |
+| M001 init races the start/stop lock | On startup, widget/tile/boot paths racing the 5-attempt init loop can leave the manager pointing at a replaced backend, so state shown and stopped is the wrong one. | `data/firewall/FirewallManager.kt:188` | CONFIRMED |
+| M002 early-exit leaves stale down-state | Reachable via handleVpnConflictFallbackFailed (:2029), which nulls _activeBackendType but keeps currentBackend: a later start leaves UI showing no backend while firewall runs. | `data/firewall/FirewallManager.kt:423-425 and :445-463` | PARTIAL |
+| M006 firewall list adapter rebuilt on every settings emit | Any settings-state change while the firewall list is visible jumps the list back to the top and reloads every visible icon from disk. | `ui/firewall/FirewallFragmentViews.kt:496` | CONFIRMED |
+| M013 multi-select aggregates a partial subset | With a state filter or search active, the multi-select toggle can show a uniform state derived from part of the selection; the next tap applies to all selected apps. | `ui/firewall/FirewallFragmentViews.kt:1713-1716` | CONFIRMED |
+| M031 package load caches empty results | A transient enumeration failure shows the empty-list state with no error, and new subscribers within the 1s TTL get the cached empty list instead of retrying. | `data/datasource/AndroidPackageDataSource.kt:281-283` | PARTIAL |
+| M039 onLost reports NONE and over-blocks | After a WiFi-to-cellular handoff, apps blocked on only one transport are blocked on both until the next capability callback re-emits the real type. | `data/monitor/NetworkStateMonitor.kt:179-181` | CONFIRMED |
+| M014 one-shot dialogs never cleared | Dismissing the import-preview dialog by tapping outside makes it pop up again every time the user returns to Settings, until Confirm/Cancel is pressed. | `ui/settings/SettingsFragmentViews.kt:556` | CONFIRMED |
+| M094 CM backend does react to network changes | A granular rule left from VPN/iptables makes an app blocked on every network while on WiFi and fully allowed on mobile data, contradicting the documented all-or-nothing behaviour. | `data/firewall/ConnectivityManagerFirewallBackend.kt:266` | CONFIRMED |
+| M111 CM OEM_DENY_3 toggled without capturing prior state | Uninstalling or force-stopping De1984 while the CM backend is active leaves blocked apps with no network until reboot; disabling chain3 could also clobber an OEM's own use of it. | `data/firewall/ConnectivityManagerFirewallBackend.kt:149` | PARTIAL |
+| M099 widget/tile ignores sticky manual mode | Widget/tile start ignores a manually chosen VPN mode and uses a different backend; a failed start still records firewall_enabled=true, so boot restore thinks it was running. | `data/receiver/FirewallToggleReceiver.kt:90` | CONFIRMED |
+| M047 superuser banner matches English text only | In any non-English locale, a firewall block/allow that fails for lack of root shows only a raw error line, never the superuser banner telling the user to grant root/Shizuku. | `app/src/main/res/values-ru/strings.xml:753` | CONFIRMED |
+| M100 boot-protection UI trusts the pref not the disk | After an app-data wipe or external script deletion the switch shows a state that does not match /data/adb/post-fs-data.d; user cannot tell or clear it from the UI. | `presentation/viewmodel/SettingsViewModel.kt:91` | CONFIRMED |
+| M076 bulk allow-all leaves roaming blocked | After switching the default policy to Allow All, apps that had roaming blocked stay blocked while roaming; the roaming toggle still reads ON. | `data/database/dao/FirewallRuleDao.kt:95` | CONFIRMED |
+| M024 Packages list mixes languages | On a translated device the Packages list mixes languages: translated chips beside English Enabled/Disabled/Uninstalled badges, English empty state and English toasts. | `ui/packages/PackageAdapter.kt:235` | CONFIRMED |
+| M050 work-profile VPN apps never detected as exempt | A VPN app installed only in the work profile is not recognised as a VPN, so Block All mode blocks it and work-profile VPN connectivity breaks. | `data/firewall/IptablesFirewallBackend.kt:874` | CONFIRMED |
+| M027 work-profile enabled-state defaults to true without root | On Shizuku-only (unrooted) devices every work-profile app is shown as Enabled, and the detail sheet offers Disable for apps that are already disabled. | `data/multiuser/HiddenApiHelper.kt:574` | CONFIRMED |
+| M055 stale Shizuku granted state | If Shizuku revocation does not kill the process, Settings keeps showing Granted and privileged actions fail until the app is restarted. | `data/common/ShizukuManager.kt:163` | NEEDS-RUNTIME |
+| M098 VPN tunnel is IPv4 only | On an IPv6-capable network a blocked app may still reach the internet over IPv6 while the UI shows it as blocked. | `data/service/FirewallVpnService.kt:621` | NEEDS-RUNTIME |
+| M072 reinstalled app silently reuses its old rule | Reinstalled app is silently blocked by an old rule; in iptables/NPM modes the stale uid never matches, so the UI shows Blocked while traffic is not blocked. | `domain/usecase/HandleNewAppInstallUseCase.kt:70-73` | CONFIRMED |
+| M108 stop result discarded, OFF persisted before the stop | If the stop fails, prefs, widget and toggle all show OFF while backend rules may remain, with no error shown to the user. | `presentation/viewmodel/FirewallViewModel.kt:650-655` | CONFIRMED |
+
+Full verdicts, including the 72 downgraded and the 30 dropped, are in
+`/private/tmp/claude-501/-Users-doru-dev-phi-de1984/fdaaee55-3651-40f7-8e98-1a7463e5d26f/scratchpad/verdicts.json`.
+That path is session-scoped; ask me to re-export if it matters later.
+
+---
+
+# HARDWARE VERIFICATION — 2026-08-22
+
+Device: TrebleDroid vanilla GSI, LineageOS 21.0, **Android 14 / API 34**, `userdebug`, **Magisk root**,
+work profile present (user 10), **no Shizuku**. De1984 debug build updated to **v2.6.2 (code 33)** via
+`./dev.sh update` (data preserved).
+
+Measurement instrument: **iptables packet counters**. Per-uid synthetic probes (`su <uid> -c curl`) do
+NOT work on Android — `ip rule` routes apps by an fwmark that netd assigns per app, and a raw `su`
+process has none. Counters measure real app traffic instead.
+
+## CONFIRMED ON HARDWARE
+
+### P0-1 Boot protection — every claim proven
+
+**(a) The chain survives `netd`.** A harmless probe (same structure, `RETURN` instead of `DROP`)
+installed in `post-fs-data.d` survived a full reboot on both iptables and ip6tables, and sat **first in
+OUTPUT**, ahead of `oem_out` / `fw_OUTPUT` / `st_OUTPUT` / `bw_OUTPUT`. There is no self-healing.
+
+**(b) Scenario 1 reproduced end to end.** Firewall OFF + boot protection ON + reboot. The app's own log:
+```
+BootWorker: Firewall was enabled before boot: false
+BootWorker: FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot
+```
+That is `data/worker/BootWorker.kt:48-51` returning before the reset at `:97`. Counters on the live
+`de1984_boot` DROP rule climbed **212 -> 246 -> 261 -> 335 -> 609 -> 620 packets** over a few minutes.
+Real app traffic, really dropped, on every boot, with no in-app way out. WiFi still shows connected
+(uid 1010 is exempt) so the phone *looks* healthy.
+
+**(c) Disabling boot protection does NOT unblock the running device.** Turning the setting off removed
+the script from disk but left the live chain in OUTPUT, still dropping (335 -> 620 during the test).
+The disable dialog does say "this change will take effect on your next reboot" — the messaging is
+honest, the behaviour is not. Confirms the need for Part B, or at minimum a `resetIptablesPolicies()`
+call on the disable path.
+
+**(d) Script write integrity — DOWNGRADE.** The `echo`-redirect write produced a correct 42-line,
+1599-byte, `-rwxr-xr-x root root` script. The partial-write risk is theoretical on this device, not
+observed. Keep the readback fix, lower its priority.
+
+**(e) The enable dialog truncates the recovery instructions.** On a 480px-wide screen the message is cut
+at "2. If that doesn't work, use ADB:" — the actual commands are below the fold with no scroll cue.
+Recovery option 1 is the one proven unreachable when root is lost. So at the moment of accepting the
+risk the user can only see the route that does not work. `res/values/strings.xml:773`.
+
+### P0-2 NetworkPolicyManager orphan policies — proven, no root needed
+Applied a uid policy the way the NPM backend does. `/data/system/netpolicy.xml` grew 788 -> 808 bytes
+immediately. Policy survived **a reboot**, then survived **removing the app entirely**. Nothing in
+Android cleans it up and no Android UI exposes it. Only Shizuku is required to reach this state.
+
+### P0-4 Exported widget receiver — proven
+An external broadcast flipped the persisted `firewall_enabled` pref, false -> true and back to false.
+`dumpsys` confirms **no permission** on the receiver. Nuance: the *implicit* form is ignored (Android 8+
+implicit-broadcast restrictions), so an attacker must name the component explicitly — which is public in
+an open-source app. Any installed app, zero permissions.
+
+### P0-5 Captive portal command injection — proven
+Fed the exact command shape a crafted URL `http://x.com$(touch /data/local/tmp/INJECTED)`. Result:
+`-rw-r--r-- 1 root root ... /data/local/tmp/INJECTED`. Executed **as root**. The stored setting reads
+back as plain `http://x.com`, so the injection leaves no trace in the UI. `isValidUrl` passes it.
+
+### P0-6 Captive portal orphan state — proven from live device values
+| Setting | Real system value on device | What De1984 stored as "original" |
+|---|---|---|
+| `captive_portal_mode` | **unset (null)** | **1** |
+| `captive_portal_use_https` | **unset (null)** | **false** |
+
+`getSystemSetting` returns null for an unset key, and capture stores a fabricated default instead.
+`restoreOriginalSettings` writes mode **unconditionally**, so "restore" would create a setting the
+device never had.
+
+**NEW — only 3 of the 6 captive-portal keys are ever written.** `SYSTEM_KEY_FALLBACK_URL`,
+`SYSTEM_KEY_OTHER_FALLBACK_URLS` and `SYSTEM_KEY_USE_HTTPS` are captured into the backup but **no code
+path writes them** — not apply, not restore, not reset. The backup looks more complete than it is.
+
+**NEW — `resetToDefaults` writes Google's `connectivitycheck.gstatic.com`.** On this LineageOS device
+the real default is Cloudflare. "Reset to defaults" silently moves a privacy-focused user onto Google,
+inside a privacy app. `data/common/CaptivePortalManager.kt:302-314`.
+
+### NEW P1 — every confirmation dialog can be dismissed without reverting
+`ui/common/StandardDialog.kt:36-66` builds with `cancelable = true` but wires the cancel callback only
+to `setNegativeButton`. There is **no `setOnCancelListener`**, and `showConfirmation` never passes the
+`onDismiss` hook that exists at `:62`. Tapping outside or pressing Back dismisses without running the
+revert.
+
+Observed live: the boot-protection switch showed **ON** while nothing had been written and the pref key
+did not exist. Log shows the enable dialog displayed with neither "User confirmed" nor "User cancelled"
+following it. **This affects every caller of `showConfirmation`, including the destructive package
+dialogs.** Needs a sweep.
+
+### Multi-profile uid confirmed
+The same app is uid **10275** in the personal profile and **1010275** in the work profile
+(`userId * 100000 + appId`). Any code keying on package name alone, or on a `hashCode()`-fabricated uid,
+targets the wrong app. Supports P1-11 and M050.
+
+## NARROWED
+
+**M098 VPN IPv6 leak — scope reduced.** On the **iptables** backend IPv6 is correctly blocked: the live
+chain carried a v6 catch-all DROP plus `fc00::/7` and `fe80::/10` for the blocked uid. The device has
+real global IPv6 (`2a02:c7c:...`). The leak claim applies **only to the VPN backend**, which still needs
+its own test.
+
+## STILL UNTESTED ON HARDWARE
+- P0-3 deadlock in `handleBackendFailure` (needs root revoked mid-session)
+- M098 IPv6 leak on the **VPN** backend specifically
+- P1-28 M107 NetworkPolicyManager `currentBackend` regression (needs Shizuku installed)
+- Work-profile behaviour with apps actually present in user 10
+- M055 stale Shizuku granted state (needs Shizuku)
+
+---
+
+# IMPLEMENTED — 2026-08-22 (Part B only)
+
+**Committed by: nobody yet.** Changes are in the working tree, uncommitted, on `main`.
+
+## What changed (4 files, minimal)
+
+| File | Change |
+|---|---|
+| `ui/common/StandardDialog.kt` | Added `setOnCancelListener` in `show()` so dismissing by outside-tap or Back runs the caller's cancel callback. Guarded on `cancelable && onNegativeClick != null`. Button presses are unaffected (`setOnCancelListener` does not fire for those). |
+| `data/common/BootProtectionManager.kt` | `createBootScript()` now reads the script back and compares it to what was written, removing it and failing on mismatch; a failed `chmod` now deletes the orphan instead of leaving it. `deleteBootScript()` now verifies the file is gone via `isBootProtectionEnabled()` and then calls `resetIptablesPolicies()`. New `rebootDevice()` running `svc power reboot`. |
+| `presentation/viewmodel/SettingsViewModel.kt` | `setBootProtection()` saves the pref then reboots immediately on success. On failure it sets an error and does not reboot; the switch reverts on its own because `updateUI()` re-reads `state.bootProtection`. |
+| `res/values/strings.xml` | Both warning messages now open with the restart notice so it clears the fold. New `boot_protection_reboot_failed`. Recovery option 1 no longer says "-> Reboot" since the app now does it. |
+
+Side effect, deliberate and checked: routing dismiss to cancel also repairs 6 other call sites — the
+backend dropdown revert, both critical-package switches, and two `clearImportPreview()` calls (which is
+finding M014). Every `onCancel` in the tree is a revert, a log, or `clearImportPreview()`; none have
+side effects, and `PackagesFragmentViews` / `MainActivity` pass none at all.
+
+## Verified on hardware (TrebleDroid GSI, Android 14, Magisk root)
+
+- **Dismiss fix**: tapping outside the enable dialog now reverts the switch to OFF. Before the change
+  it stayed showing ON with nothing applied.
+- **Enable -> reboot**: confirmed, device restarted immediately.
+- **Boot with firewall ON**: script installed the chain, firewall came up on iptables, and the chain was
+  removed cleanly (`Unlinked / Flushed / Deleted`, all exit 0, both v4 and v6).
+- **Disable -> teardown -> reboot** on a device already blocked (334 packets dropped): full trace
+  completed in **414 ms** from confirm to reboot. Script removed, deletion verified, chain torn down on
+  v4 and v6, device came back with `HTTP=204`.
+- `isBootProtectionEnabled()` now has a real caller and is doing real work.
+
+## NOT fixed by this change
+
+**P0-1 Boot protection scenario 1 is still live.** Firewall OFF + boot protection ON + reboot still
+leaves the device blocked with no in-app recovery. Reproduced on this build:
+`BootWorker: FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot`, 334 packets dropped.
+That is **Part A**, which has not been implemented.
+
+## NEW finding from this session — the lock screen makes P0-1 Boot protection worse
+
+Observed with the device at `RUNNING_LOCKED`, never unlocked since boot:
+- `de1984_boot` chain live and dropping (60 -> 96 packets)
+- `BootWorker` had **not run at all** — zero log entries
+
+The boot script runs at `post-fs-data`, before decryption. The app's recovery runs on `BOOT_COMPLETED`,
+which on an encrypted device fires only **after the user unlocks**. So the block starts at boot and the
+fix cannot begin until someone enters a PIN. A phone that reboots overnight has no app network until
+morning; a user who cannot unlock never recovers at all.
+
+`BootReceiver` is `directBootAware="true"` and does listen for `LOCKED_BOOT_COMPLETED`, but it
+immediately reads credential-encrypted SharedPreferences that do not exist before unlock, so that path
+can only fail silently. Earlier tests hid this because the device had already been unlocked — the log
+line even reads "BOOT_COMPLETED (after user unlock)".
+
+**This is the strongest argument yet for Part A:** a self-healing script is the only mechanism that can
+recover a locked device, because it runs in the same early stage that caused the problem.
+
+## SHIP BLOCKER — translations are stale
+
+| Locale | enable msg | disable msg | `boot_protection_reboot_failed` |
+|---|---|---|---|
+| `values` (en) | updated | updated | present |
+| ro, pt, zh, it, fr, ru | **old text** | **old text** | **missing** |
+
+A non-English user taps Continue and the device reboots **with no warning**, because their translated
+string still says nothing about restarting. On a safety feature that is a bad surprise. Must be fixed
+before release. Decide whether to hand-translate one sentence per locale or have them done properly.
+
+Also now unused: `boot_protection_enabled_success` and `boot_protection_disabled_success` (0 references)
+in all 7 locales — the device reboots before either could be shown.
+
+## Still untested for regressions
+The `StandardDialog` change touches 20 call sites. Compile passes and the boot-protection dialog was
+verified by hand. The other switch dialogs (both critical-package toggles, the backend dropdown) and the
+package-management dialogs have NOT been re-tested.
+
+---
+
+# PART A IMPLEMENTED AND TESTED — 2026-08-22
+
+Uncommitted, on `main`. Together with Part B this closes **P0-1 Boot protection**.
+
+## What changed
+
+| File | Change |
+|---|---|
+| `utils/Constants.kt` | New `SELF_HEAL_TIMEOUT_SECONDS = 120`, and `DE_DATA_DIR_RELEASE` / `DE_DATA_DIR_DEBUG` pointing at `/data/user_de/0/...` (device-encrypted, readable before unlock). |
+| `data/common/BootProtectionManager.kt` | Boot script now (a) deletes itself and exits if neither De1984 package dir exists, (b) guards the OUTPUT jump with `-C` so a re-run cannot stack a second jump, (c) backgrounds a subshell that lifts the block after the timeout. New `clearBootBlockIfInstalled()` which wakes root first, refuses rather than lying when it has no privilege, and tears the chain down when the script is present. |
+| `data/worker/BootWorker.kt` | Calls `clearBootBlockIfInstalled()` **before** the `wasEnabled` check, so the block is lifted regardless of firewall state or start outcome. |
+| `data/receiver/BootReceiver.kt` | Same lift added to the firewall-not-enabled branch and to the `onFailure` path. |
+
+## Verified on hardware
+
+**A1 self-expiry — WORKS.** The backgrounded subshell survives Magisk `post-fs-data` (observed as
+PID 989, reparented to init). Timeline watched live:
+```
+t+20s  subshell alive (01:38)   -A OUTPUT -j de1984_boot
+t+40s  subshell alive (01:58)   -A OUTPUT -j de1984_boot
+t+60s  subshell GONE            -A OUTPUT -j oem_out      <- block lifted itself
+```
+**The device self-heals with no app involvement.** This is the only mechanism that can rescue a locked
+device or one where De1984 is gone, because it runs in the same early stage that caused the problem.
+
+**A3 early lift — WORKS, after fixing a bug in the first attempt.**
+```
+21:22:25.360  No privilege yet - requesting root before checking boot protection
+21:22:26.077  Boot protection enabled: true
+21:22:26.262  Boot protection script is installed - lifting its block
+21:22:26.460  Removing boot protection iptables rules...
+21:22:27.627  FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot
+```
+Note the order: lifted BEFORE the early return that used to strand it. Also fires on
+`MY_PACKAGE_REPLACED`, so an app update clears a stale block too.
+
+**Bug found in my own first attempt, now fixed:** at boot the app has not yet asked Magisk for root, so
+`hasRootPermission` was false, `executeCommand` returned `-1` without running anything, and
+`isBootProtectionEnabled()` reported `false` for a script plainly on disk. `clearBootBlockIfInstalled()`
+now wakes root first, and returns a failure rather than a false "not enabled" when it cannot check.
+
+**Underlying flaw this exposed:** `isBootProtectionEnabled()` cannot distinguish "script absent" from
+"cannot check". Worked around at the one call site that matters; the function itself still conflates
+the two.
+
+## A2 self-delete-on-uninstall — VERIFIED ON HARDWARE
+
+Uninstalled De1984, then rebooted:
+- The script **survived the uninstall** (`-rwxr-xr-x root root`, still in `post-fs-data.d`) - Android
+  runs no code on uninstall, confirming there is no hook to rely on.
+- `/data/user_de/0/io.github.dorumrr.de1984.debug` was gone.
+- On the FIRST boot afterwards: `post-fs-data.d` was **empty**, no `de1984_boot` chain existed, no
+  leftover subshell, and network was fine (`HTTP=204`).
+
+The orphaned-script problem is solved at the source. A user who uninstalls gets exactly one boot where
+the script runs, sees the app is gone, deletes itself, and exits without blocking anything.
+
+All three Part A mechanisms (A1 self-expiry, A2 self-delete, A3 early lift) are now proven on hardware.
+
+## Regression sweep of the StandardDialog change — 1 real regression, mine, fixed
+
+4 agents over 21 call sites.
+
+**HIGH, introduced by my first version:** `showRestoreOptions`
+(`ui/settings/SettingsFragmentViews.kt:1390`) puts **"Replace All"** in the negative slot - a
+destructive action, not a cancel - and offers no Cancel button. Routing dismiss to `onNegativeClick`
+meant tapping outside to escape the restore dialog opened "⚠️ Replace All Rules?" instead. One more tap
+wipes every rule.
+
+**Root cause:** `show()` inferred "negative button == cancel". Wrong for any caller using that slot for
+a second action.
+
+**Fix:** cancel is now explicit. `show()` takes its own `onCancel`; `showConfirmation` passes it through
+because there the negative button genuinely is cancel. All 5 direct `show()` callers pass none, so they
+behave exactly as before. This also removed a low-severity double-callback at `ui/MainActivity.kt:677`.
+
+**Improved by the change (6 sites):** backend-mode dropdown revert, both critical-package switches,
+boot protection switch, and both `clearImportPreview()` calls - the latter being finding **M014**.
+
+**Untouched (9 destructive package dialogs):** they pass no `onCancel`, so uninstall / disable /
+force-stop dismissal behaviour is byte-for-byte unchanged.
+
+**Latent, not changed:** `showTypeToConfirm` (the type-"UNINSTALL" dialog) builds its own `AlertDialog`
+and bypasses `StandardDialog` entirely, so cancel semantics differ between the two helpers.
+
+## Translations — done, needs a native review
+All 7 locales now carry the restart warning and `boot_protection_reboot_failed`. Recovery option 1 no
+longer says "-> Reboot" since the app now does it. Romanian was reviewed by Doru. **ro/pt/zh/it/fr/ru
+were written by me and match existing tone, but have not been checked by native speakers.** Reviewed
+with Doru side by side on 2026-08-22. Two worth a second look: Italian `quando continui` (informal
+*tu* - matches the rest of that file, but confirm it is the intended register) and French
+`lorsque vous continuerez` (future tense reads stiff; `lorsque vous continuez` may be better).
+
+Only new text was written. The long body of the enable dialog is untouched in all 7 languages; the only
+other edit was deleting the trailing "-> Reboot" step from recovery option 1, since the app now reboots
+by itself and instructing the user to do it was wrong.
+
+Now unused in all 7 locales: `boot_protection_enabled_success`, `boot_protection_disabled_success`.
+
+## Open decisions
+- ~~Is `SELF_HEAL_TIMEOUT_SECONDS = 120` right?~~ **SETTLED 2026-08-22: 120 seconds confirmed by Doru.**
+- Scenario 5 (root lost, switch greyed out) still has no in-app recovery action.
+
+---
+
+# PICK UP HERE — next session
+
+Doru will install on a real Android device, then we resume.
+
+## Test 1 (decides everything): does `netd` wipe the boot chain?
+
+`post-fs-data` runs **before** `netd`. If `netd` rebuilds the filter table without `--noflush`, it
+destroys `de1984_boot` early — meaning **P0-1 Boot protection** barely protects anything AND the
+lockout mostly cannot happen. Nothing in the repo settles this. One test answers it.
+
+**Needs:** a rooted device (Magisk/KernelSU/APatch), USB cable, `adb` on the Mac.
+**Warning:** this deliberately puts the device into the risky state. Keep the USB cable attached — per
+**P0-1 Boot protection**, wireless ADB does not work while the chain is live (uid 2000 is dropped).
+
+```
+# 0. from the repo, put a debug build on the device (keeps data)
+cd /Users/doru/dev/phi/de1984
+./dev.sh update
+
+# 1. in the app: grant root, turn the FIREWALL ON, then turn BOOT PROTECTION ON
+
+# 2. confirm the script landed
+adb shell su -c 'ls -l /data/adb/post-fs-data.d/de1984_boot_protection.sh'
+adb shell su -c 'cat /data/adb/post-fs-data.d/de1984_boot_protection.sh'
+
+# 3. reboot and wait for the device to come back
+adb reboot
+adb wait-for-device
+sleep 45
+
+# 4. THE ANSWER — is the chain still there after netd started?
+adb shell su -c 'iptables -S OUTPUT | grep de1984_boot'
+adb shell su -c 'iptables -S de1984_boot'
+```
+
+**Reading the result**
+| Output | Meaning |
+|---|---|
+| Rules printed | The chain survives netd. **P0-1 Boot protection is real and severe.** Part A becomes urgent. |
+| Nothing printed | netd wiped it. Boot protection is largely inert — the feature does not work, and the lockout risk is small. Different problem, much lower severity. |
+
+**Cleanup, always run this afterwards:**
+```
+adb shell su -c 'rm -f /data/adb/post-fs-data.d/de1984_boot_protection.sh'
+adb shell su -c 'for t in iptables ip6tables; do $t -D OUTPUT -j de1984_boot 2>/dev/null; $t -F de1984_boot 2>/dev/null; $t -X de1984_boot 2>/dev/null; done'
+adb reboot
+```
+
+## Test 2: reproduce the worst path of P0-1 Boot protection
+Only if Test 1 printed rules. Firewall **OFF**, boot protection **ON**, reboot → check whether normal
+apps have internet. Expected per code: they do not, on every boot, permanently.
+
+## Test 3: P0-2 NetworkPolicyManager orphan policies
+Pick NetworkPolicyManager in Settings, block an app, stop the firewall, uninstall De1984, reboot.
+Then: `adb shell su -c 'cat /data/system/netpolicy.xml'` — check whether the uid policy is still there.
+
+## Test 4: P0-4 exported widget receiver
+```
+adb shell am broadcast -a io.github.dorumrr.de1984.FIREWALL_STATE_CHANGED --es firewall_state "Stopped"
+adb shell run-as io.github.dorumrr.de1984.debug cat shared_prefs/de1984_prefs.xml | grep firewall_enabled
+```
+If the flag flipped to false, any installed app can permanently disable the firewall.
+
+## Then
+- Walk through the 117 medium findings not yet reviewed.
+- Walk through the resources/localisation audit and the user-log evidence mapping.
+- Settle the 4 open sub-decisions under **P0-1 Boot protection — DECIDED FIX DIRECTION**.

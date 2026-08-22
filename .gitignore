@@ -2,6 +2,7 @@ docs
 RULES.md
 .idea
 .claude
+.artifacts
 
 # Built application files
 *.apk

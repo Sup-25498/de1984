@@ -45,19 +45,24 @@ class BootWorker(
 
             AppLogger.d(TAG, "Firewall was enabled before boot: $wasEnabled")
 
-            if (!wasEnabled) {
-                AppLogger.d(TAG, "ℹ️  FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot")
-                return Result.success()
-            }
-
-            AppLogger.d(TAG, "✅ Firewall was enabled - proceeding with restoration")
-
             // Get FirewallManager from application
             val app = applicationContext as? De1984Application
             if (app == null) {
                 AppLogger.e(TAG, "❌ FAILED TO GET APPLICATION INSTANCE | Cannot restore firewall - application context not available")
                 return Result.failure()
             }
+
+            // Lift any boot-protection block FIRST, before deciding anything about the firewall.
+            // This must not depend on the firewall being enabled or on it starting successfully:
+            // both of those used to gate it, which left the device blocked on every boot.
+            app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+
+            if (!wasEnabled) {
+                AppLogger.d(TAG, "ℹ️  FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot")
+                return Result.success()
+            }
+
+            AppLogger.d(TAG, "✅ Firewall was enabled - proceeding with restoration")
 
             val firewallManager = app.dependencies.firewallManager
             val shizukuManager = app.dependencies.shizukuManager

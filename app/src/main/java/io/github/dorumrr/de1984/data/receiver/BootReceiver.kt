@@ -216,6 +216,15 @@ class BootReceiver : BroadcastReceiver() {
                             }.onFailure { error ->
                                 AppLogger.e(TAG, "❌ FAILED TO RESTORE FIREWALL | Trigger: $trigger | Error: ${error.message}")
 
+                                // A failed start must not leave the boot-protection block in place.
+                                // Protection is already gone at this point; keeping the block only
+                                // takes the device offline with no in-app way to recover.
+                                try {
+                                    app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+                                } catch (e: Exception) {
+                                    AppLogger.e(TAG, "Failed to lift boot protection block", e)
+                                }
+
                                 // Show notification asking user to open app
                                 // (VPN permission likely needs to be re-granted)
                                 showBootFailureNotification(context)
@@ -243,6 +252,23 @@ class BootReceiver : BroadcastReceiver() {
                 }
             } else {
                 AppLogger.d(TAG, "ℹ️  FIREWALL WAS NOT ENABLED | Skipping firewall restoration after $trigger")
+
+                // The firewall being off must NOT leave a boot-protection block in place. The boot
+                // script runs regardless of this preference, so without this the device stays blocked
+                // on every boot with no in-app way out.
+                val app = context.applicationContext as? De1984Application
+                if (app != null) {
+                    val pendingResult = goAsync()
+                    app.dependencies.applicationScope.launch(Dispatchers.IO) {
+                        try {
+                            app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "Failed to lift boot protection block", e)
+                        } finally {
+                            pendingResult.finish()
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "❌ ERROR IN BOOT RECEIVER | Trigger: $trigger | Error: ${e.message}")

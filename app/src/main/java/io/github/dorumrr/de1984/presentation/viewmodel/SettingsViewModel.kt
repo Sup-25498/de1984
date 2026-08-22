@@ -347,14 +347,19 @@ class SettingsViewModel(
                     _uiState.value = _uiState.value.copy(bootProtection = enabled)
                     saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, enabled)
 
-                    val successMessage = if (enabled) {
-                        context.getString(io.github.dorumrr.de1984.R.string.boot_protection_enabled_success)
-                    } else {
-                        context.getString(io.github.dorumrr.de1984.R.string.boot_protection_disabled_success)
-                    }
-                    _uiState.value = _uiState.value.copy(message = successMessage)
-
                     AppLogger.d(TAG, "✅ Boot protection ${if (enabled) "enabled" else "disabled"} successfully")
+
+                    // Reboot immediately. The user already confirmed in the warning dialog, which is
+                    // the only gate: no second prompt, no delay, no message they would never see.
+                    // This guarantees the on-disk script and the live iptables state always agree.
+                    // Only reached after a verified successful change - never after a failure.
+                    val rebootResult = bootProtectionManager.rebootDevice()
+                    if (rebootResult.isFailure) {
+                        AppLogger.e(TAG, "❌ Reboot failed after boot protection change", rebootResult.exceptionOrNull())
+                        _uiState.value = _uiState.value.copy(
+                            error = context.getString(io.github.dorumrr.de1984.R.string.boot_protection_reboot_failed)
+                        )
+                    }
                 } else {
                     val errorMessage = if (enabled) {
                         context.getString(io.github.dorumrr.de1984.R.string.boot_protection_enable_failed, result.exceptionOrNull()?.message ?: "Unknown error")

@@ -140,6 +140,25 @@ object Constants {
         const val BOOT_SCRIPT_PATH = "/data/adb/post-fs-data.d/de1984_boot_protection.sh"
         const val MAGISK_POST_FS_DIR = "/data/adb/post-fs-data.d"
         const val BOOT_SCRIPT_PERMISSIONS = "755"
+
+        /**
+         * Seconds the boot script waits before lifting its own block.
+         *
+         * The block is only meant to cover the gap between early boot and De1984 taking over. If that
+         * never happens - failed start, screen still locked, app uninstalled, app data cleared - the
+         * device would otherwise be left with no network on every boot, permanently, with no in-app
+         * way out. This timer guarantees the device always recovers on its own.
+         *
+         * De1984 normally removes the chain within seconds of the firewall starting, well inside this
+         * window, so raising it costs nothing in the normal case. Lowering it shortens the protected
+         * window; raising it lengthens how long a stuck device stays offline.
+         */
+        const val SELF_HEAL_TIMEOUT_SECONDS = 120
+
+        /** Device-encrypted data dirs, readable before the user unlocks. Used by the boot script to
+         *  detect that De1984 has been uninstalled and delete itself. */
+        const val DE_DATA_DIR_RELEASE = "/data/user_de/0/${App.PACKAGE_NAME}"
+        const val DE_DATA_DIR_DEBUG = "/data/user_de/0/${App.PACKAGE_NAME_DEBUG}"
     }
 
     object CaptivePortal {
