@@ -356,11 +356,11 @@
     <string name="vpn_fallback_notification_action_text">Abilita VPN Fallback</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
-    <string name="firewall_down_title">Firewall non attivo \u2014 le tue app sono sbloccate</string>
+    <string name="firewall_down_title">Firewall non attivo — le tue app sono sbloccate</string>
     <string name="firewall_down_reason_manual_backend">Il backend %1$s ha smesso di funzionare. Ripristina i suoi privilegi oppure scegli un altro backend.</string>
     <string name="firewall_down_reason_manual_backend_unknown">Il backend del firewall ha smesso di funzionare. Ripristina i suoi privilegi oppure scegli un altro backend.</string>
-    <string name="firewall_down_reason_no_plan">Su questo dispositivo non \u00e8 disponibile alcun backend firewall utilizzabile.</string>
-    <string name="firewall_down_reason_fallback_failed">Il backend di riserva non \u00e8 partito. Nulla sta bloccando l\'accesso alla rete.</string>
+    <string name="firewall_down_reason_no_plan">Su questo dispositivo non è disponibile alcun backend firewall utilizzabile.</string>
+    <string name="firewall_down_reason_fallback_failed">Il backend di riserva non è partito. Nulla sta bloccando l\'accesso alla rete.</string>
     <string name="firewall_down_reason_vpn_conflict">Un\'altra app VPN occupa lo slot VPN. De1984 deve sostituirla per proteggerti.</string>
     <string name="firewall_down_reason_vpn_permission">De1984 ha bisogno dell\'autorizzazione VPN per ripristinare la protezione.</string>
     <string name="firewall_down_action_choose_backend">Scegli backend</string>
@@ -368,9 +368,9 @@
     <string name="firewall_down_action_enable_vpn">Attiva VPN</string>
     <string name="firewall_down_action_replace_vpn">Sostituisci VPN</string>
     <string name="firewall_switched_title">Backend cambiato</string>
-    <string name="firewall_switched_message_auto">Il backend %1$s non ha funzionato. De1984 \u00e8 passato alla VPN e continua a proteggerti.</string>
-    <string name="firewall_switched_message_manual">Il backend %1$s non ha funzionato. De1984 \u00e8 passato in modalit\u00e0 AUTO e usa la VPN.</string>
-    <string name="firewall_status_down">NON ATTIVO</string>
+    <string name="firewall_switched_message_auto">Il backend %1$s non ha funzionato. De1984 è passato alla VPN e continua a proteggerti.</string>
+    <string name="firewall_switched_message_manual">Il backend %1$s non ha funzionato. De1984 è passato in modalità AUTO e usa la VPN.</string>
+    <string name="firewall_status_down">GUASTO</string>
 
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">Firewall Non Attivo - Conflitto VPN</string>

@@ -1,9 +1,8 @@
-package io.github.dorumrr.de1984.ui.common
+package io.github.dorumrr.de1984.domain.firewall
 
 import android.content.Context
 import androidx.annotation.StringRes
 import io.github.dorumrr.de1984.R
-import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
 
 /**
  * What the user can do about a firewall problem, and the label of the button that does it.
@@ -31,6 +30,10 @@ enum class FirewallHealthAction(@StringRes val label: Int) {
  * Single source for this wording. The in-app banner and the notification both come through here, so
  * they can never drift apart, and every sentence stays translatable - the reason the data layer
  * stopped composing English strings of its own.
+ *
+ * Lives in domain, not ui, because FirewallManager needs it for the notification text. Putting it in
+ * ui would make the data layer depend on the UI layer. Holding a Context to resolve strings matches
+ * what the other domain models here already do (see CaptivePortalMode.getDisplayName).
  */
 object FirewallHealthPresenter {
 

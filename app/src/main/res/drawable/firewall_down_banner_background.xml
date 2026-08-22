@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Critical variant of warning_banner_background: nothing is being blocked right now. -->
+<!-- Critical variant of warning_banner_background: nothing is being blocked right now.
+     Colours are tokens so the dark-mode override applies; a literal hex could not follow it. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#1FEF5350" />
+    <solid android:color="@color/firewall_down_banner_fill" />
     <corners android:radius="8dp" />
     <stroke
         android:width="1dp"
-        android:color="#80EF5350" />
+        android:color="@color/firewall_down_banner_stroke" />
 </shape>

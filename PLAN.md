@@ -2058,6 +2058,72 @@ dismissible: it describes a live condition and must end only when the condition 
   mode 4750 root:shell so apps cannot get root, while Shizuku 13.6 could not be started headlessly.
   The device test that would close this is in "Open" below.
 
+### Adversarial audit — 2026-08-23, after commit cb1d70f
+
+Five independent reviewers, each told to assume the change was broken, plus Android Lint. Every
+finding below was re-verified by hand before acting on it.
+
+**FIXED — regressions this change introduced**
+
+1. **A passing health tick erased a live Down state and disabled recovery.** Severe, and a genuine
+   regression. `reportFirewallHealthy()` was reused at the three health-check clear sites, where the
+   old code only nulled a zero-reader string. It also cleared `_isFirewallDown`, which *is* read.
+   Chain: manual VPN mode, another VPN connects → `handleVpnConflictFallbackFailed` reports
+   `VPN_CONFLICT` and deliberately keeps `currentBackend`, so the health job stays alive → its
+   manual-VPN branch reports a pass **without checking anything** → 15s later the banner vanishes and
+   `_isFirewallDown` goes false → when the other VPN drops, `handlePrivilegeChange` reads that flag,
+   logs "nothing to do" and never restarts. Fix: split into `reportFirewallHealthy()` (backend
+   handover / user stop) and `clearHealthWarningIfEnforcing()` (timer tick), the latter guarded on
+   `_activeBackendType != null` and never touching `_isFirewallDown`.
+2. **The banner's Retry sent the result down the wrong branch.** `vpnPermissionContext` is sticky and
+   never reset. After any earlier "Enable VPN"/"Replace VPN" tap it stayed `VPN_FALLBACK`, so granting
+   consent for Retry ran the fallback path and the retry never happened. Now set explicitly.
+3. **Dark mode: the only recovery control was unreadable.** The action button inherits `colorPrimary`
+   = teal, measured **2.60:1** against the dark banner fill. Title was **3.01:1** in light mode, which
+   fails outright at smaller font scales. Fixed with themed `firewall_down_text` /
+   `firewall_switched_text`; all four combinations now measure 4.9-7.9:1. Verified by calculation and
+   by screenshot (`.artifacts/banner_dark_after_fix.png`).
+4. **The banner was silent to screen readers.** No content description, no live region, on a
+   safety-critical warning. Added `accessibilityLiveRegion="assertive"`.
+5. **Data layer imported the UI layer.** `FirewallManager` imported `ui.common.FirewallHealthPresenter`.
+   Presenter moved to `domain/firewall/`, matching `CaptivePortalMode.getDisplayName(context)`.
+6. **`navigateToSettings()` already existed**, documented "Used for navigation from protection warning
+   banners". The banner set `selectedItemId` instead. Now reuses the helper.
+7. Two unreachable `?:` fallbacks removed. `reportFirewallHealthy()` now dismisses the VPN notification
+   too, so its doc claim is true. `SwitchedToVpn` and `status_badge_down` docs corrected - both
+   overclaimed (nothing clears `SwitchedToVpn`; the two badge reds are 1.61:1 apart and never
+   co-visible, so the *label* is the signal, not the colour).
+8. DOWN badge labels shortened per locale (ru "НЕ РАБОТАЕТ" → "СБОЙ", fr → "PANNE", it → "GUASTO",
+   pt → "FALHA", zh → "故障"). The toolbar row has no slack; a long word clips the section title
+   exactly when the firewall has failed.
+
+9. **All 15 new strings were `\uXXXX`-escaped**, the only escaped strings among 4500+ in the project.
+   Harmless to the build, but opaque to translators and it round-trips badly through translation
+   tooling. Converted to literal UTF-8; `\'` left escaped, as Android requires.
+
+**Refuted**
+- Badge truth table: exactly one cell changes (FIREWALL/Down: OFF → DOWN), which is the intended fix.
+- Layout: a GONE ConstraintLayout child collapses to a point, so `fragment_container`'s resting
+  position is unchanged; insets untouched; no test or module boundary broken.
+- Lint: 7 errors app-wide, **0** in any file this change touched, no baseline hiding anything.
+
+**Open — confirmed but out of scope, needs a decision**
+- **Two contradictory notifications for one failure.** `PrivilegedFirewallService` raises id 1003
+  ("Firewall Backend Failed") *and* calls `handleBackendFailureFromService` → id 1006 ("Firewall down
+  — your apps are unblocked"). Before the retitle both read the same. Also: id 1003 collides with
+  `BackendMonitoringService`'s foreground notification, and 1002 with `PrivilegedFirewallService`'s.
+  Both collisions pre-date this change.
+- **One backend, four names.** `displayName()` says "iptables"; `FirewallManager:2085` says
+  "iptables (root)"; `PrivilegedFirewallService` says "Unknown" for VPN; `BackendMonitoringService`
+  prints the raw enum. Five hand-written maps remain.
+- **Sibling notifications are still hardcoded English** (`FirewallManager:2091`, `:2158`,
+  `BackendMonitoringService:253`) - a French user gets a localized banner and an English notification.
+- **POST_NOTIFICATIONS denied → no warning at all.** `FirewallManager` has no `areNotificationsEnabled()`
+  gate (unlike `NewAppNotificationManager`), and the banner only renders while MainActivity is resumed.
+- **`startFirewallInternal` failures still never publish `Down`** - the gap already recorded below.
+- **Possible scroll reset** when the banner appears mid-session; commit 8e7cfb0 fixed #61 for this.
+  Unverified on device.
+
 ### Open
 - **Device test.** On the phone: pick NetworkPolicyManager or ConnectivityManager manually in
   Settings, start the firewall, then press Stop in the Shizuku app. Within one health-check interval

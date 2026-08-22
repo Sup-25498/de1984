@@ -366,21 +366,21 @@
     <string name="vpn_fallback_notification_action_text">启用 VPN 回退</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
-    <string name="firewall_down_title">\u9632\u706b\u5899\u5df2\u505c\u6b62 \u2014 \u4f60\u7684\u5e94\u7528\u5df2\u89e3\u9664\u5c01\u9501</string>
-    <string name="firewall_down_reason_manual_backend">%1$s \u540e\u7aef\u5df2\u505c\u6b62\u5de5\u4f5c\u3002\u8bf7\u6062\u590d\u5b83\u7684\u6743\u9650\uff0c\u6216\u9009\u62e9\u5176\u4ed6\u540e\u7aef\u3002</string>
-    <string name="firewall_down_reason_manual_backend_unknown">\u9632\u706b\u5899\u540e\u7aef\u5df2\u505c\u6b62\u5de5\u4f5c\u3002\u8bf7\u6062\u590d\u5b83\u7684\u6743\u9650\uff0c\u6216\u9009\u62e9\u5176\u4ed6\u540e\u7aef\u3002</string>
-    <string name="firewall_down_reason_no_plan">\u672c\u8bbe\u5907\u4e0a\u6ca1\u6709\u53ef\u7528\u7684\u9632\u706b\u5899\u540e\u7aef\u3002</string>
-    <string name="firewall_down_reason_fallback_failed">\u5907\u7528\u540e\u7aef\u672a\u80fd\u542f\u52a8\u3002\u76ee\u524d\u6ca1\u6709\u4efb\u4f55\u7f51\u7edc\u9650\u5236\u3002</string>
-    <string name="firewall_down_reason_vpn_conflict">\u53e6\u4e00\u4e2a VPN \u5e94\u7528\u5360\u7528\u4e86 VPN \u4f4d\u3002De1984 \u5fc5\u987b\u66ff\u6362\u5b83\u624d\u80fd\u4fdd\u62a4\u4f60\u3002</string>
-    <string name="firewall_down_reason_vpn_permission">De1984 \u9700\u8981 VPN \u6743\u9650\u624d\u80fd\u6062\u590d\u4fdd\u62a4\u3002</string>
-    <string name="firewall_down_action_choose_backend">\u9009\u62e9\u540e\u7aef</string>
-    <string name="firewall_down_action_retry">\u91cd\u8bd5</string>
-    <string name="firewall_down_action_enable_vpn">\u542f\u7528 VPN</string>
-    <string name="firewall_down_action_replace_vpn">\u66ff\u6362 VPN</string>
-    <string name="firewall_switched_title">\u540e\u7aef\u5df2\u5207\u6362</string>
-    <string name="firewall_switched_message_auto">%1$s \u540e\u7aef\u5931\u8d25\u3002De1984 \u5df2\u5207\u6362\u5230 VPN\uff0c\u4ecd\u5728\u4fdd\u62a4\u4f60\u3002</string>
-    <string name="firewall_switched_message_manual">%1$s \u540e\u7aef\u5931\u8d25\u3002De1984 \u5df2\u5207\u6362\u5230 AUTO \u6a21\u5f0f\u5e76\u4f7f\u7528 VPN\u3002</string>
-    <string name="firewall_status_down">\u5df2\u505c\u6b62</string>
+    <string name="firewall_down_title">防火墙已停止 — 你的应用已解除封锁</string>
+    <string name="firewall_down_reason_manual_backend">%1$s 后端已停止工作。请恢复它的权限，或选择其他后端。</string>
+    <string name="firewall_down_reason_manual_backend_unknown">防火墙后端已停止工作。请恢复它的权限，或选择其他后端。</string>
+    <string name="firewall_down_reason_no_plan">本设备上没有可用的防火墙后端。</string>
+    <string name="firewall_down_reason_fallback_failed">备用后端未能启动。目前没有任何网络限制。</string>
+    <string name="firewall_down_reason_vpn_conflict">另一个 VPN 应用占用了 VPN 位。De1984 必须替换它才能保护你。</string>
+    <string name="firewall_down_reason_vpn_permission">De1984 需要 VPN 权限才能恢复保护。</string>
+    <string name="firewall_down_action_choose_backend">选择后端</string>
+    <string name="firewall_down_action_retry">重试</string>
+    <string name="firewall_down_action_enable_vpn">启用 VPN</string>
+    <string name="firewall_down_action_replace_vpn">替换 VPN</string>
+    <string name="firewall_switched_title">后端已切换</string>
+    <string name="firewall_switched_message_auto">%1$s 后端失败。De1984 已切换到 VPN，仍在保护你。</string>
+    <string name="firewall_switched_message_manual">%1$s 后端失败。De1984 已切换到 AUTO 模式并使用 VPN。</string>
+    <string name="firewall_status_down">故障</string>
 
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">De1984 防火墙已停止 - VPN 冲突</string>

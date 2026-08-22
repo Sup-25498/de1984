@@ -15,7 +15,13 @@
     <color name="success_green">#2E7D32</color>
     <color name="warning_orange">#FF9800</color>
     <color name="error_red">#EF5350</color>
-    <color name="firewall_down_red">#C62828</color> <!-- Deeper than error_red: firewall failed, not switched off -->
+    <color name="firewall_down_red">#C62828</color> <!-- DOWN badge fill -->
+    <!-- Banner text. error_red (#EF5350) only reached 3.01:1 on the banner fill, which fails once
+         the user picks a smaller font scale. These are themed, so both modes stay readable. -->
+    <color name="firewall_down_text">#B3231F</color>
+    <color name="firewall_switched_text">#A85400</color>
+    <color name="firewall_down_banner_fill">#1FEF5350</color>
+    <color name="firewall_down_banner_stroke">#80EF5350</color>
     <color name="error_red_light">#FFCDD2</color>
     
     <!-- Surface Colors -->

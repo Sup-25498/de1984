@@ -357,7 +357,7 @@
     <string name="vpn_fallback_notification_action_text">Enable VPN Fallback</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
-    <string name="firewall_down_title">Firewall down \u2014 your apps are unblocked</string>
+    <string name="firewall_down_title">Firewall down — your apps are unblocked</string>
     <string name="firewall_down_reason_manual_backend">The %1$s backend stopped working. Restore its privileges, or choose a different backend.</string>
     <string name="firewall_down_reason_manual_backend_unknown">The firewall backend stopped working. Restore its privileges, or choose a different backend.</string>
     <string name="firewall_down_reason_no_plan">No usable firewall backend is available on this device.</string>

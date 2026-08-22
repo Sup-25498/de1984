@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -30,8 +31,8 @@ import io.github.dorumrr.de1984.databinding.ActivityMainViewsBinding
 import io.github.dorumrr.de1984.presentation.viewmodel.FirewallViewModel
 import io.github.dorumrr.de1984.presentation.viewmodel.SettingsViewModel
 import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
-import io.github.dorumrr.de1984.ui.common.FirewallHealthAction
-import io.github.dorumrr.de1984.ui.common.FirewallHealthPresenter
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealthAction
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealthPresenter
 import io.github.dorumrr.de1984.ui.common.StandardDialog
 import io.github.dorumrr.de1984.ui.firewall.FirewallFragmentViews
 import io.github.dorumrr.de1984.ui.packages.PackagesFragmentViews
@@ -670,11 +671,18 @@ class MainActivity : AppCompatActivity() {
             if (isCritical) R.drawable.firewall_down_banner_background
             else R.drawable.warning_banner_background
         )
-        banner.healthBannerTitle.text = title
-        banner.healthBannerTitle.setTextColor(
-            ContextCompat.getColor(this, if (isCritical) R.color.error_red else R.color.warning_orange)
+        // The button must be coloured too. Left alone it inherits colorPrimary, which in dark mode
+        // is teal on a dark red fill - 2.45:1, and it is the only control that recovers the firewall.
+        val accent = ContextCompat.getColor(
+            this,
+            if (isCritical) R.color.firewall_down_text else R.color.firewall_switched_text
         )
+
+        banner.healthBannerTitle.text = title
+        banner.healthBannerTitle.setTextColor(accent)
         banner.healthBannerMessage.text = message
+        banner.healthBannerAction.setTextColor(accent)
+        banner.healthBannerAction.iconTint = ColorStateList.valueOf(accent)
 
         val action = FirewallHealthPresenter.action(health)
         if (action == null) {
@@ -698,12 +706,16 @@ class MainActivity : AppCompatActivity() {
     private fun onFirewallHealthAction(action: FirewallHealthAction) {
         AppLogger.d(TAG, "Firewall health banner action tapped: $action")
         when (action) {
-            FirewallHealthAction.CHOOSE_BACKEND ->
-                binding.bottomNavigation.selectedItemId = R.id.settingsFragment
+            // navigateToSettings() is documented for exactly this - warning-banner navigation
+            FirewallHealthAction.CHOOSE_BACKEND -> navigateToSettings()
 
             FirewallHealthAction.RETRY -> {
                 val prepareIntent = firewallViewModel.startFirewall()
                 if (prepareIntent != null) {
+                    // vpnPermissionContext is sticky and is never reset, so a previous "Enable VPN"
+                    // tap would otherwise send this result down the VPN-fallback branch and the
+                    // retry would silently never happen.
+                    vpnPermissionContext = VpnPermissionContext.FIREWALL_START
                     vpnPermissionLauncher.launch(prepareIntent)
                 }
             }

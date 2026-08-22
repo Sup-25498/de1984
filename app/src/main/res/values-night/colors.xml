@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
+    <!-- Firewall health banner (Dark Mode). The light-mode reds are far too dark on a dark fill,
+         and the button inherits colorPrimary (teal) which measured 2.45:1 - unreadable on the
+         one control that recovers a failed firewall. -->
+    <color name="firewall_down_text">#FF8A80</color>
+    <color name="firewall_switched_text">#FFCC80</color>
+    <color name="firewall_down_banner_fill">#33B71C1C</color>
+    <color name="firewall_down_banner_stroke">#80EF5350</color>
     <!-- Dark Mode - Background is dark gray, text is white, bottom nav has dark pill -->
 
     <!-- Background Color (Dark Mode) - Dark gray instead of white -->

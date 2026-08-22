@@ -22,10 +22,10 @@ import io.github.dorumrr.de1984.data.monitor.ScreenStateMonitor
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackend
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealthPresenter
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.ui.MainActivity
-import io.github.dorumrr.de1984.ui.common.FirewallHealthPresenter
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.CoroutineScope
@@ -989,7 +989,7 @@ class FirewallManager(
                             AppLogger.d(TAG, "Health check: User is in manual VPN mode - respecting choice, not checking for privilege gain (interval: ${currentHealthCheckInterval}ms)")
                             consecutiveSuccessfulHealthChecks++
                             AppLogger.d(TAG, "✅ Health check passed: VPN backend is active (manual mode, consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                            reportFirewallHealthy()
+                            clearHealthWarningIfEnforcing()
                         } else {
                             // AUTO mode: Check if better backends become available
                             AppLogger.d(TAG, "Health check: Checking if better backends available (AUTO mode)... (interval: ${currentHealthCheckInterval}ms, consecutive successes: $consecutiveSuccessfulHealthChecks)")
@@ -1030,7 +1030,7 @@ class FirewallManager(
                             // No better backend available - VPN is still the best option
                             consecutiveSuccessfulHealthChecks++
                             AppLogger.d(TAG, "✅ Health check passed: VPN is still the best available backend (AUTO mode, consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                            reportFirewallHealthy()
+                            clearHealthWarningIfEnforcing()
                         }
 
                     } else {
@@ -1071,7 +1071,7 @@ class FirewallManager(
                         // Health check passed - increment success counter
                         consecutiveSuccessfulHealthChecks++
                         AppLogger.d(TAG, "✅ Health check passed: $backendType backend is healthy (consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                        reportFirewallHealthy() // Clear any previous warning
+                        clearHealthWarningIfEnforcing() // Clear any previous warning
                     }
 
                     // Check if we should increase interval (backend is stable)
@@ -1133,14 +1133,41 @@ class FirewallManager(
     }
 
     /**
-     * Clear the "not enforcing" state, either because a backend is running again or because the
-     * user stopped the firewall on purpose.
+     * Clear the "not enforcing" state, because a backend is running again or because the user
+     * stopped the firewall on purpose.
      *
-     * The notification is dismissed here too, so a warning can never outlive the condition.
+     * Both failure notifications are dismissed, not just the backend one - a VPN conflict or a
+     * pending VPN permission is equally over once we get here.
+     *
+     * Only call this when protection genuinely changed hands. A passing health check must use
+     * [clearHealthWarningIfEnforcing] instead: clearing [_isFirewallDown] is what re-enables
+     * recovery, and a timer tick is not evidence that a lost firewall came back.
      */
     private fun reportFirewallHealthy() {
         _firewallHealth.value = FirewallHealth.Healthy
         _isFirewallDown.value = false
+        dismissBackendFailedNotification()
+        dismissVpnFallbackNotification()
+    }
+
+    /**
+     * A health check passed: drop any stale warning, and claim nothing else.
+     *
+     * Deliberately narrower than [reportFirewallHealthy]. This runs on a timer for as long as a
+     * backend is up, so it must never touch [_isFirewallDown].
+     *
+     * Guarded on [_activeBackendType], which every "firewall is down" path nulls before reporting.
+     * The guard matters: the manual-VPN branch of the health loop reports a pass without checking
+     * anything at all, and [handleVpnConflictFallbackFailed] deliberately leaves the health job
+     * running. Without it, a VPN-conflict warning was erased one tick after it appeared, and with
+     * it went the flag that drives recovery.
+     */
+    private fun clearHealthWarningIfEnforcing() {
+        if (_activeBackendType.value == null) {
+            AppLogger.d(TAG, "Health check passed but no active backend - keeping the current warning")
+            return
+        }
+        _firewallHealth.value = FirewallHealth.Healthy
         dismissBackendFailedNotification()
     }
 
@@ -1554,11 +1581,10 @@ class FirewallManager(
 
         // Same wording as the in-app banner, so the notification and the banner cannot drift apart.
         // This is also what makes the text translatable - it used to be assembled here in English.
+        // Non-null for every Down state; the presenter returns null only for Healthy.
         val health = FirewallHealth.Down(reason, failedBackendType)
-        val title = FirewallHealthPresenter.title(context, health)
-            ?: context.getString(R.string.privileged_firewall_failure_notification_title)
-        val body = FirewallHealthPresenter.message(context, health)
-            ?: context.getString(R.string.firewall_down_reason_manual_backend_unknown)
+        val title = FirewallHealthPresenter.title(context, health).orEmpty()
+        val body = FirewallHealthPresenter.message(context, health).orEmpty()
 
         val notification = NotificationCompat.Builder(context, Constants.BackendFailure.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield)

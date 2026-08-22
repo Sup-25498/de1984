@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Deeper than status_badge_off so a failure never reads as "the user switched it off". -->
+<!-- The DOWN badge and the OFF badge are mutually exclusive, so the user never sees them side by
+     side and cannot compare the two reds. The label is what distinguishes them: "DOWN" means the
+     firewall failed, "OFF" means the user switched it off. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/firewall_down_red" />
