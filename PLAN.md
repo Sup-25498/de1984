@@ -821,6 +821,350 @@ Now unused in all 7 locales: `boot_protection_enabled_success`, `boot_protection
 
 ---
 
+# QUICK WINS BUNDLE — implemented and tested 2026-08-22
+
+## P1-1 M107 currentBackend regression — FIXED
+`data/firewall/FirewallManager.kt:229` now assigns `currentBackend = npmBackend` instead of being a
+bare expression. Restores what commit `4c6171c` accidentally deleted.
+**Runtime test not possible on this device** - the NetworkPolicyManager backend needs Shizuku, which is
+not installed. Code-verified only.
+
+## P0-4 exported widget receiver — FIXED AND VERIFIED
+`ui/widget/FirewallWidget.kt` no longer writes `KEY_FIREWALL_ENABLED` from the broadcast extra. The
+receiver must stay exported for `APPWIDGET_UPDATE`, and the custom action carries no permission, so any
+app can send it - it therefore must never mutate state. Display still uses the extra, which is harmless.
+
+Verified on hardware with the exact spoof that worked before:
+```
+BEFORE  firewall_enabled = false
+        FirewallWidget: STATE CHANGE BROADCAST RECEIVED
+        FirewallWidget: Derived isEnabled from broadcast: true
+AFTER   firewall_enabled = false     <- unchanged
+```
+The `SharedPrefs updated:` log line is gone. Checked first that nothing depends on this write: the flag
+has four other writers (FirewallViewModel, FirewallToggleReceiver, VpnPermissionActivity,
+FirewallManager) covering every genuine state change.
+
+## P0-5 captive portal command injection — FIXED AND VERIFIED
+Two layers in `data/common/CaptivePortalManager.kt`:
+1. `setSystemSetting` now single-quotes the value with `'\''` escaping. Inside single quotes the shell
+   expands nothing.
+2. `isValidUrl` rejects shell metacharacters and whitespace.
+
+Verified on hardware, same payload both ways:
+| Command shape | Result |
+|---|---|
+| Old, double-quoted | `/data/local/tmp/OLD_PWNED` created - **INJECTED** |
+| New, single-quoted | **blocked**, stored literally as `http://x.com$(touch ...)` |
+
+The test deliberately bypassed `isValidUrl` to prove the quoting holds independently.
+
+## Scenario 5 (root lost after enabling) — HANDLED HONESTLY, not "fixed"
+
+**There is a catch-22 and it cannot be engineered away.** `/data/adb` is root-only: verified that
+without root the app cannot even list it, let alone read or delete the script. A "Remove boot
+protection" button would be a button that cannot work.
+
+What the app CAN know is that its own `boot_protection` preference says it installed one. So
+`ui/settings/SettingsFragmentViews.kt` now, when privileges are gone but the preference is true:
+- shows the switch as **ON** (showing OFF would be a lie - the script is almost certainly still there)
+- replaces the description with `settings_boot_protection_stuck`, which states the situation, notes the
+  block now lifts itself after 2 minutes each boot, and gives the exact ADB commands to remove it.
+
+Added in all 7 locales.
+
+**Residual risk accepted:** if the user clears app data, the preference is lost and the app cannot warn
+at all. The 120-second self-expiry is the only protection in that case, and it is sufficient to stop
+the device being unusable.
+
+---
+
+# P0-2 AND P0-3 IMPLEMENTED — 2026-08-22
+
+## P0-3 Deadlock in the failure-recovery path — FIXED
+`startFirewall` is now a thin wrapper over a new private `startFirewallInternal(mode)`, matching the
+`stopFirewall` / `stopFirewallInternal` pattern the file already used. The two calls inside
+`handleBackendFailure` (`FirewallManager.kt:1163`, `:1226`) now reach the internal form, so the
+non-reentrant `startStopMutex` is taken exactly once.
+
+Traced every `startFirewall(` call site in the tree. Only those two ran under the lock. The other
+in-class callers — `initializeBackendState`, `startBackendHealthMonitoring`,
+`startVpnPermissionMonitoring`, `handleVpnConflict`, `handlePrivilegeChange` — are either non-suspend
+launchers or are reached from monitoring collectors, never from inside `startStopMutex`.
+
+**Not yet reproduced on hardware.** Forcing a backend failure needs a privileged-service kill.
+
+## P0-2 NetworkPolicyManager orphan policies — FIXED AND VERIFIED ON HARDWARE
+`stopInternal` now calls a new `clearBlockedUidPoliciesInternal()` which writes `POLICY_NONE` back for
+every uid the backend blocked, instead of only clearing the in-memory cache.
+
+The uid list is now also mirrored to SharedPreferences (`Constants.Settings.KEY_NPM_BLOCKED_UIDS`).
+Without that, `appliedPolicies` is empty in any fresh process, so a crash or a backend switch could
+never clean up. `FirewallManager.cleanupAllBackends` now instantiates the NPM backend and calls the
+new public `clearOrphanedPolicies()`, and its false comment about NPM leaving no persistent state is
+gone.
+
+Only uids De1984 itself blocked are ever reverted. This is deliberate: `POLICY_REJECT_METERED_BACKGROUND`
+is the same value Android's own "Restrict background data" writes, so clearing by scan would silently
+undo the user's own Settings choices.
+
+### Hardware proof — 2026-08-22, Android 14 / LineageOS / Shizuku-as-root
+Selected the NetworkPolicyManager backend, blocked `com.aurora.store` (uid 10269), started the firewall.
+
+Before stop:
+```
+UID=10269 policy=1 (REJECT_METERED_BACKGROUND)
+<set name="npm_blocked_uids"><string>10269</string></set>
+```
+Only the one blocked uid was recorded. The 79 "allow" writes in the same pass were correctly ignored.
+
+After stopping the firewall:
+```
+Policy for UIDs:  (10269 absent)
+<set name="npm_blocked_uids" />
+```
+Log:
+```
+21:57:29.582  FirewallManager: Cleaning up all backend types to ensure no orphaned rules...
+21:57:29.709  NetworkPolicyManagerFirewall: stopInternal: Cleaning up
+21:57:29.747  NetworkPolicyManagerFirewall: Cleared policy for UID 10269
+21:57:29.759  NetworkPolicyManagerFirewall: ✅ Cleared 1 UID policies
+21:57:29.774  FirewallManager: NetworkPolicyManager cleanup completed
+21:57:29.783  NetworkPolicyManagerFirewall: ✅ Cleared 1 UID policies
+```
+Both paths ran — `cleanupAllBackends` on a throwaway instance and `stopInternal` on the live one. The
+double revert is harmless (writing `POLICY_NONE` twice) but wasteful; worth collapsing.
+
+The four pre-existing `REJECT_ALL` policies on the device were left untouched, confirming the design
+choice to revert only uids De1984 itself blocked.
+
+**Still unfixable from inside the app:** uninstall. Android exposes no uninstall hook, so a user who
+uninstalls with the firewall running keeps the policies. Only a manual `cmd netpolicy` or a reflash
+clears them.
+
+---
+
+# NEW P0-8 — the NetworkPolicyManager backend can only ever block metered background data
+
+**Corrected 2026-08-22 after hardware testing.** The first write-up claimed the backend writes `0x4`
+and thereby grants an allowance. That is wrong: `0x4` is never reached.
+
+`testPolicySupport` (`NetworkPolicyManagerFirewallBackend.kt:646-653`) probes support by writing
+`setUidPolicy(0, POLICY_REJECT_ALL)` — **to uid 0**. Android's `NetworkPolicyManagerService` rejects
+policies on any non-app uid, so the probe throws on every device and every Android version. The catch
+branch then pins `blockingPolicy = POLICY_REJECT_METERED_BACKGROUND` permanently.
+
+Proven on hardware (Android 14, SDK 34, LineageOS, Shizuku as root):
+```
+21:53:39.266  Testing policy support on this device...
+21:53:39.315  ⚠️  POLICY_REJECT_ALL not supported on this device
+21:53:39.612  ✅ Using policy: POLICY_REJECT_METERED_BACKGROUND (blocks Mobile only, WiFi NOT blocked)
+```
+The same run threw `IllegalArgumentException: cannot apply policy to UID 1001001` and `UID 1001002` for
+real work-profile system uids, which is the identical rejection the uid-0 probe hits.
+
+Result on the device, with Aurora Store shown as Blocked in De1984:
+```
+UID=10269 policy=1 (REJECT_METERED_BACKGROUND)
+```
+So the app is blocked on **metered background only**. WiFi is fully open. Foreground mobile is fully
+open. The UI says Blocked.
+
+The constant `POLICY_REJECT_ALL = 0x4` (`:55`) is separately wrong — this ROM decodes `0x4` as
+`ALLOW_METERED_BACKGROUND` and `REJECT_ALL` as `262144` (`0x40000`) — but that is currently masked by
+the broken probe. Fixing the probe without fixing the constant would make the backend write an
+allowance to every blocked app.
+
+**Not fixed.** Needs a decision: probe with a real app uid and read back with `getUidPolicy`, use
+`0x40000`, or retire the backend on Android 13+.
+
+## Also observed in the same run — needs its own entries
+- `applyRules` took **16,531 ms** for 79 uids (`PrivilegedFirewallService` TIMING log), and ran
+  **twice concurrently** (threads 8662 and 9481 both applied all 79).
+- **8 errors** per pass: the backend tries to set policies on work-profile system uids
+  (1001001, 1001002, ...) instead of skipping non-app uids.
+
+---
+
+# NEW P0-9 — the NetworkPolicyManager backend destroys pre-existing network policies — VERIFIED
+
+Every uid the backend decides is "allowed" gets `setUidPolicy(uid, POLICY_NONE)`
+(`NetworkPolicyManagerFirewallBackend.kt:428`). `POLICY_NONE` is not "De1984 has no opinion" — it is
+"clear whatever policy exists", including one the user set in Android Settings or the ROM set itself.
+
+Proven on hardware. Policy table before De1984's NPM backend ran:
+```
+UID=10212   policy=262144 (REJECT_ALL)              io.github.dorumrr.happytaxes
+UID=10276   policy=262144 (REJECT_ALL)              io.github.dorumrr.privacyflip
+UID=1010103 policy=4      (ALLOW_METERED_BACKGROUND) com.android.providers.downloads (work profile)
+```
+De1984's log, one pass later:
+```
+21:54:43.797  Applied policy for io.github.dorumrr.happytaxes (UID 10212, no rule (default policy)): policy=ALLOW
+21:54:43.952  Applied policy for io.github.dorumrr.privacyflip (UID 10276, no rule (default policy)): policy=ALLOW
+21:54:44.017  Applied policy for com.android.providers.downloads (UID 1010103, no rule (default policy)): policy=ALLOW
+```
+All three are now absent from the table. **Destroyed, not recorded, not restorable.**
+
+Note `POLICY_REJECT_METERED_BACKGROUND` (0x1) is exactly what Android's own user-facing "Restrict
+background data" switch writes, so this silently reverses that switch for every app without a De1984
+rule.
+
+The damage happens on **start**, not stop, so the P0-2 cleanup does not help. Fixing it needs the
+backend to read each uid's current policy with `getUidPolicy` before its first write, store the
+originals, and only ever clear policies it set itself.
+
+---
+
+# NEW P2 — the backend picker offers ConnectivityManager where it cannot run
+
+`SettingsFragmentViews.kt:740` gates ConnectivityManager on `hasShizuku && isAndroid13Plus` only. It
+never calls `checkAvailability()`.
+
+On the test device `cmd connectivity help` lists only `help` and `airplane-mode` — no
+`set-chain3-enabled`, no `set-package-networking-enabled`. The backend cannot work here.
+
+`ConnectivityManagerFirewallBackend.checkAvailability()` (`:414-418`) does detect this correctly, so
+selecting the backend fails cleanly rather than silently. The defect is the picker presenting it as
+available. Low blast radius, wrong signal to the user.
+
+---
+
+# ADVERSARIAL AUDIT OF THE P0-2 / P0-3 FIXES — 2026-08-22
+
+21 agents, 4 review lenses, every finding put to a skeptic. **17 raised, 9 survived, 8 refuted.**
+The 9 collapse into 4 distinct defects. All 4 are now fixed.
+
+## A. Cross-instance race on the original-policy record — FIXED
+Raised by 3 lenses independently (deadlock, lifecycle, regression). Four instantiation sites exist:
+`FirewallManager.kt:226`, `:845`, `PrivilegedFirewallService.kt:263`, and the cleanup one at
+`FirewallManager.kt:685`. Each instance has its own `mutex`, so nothing serialised the
+load-mutate-save of the shared prefs key across instances.
+
+**Independently reproduced on hardware before the audit landed**, which is what makes this certain:
+```
+22:04:15.845  thread 9978  applyRules  →  "skipped 86 unchanged"   (warm cache, instance A)
+22:04:16.136  thread 9966  applyRules  →  "skipped 0 unchanged"    (cold cache, instance B)
+22:04:31.917  thread 9978  happytaxes → BLOCK   (A reads original 262144, writes 1)
+22:04:31.920  thread 9966  happytaxes → BLOCK   (B reads 1, records 1 as the "original")
+```
+uid 10212's real `POLICY_REJECT_ALL` was replaced in the record by De1984's own blocking value, 3 ms
+apart. The audit's worse variant — cleanup instance and service `applyRules` interleaving so a uid is
+reverted out of the record while still blocked in `netpolicy.xml` — is the same root cause.
+
+Fix: one process-wide `originalPolicyLock` in the companion object, taken by both `applyRules` and
+`clearBlockedUidPoliciesInternal`. Lock order is always instance `mutex` first, then the shared lock.
+
+## B. The revert loop ran on the main thread — FIXED
+Raised by 3 lenses. `FirewallManager` contains no `withContext` at all, and `stopFirewall` is entered
+from `FirewallViewModel` and `SettingsViewModel:563` on `viewModelScope` (`Dispatchers.Main.immediate`).
+`clearBlockedUidPoliciesInternal` hopped to IO only inside `getNetworkPolicyManager()`, so
+`initializeReflection()` and one blocking binder call **per uid** ran on the UI thread — while holding
+`startStopMutex`, blocking every other start, stop and toggle.
+
+This was introduced by the P0-2 fix: `cleanupAllBackends` previously only fired intents. With
+block-all-by-default and a few hundred uids, at the per-call cost implied by the measured 16 s
+`applyRules`, this is an ANR.
+
+Fix: `clearBlockedUidPoliciesInternal` now wraps its whole body in `withContext(Dispatchers.IO)`.
+
+## C. The fresh-process sweep skipped NetworkPolicyManager — FIXED
+`De1984Application.cleanupOrphanedFirewallRules` swept iptables and ConnectivityManager and ended with
+`// NetworkPolicyManager doesn't need cleanup (no persistent state)` — false, and the same false claim
+that was corrected in `FirewallManager` but not here.
+
+This mattered: `clearOrphanedPolicies` was reachable **only** from `cleanupAllBackends`, i.e. only from
+a user-initiated stop. The whole point of mirroring the uid list to disk was fresh-process recovery —
+a crash, or a stop that failed because Shizuku was down — and no fresh-process path ever called it. The
+persistence was dead weight.
+
+Fix: the sweep now builds an NPM backend and calls `clearOrphanedPolicies()`, reporting success and
+failure separately.
+
+## D. A failed revert was logged as success — FIXED
+`clearOrphanedPolicies` returns `Result.failure` rather than throwing when the binder is gone, so the
+surrounding `try/catch` never saw it and `"NetworkPolicyManager cleanup completed"` was logged either
+way. Fix: `.onSuccess` / `.onFailure`.
+
+## Notable refutations
+- *"Stop silently erases the user's own Restrict background data setting"* — **refuted**, because the
+  P0-9 read-before-write fix had already landed. Good confirmation that P0-9 closes it.
+- *"getUidPolicy failure now silently disables all blocking while reporting success"* — refuted; the
+  code counts it as an error and refuses to write.
+- *"A mid-loop kill orphans uids because they reach the persisted set only after the loop"* — refuted.
+
+## Still open from this run — NOT fixed
+**The duplicate apply.** Two backend instances each run the full `applyRules` for the same rule change:
+two passes of ~16 s over 87 uids. Correct now that they share a lock, but it doubles the cost and is
+the reason the race existed. The real fix is one backend instance per process, which touches
+`FirewallManager` and `PrivilegedFirewallService` lifecycle. Recorded, not attempted.
+
+---
+
+# P0-9 VERIFIED ON HARDWARE — 2026-08-22
+
+Android 14 / SDK 34 / LineageOS / Shizuku running as root / NetworkPolicyManager backend.
+
+Baseline before the run — 7 policies, none of them De1984's:
+```
+UID=10201 262144   UID=10246 262144   UID=1010103      4
+UID=10203 262144   UID=10276 262144   UID=1010246 262144
+UID=10212 262144   <- io.github.dorumrr.happytaxes, the test subject
+```
+
+Blocked `happytaxes` (uid 10212, original `262144`) and `com.aurora.store` (uid 10269, no policy),
+then started the firewall:
+```
+22:15:03.693  Applied policy for io.github.dorumrr.happytaxes (UID 10212, has rule): policy=BLOCK (REJECT_METERED (Mobile only))
+22:15:03.707  Applied policy for com.aurora.store (UID 10269, has rule): policy=BLOCK (REJECT_METERED (Mobile only))
+22:15:03.712  ✅ Applied 2 policies, skipped 0 unchanged, left 85 foreign policies alone, 0 errors
+```
+
+WiFi then dropped, which made every rule inapplicable and triggered the restore path:
+```
+22:15:16.423  State changed: network=NONE, screen=true - scheduling rule application
+22:15:17.690  Applied policy for io.github.dorumrr.happytaxes (UID 10212, has rule): policy=RESTORED
+22:15:17.703  Applied policy for com.aurora.store (UID 10269, has rule): policy=RESTORED
+```
+Policy table afterwards is **byte-identical to the baseline**, `UID=10212 policy=262144`, and the
+record is empty.
+
+**This is the decisive comparison.** The identical restore on the previous build produced `1` —
+De1984's own blocking value, recorded as the "original" by the cross-instance race. On this build it
+produced `262144`, the true original. The shared `originalPolicyLock` closes it.
+
+Three claims proven in one run:
+- **Read-before-write records the real value.** Restore returned `262144`, which is only possible if
+  `262144` was what got recorded.
+- **Foreign policies are untouched.** `left 85 foreign policies alone` — the pre-fix build wrote to all
+  87 and destroyed 3.
+- **`0 errors`.** The 8 `cannot apply policy to UID 100xxxx` failures per pass are gone, because the
+  backend no longer writes to uids it does not own.
+
+Also observed: the apply loop now takes ~20 ms instead of writing 79 policies. The `applyRules`
+16.5 s figure was dominated by package enumeration, but the write phase is now negligible.
+
+Fix C (`De1984Application` orphan sweep) verified in the same session:
+```
+22:12:06.068  De1984Application: Cleaned up orphaned NetworkPolicyManager policies
+```
+with the 7 existing policies untouched, because De1984's record was empty.
+
+## NEW P1 — a network transition unblocks every app until the next apply lands
+When `networkType` is `NONE`, no rule matches, so every blocked app is restored to its original
+policy. That is harmless while there is no network. The problem is the other edge: on reconnect,
+`State changed` schedules a debounced (300 ms) rule application, and the apply itself is not instant.
+
+Between the network becoming usable and the apply completing, every app the user believes is blocked
+has full network access. Measured on this device: `22:15:02.672 State changed: network=WIFI` ->
+`22:15:03.712 Applied` — roughly **1 second** of open access on a light rule set. The same
+state-change-then-apply pattern is used by the ConnectivityManager backend.
+
+Not fixed. Needs a decision: keep apps blocked across `NONE` transitions rather than restoring them,
+or block first and relax afterwards.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

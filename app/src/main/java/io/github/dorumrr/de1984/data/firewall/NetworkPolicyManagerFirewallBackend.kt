@@ -56,6 +56,22 @@ class NetworkPolicyManagerFirewallBackend(
 
         // System service name
         private const val SERVICE_NAME = "netpolicy"
+
+        /**
+         * Guards the record of "what each UID looked like before this backend touched it".
+         *
+         * FirewallManager, PrivilegedFirewallService and cleanupAllBackends each hold their own
+         * instance of this backend, so the per-instance [mutex] does not make them exclusive. Two
+         * instances applying at the same time would both read the same UID, each see the other's
+         * write as the original value, and destroy the real one.
+         *
+         * Observed on hardware: uid 10212 held POLICY_REJECT_ALL (262144). Instance A read it
+         * correctly and wrote the blocking policy at 22:04:31.917; instance B read the same uid
+         * 3 ms later, got A's value, and saved 1 as the "original". The real value was lost.
+         *
+         * Lock order is always instance [mutex] first, then this. Never the other way round.
+         */
+        private val originalPolicyLock = Mutex()
     }
 
     private val mutex = Mutex()
@@ -153,20 +169,142 @@ class NetworkPolicyManagerFirewallBackend(
         return try {
             AppLogger.d(TAG, "stopInternal: Cleaning up")
 
-            // Clear all policies by setting POLICY_NONE for all apps
-            // Note: We don't track which apps we modified, so we can't clean up perfectly
-            // This is acceptable as the policies will be reapplied when firewall starts again
-
-            // Clear applied policies cache when stopping firewall
-            appliedPolicies.clear()
-            AppLogger.d(TAG, "Cleared applied policies cache")
+            val result = clearBlockedUidPoliciesInternal()
 
             AppLogger.d(TAG, "Cleanup complete")
-            Result.success(Unit)
+            result
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to stop NetworkPolicyManager firewall", e)
             Result.failure(errorHandler.handleError(e, "stop NetworkPolicyManager firewall"))
         }
+    }
+
+    /**
+     * Set every UID this backend blocked back to POLICY_NONE.
+     *
+     * Android persists UID policies in `/data/system/netpolicy.xml`, so a policy written here
+     * outlives the firewall, this process, a reboot and even an uninstall - and no Android screen
+     * exposes it. Stopping used to clear only the in-memory cache, which left the affected apps
+     * blocked with no way back.
+     *
+     * Use this from outside the backend; [stopInternal] already holds the mutex and calls the
+     * internal form directly.
+     */
+    suspend fun clearOrphanedPolicies(): Result<Unit> = mutex.withLock {
+        return clearBlockedUidPoliciesInternal()
+    }
+
+    /**
+     * Body of [clearOrphanedPolicies]. The caller MUST already hold [mutex].
+     *
+     * Reverts the union of the in-memory cache and the persisted UID list. The persisted list is
+     * what makes cleanup possible from a fresh process - after a crash or a backend switch,
+     * [appliedPolicies] is empty but the system policies are still in place.
+     */
+    private suspend fun clearBlockedUidPoliciesInternal(): Result<Unit> = withContext(Dispatchers.IO) {
+        // Off the caller's thread on purpose. stopFirewall() reaches here from viewModelScope, which
+        // is Dispatchers.Main.immediate, and this loop makes one blocking binder call per UID -
+        // hundreds of them for a block-all-by-default user. On the main thread that is an ANR.
+        originalPolicyLock.withLock {
+            val originals = loadOriginalPolicies()
+            if (originals.isEmpty()) {
+                AppLogger.d(TAG, "No UID policies of ours to restore")
+                appliedPolicies.clear()
+                    return@withContext Result.success(Unit)
+            }
+
+            if (!initializeReflection()) {
+                AppLogger.e(TAG, "Reflection unavailable - ${originals.size} UID policies left in place")
+                    return@withContext Result.failure(
+                    errorHandler.handleError(
+                        Exception("Failed to initialize reflection for NetworkPolicyManager"),
+                        "restore network policies"
+                    )
+                )
+            }
+
+            val networkPolicyManager = getNetworkPolicyManager()
+            if (networkPolicyManager == null) {
+                AppLogger.e(TAG, "Cannot reach NetworkPolicyManager - ${originals.size} UID policies left in place")
+                    return@withContext Result.failure(
+                    errorHandler.handleError(
+                        Exception("Failed to get NetworkPolicyManager instance"),
+                        "restore network policies"
+                    )
+                )
+            }
+
+            // Anything still in here after the loop failed to restore, so it stays on disk for the next
+            // attempt rather than being silently forgotten.
+            val remaining = originals.toMutableMap()
+            originals.forEach { (uid, original) ->
+                try {
+                    setUidPolicyMethod?.invoke(networkPolicyManager, uid, original)
+                    remaining.remove(uid)
+                    appliedPolicies.remove(uid)
+                    AppLogger.d(TAG, "Restored UID $uid to policy $original")
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to restore policy for UID $uid", e)
+                }
+            }
+
+            saveOriginalPolicies(remaining)
+
+            return@withContext if (remaining.isEmpty()) {
+                AppLogger.d(TAG, "✅ Restored ${originals.size} UID policies")
+                appliedPolicies.clear()
+                Result.success(Unit)
+            } else {
+                AppLogger.e(TAG, "❌ ${remaining.size} of ${originals.size} UID policies could not be restored")
+                Result.failure(
+                    errorHandler.handleError(
+                        Exception("${remaining.size} UID policies could not be restored"),
+                        "restore network policies"
+                    )
+                )
+            }
+        }
+    }
+
+    /**
+     * Read a UID's current policy. Returns null if it cannot be read, in which case the caller must
+     * not write to that UID - overwriting a policy we cannot record would destroy it.
+     */
+    private fun readUidPolicy(networkPolicyManager: Any, uid: Int): Int? {
+        return try {
+            getUidPolicyMethod?.invoke(networkPolicyManager, uid) as? Int
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to read current policy for UID $uid", e)
+            null
+        }
+    }
+
+    /**
+     * UIDs this backend has written to, mapped to the policy that was in place before the first
+     * write. Mirrored on disk as "uid:policy" strings so a fresh process can still put them back -
+     * after a crash or a backend switch the in-memory state is gone but the system policies remain.
+     */
+    private fun loadOriginalPolicies(): Map<Int, Int> {
+        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
+            ?.mapNotNull { entry ->
+                val parts = entry.split(":")
+                val uid = parts.getOrNull(0)?.toIntOrNull()
+                val policy = parts.getOrNull(1)?.toIntOrNull()
+                if (uid != null && policy != null) uid to policy else null
+            }
+            ?.toMap()
+            ?: emptyMap()
+    }
+
+    private fun saveOriginalPolicies(originals: Map<Int, Int>) {
+        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putStringSet(
+                Constants.Settings.KEY_NPM_ORIGINAL_POLICIES,
+                originals.map { (uid, policy) -> "$uid:$policy" }.toSet()
+            )
+            .apply()
     }
 
     /**
@@ -313,49 +451,93 @@ class NetworkPolicyManagerFirewallBackend(
             // Second pass: Only apply changes for UIDs whose policy changed
             // This drastically reduces reflection calls (memory leak fix)
             var skippedCount = 0
-            desiredPolicies.forEach { (uid, shouldBlock) ->
-                val currentPolicy = appliedPolicies[uid]
+            var untouchedCount = 0
 
-                // Skip if policy hasn't changed
-                if (currentPolicy == shouldBlock) {
-                    skippedCount++
-                    return@forEach
+            // UIDs this backend has written to, with the policy that was in place beforehand.
+            // A UID in this map is "ours"; anything else belongs to the user or the ROM.
+            // One lock for every instance: reading a UID's current policy and writing over it must
+            // be atomic across the whole process, or a concurrent instance's write gets recorded as
+            // the original. See originalPolicyLock.
+            originalPolicyLock.withLock {
+                val originalPolicies = loadOriginalPolicies().toMutableMap()
+                val originalPoliciesBefore = originalPolicies.toMap()
+
+                desiredPolicies.forEach { (uid, shouldBlock) ->
+                    val currentPolicy = appliedPolicies[uid]
+
+                    // Skip if policy hasn't changed
+                    if (currentPolicy == shouldBlock) {
+                        skippedCount++
+                        return@forEach
+                    }
+
+                    val isOurs = originalPolicies.containsKey(uid)
+
+                    // Leave every UID we never blocked exactly as it is.
+                    //
+                    // POLICY_NONE does not mean "no opinion" - it erases whatever policy is set,
+                    // including one the user chose. Android's own "Restrict background data" switch
+                    // writes POLICY_REJECT_METERED_BACKGROUND, the same value used to block here, and
+                    // custom ROMs write POLICY_REJECT_ALL for their per-app restrictions. Writing
+                    // POLICY_NONE to every unblocked app silently destroyed all of it.
+                    if (!shouldBlock && !isOurs) {
+                        untouchedCount++
+                        appliedPolicies[uid] = false
+                        return@forEach
+                    }
+
+                    try {
+                        if (shouldBlock) {
+                            // Record what was there before the first write, so it can be given back.
+                            if (!isOurs) {
+                                val existing = readUidPolicy(networkPolicyManager, uid)
+                                if (existing == null) {
+                                    errorCount++
+                                    val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
+                                    AppLogger.e(TAG, "Cannot read current policy for $packageName (UID $uid) - " +
+                                            "refusing to overwrite it")
+                                    return@forEach
+                                }
+                                originalPolicies[uid] = existing
+                            }
+                            setUidPolicyMethod?.invoke(networkPolicyManager, uid, blockingPolicy)
+                        } else {
+                            // Ours, and no longer blocked: restore exactly what was there before.
+                            val original = originalPolicies.remove(uid) ?: POLICY_NONE
+                            setUidPolicyMethod?.invoke(networkPolicyManager, uid, original)
+                        }
+
+                        appliedPolicies[uid] = shouldBlock  // Track applied policy
+                        appliedCount++
+
+                        val policyName = when (blockingPolicy) {
+                            POLICY_REJECT_ALL -> "REJECT_ALL (WiFi+Mobile)"
+                            POLICY_REJECT_METERED_BACKGROUND -> "REJECT_METERED (Mobile only)"
+                            else -> "UNKNOWN"
+                        }
+
+                        val rulesForUid = rulesByUid[uid]
+                        val ruleStatus = if (rulesForUid != null) "has rule" else "no rule (default policy)"
+
+                        // Find package name for logging (may be multiple packages with same UID)
+                        val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
+
+                        AppLogger.d(TAG, "Applied policy for $packageName (UID $uid, $ruleStatus): " +
+                                "policy=${if (shouldBlock) "BLOCK ($policyName)" else "RESTORED"}")
+                    } catch (e: Exception) {
+                        errorCount++
+                        val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
+                        AppLogger.e(TAG, "Failed to apply policy for $packageName (UID $uid)", e)
+                    }
                 }
 
-                try {
-                    // Set policy
-                    val policy = if (shouldBlock) {
-                        blockingPolicy
-                    } else {
-                        POLICY_NONE
-                    }
-
-                    setUidPolicyMethod?.invoke(networkPolicyManager, uid, policy)
-                    appliedPolicies[uid] = shouldBlock  // Track applied policy
-                    appliedCount++
-
-                    val policyName = when (blockingPolicy) {
-                        POLICY_REJECT_ALL -> "REJECT_ALL (WiFi+Mobile)"
-                        POLICY_REJECT_METERED_BACKGROUND -> "REJECT_METERED (Mobile only)"
-                        else -> "UNKNOWN"
-                    }
-
-                    val rulesForUid = rulesByUid[uid]
-                    val ruleStatus = if (rulesForUid != null) "has rule" else "no rule (default policy)"
-
-                    // Find package name for logging (may be multiple packages with same UID)
-                    val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
-
-                    AppLogger.d(TAG, "Applied policy for $packageName (UID $uid, $ruleStatus): " +
-                            "policy=${if (shouldBlock) "BLOCK ($policyName)" else "ALLOW"}")
-                } catch (e: Exception) {
-                    errorCount++
-                    val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
-                    AppLogger.e(TAG, "Failed to apply policy for $packageName (UID $uid)", e)
+                if (originalPolicies != originalPoliciesBefore) {
+                    saveOriginalPolicies(originalPolicies)
                 }
             }
 
-                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $errorCount errors")
+                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, " +
+                        "left $untouchedCount foreign policies alone, $errorCount errors")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply rules", e)

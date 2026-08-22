@@ -94,6 +94,7 @@ object Constants {
         const val KEY_VPN_SERVICE_RUNNING = "vpn_service_running"  // Tracks if VPN service is actually running
         const val KEY_VPN_INTERFACE_ACTIVE = "vpn_interface_active"  // Tracks if VPN interface is established (separate from service running)
         const val KEY_PRIVILEGED_SERVICE_RUNNING = "privileged_service_running"  // Tracks if privileged firewall service is running
+        const val KEY_NPM_ORIGINAL_POLICIES = "npm_original_policies"  // "uid:policy" pairs: what each UID looked like before the NetworkPolicyManager backend touched it
         const val KEY_PRIVILEGED_BACKEND_TYPE = "privileged_backend_type"  // Stores which privileged backend is active (iptables/connectivity_manager/network_policy_manager)
         const val KEY_NEW_APP_NOTIFICATIONS = "new_app_notifications"
         const val KEY_BOOT_PROTECTION = "boot_protection"

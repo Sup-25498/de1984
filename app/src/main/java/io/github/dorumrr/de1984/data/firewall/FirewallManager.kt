@@ -360,6 +360,18 @@ class FirewallManager(
      * - Privilege/failure handlers can rely on the same planning logic.
      */
     suspend fun startFirewall(mode: FirewallMode = getCurrentMode()): Result<FirewallBackendType> = startStopMutex.withLock {
+        return startFirewallInternal(mode)
+    }
+
+    /**
+     * Internal start method without mutex (for callers that already hold the lock).
+     *
+     * [handleBackendFailure] runs inside [startStopMutex] and must reach this, not [startFirewall].
+     * kotlinx Mutex is not reentrant, so going through the public method there suspended forever
+     * while still holding the lock, hanging every later start, stop and toggle for the rest of the
+     * process.
+     */
+    private suspend fun startFirewallInternal(mode: FirewallMode): Result<FirewallBackendType> {
         return try {
             AppLogger.d(TAG, "Starting firewall with mode: $mode")
 
@@ -665,10 +677,31 @@ class FirewallManager(
             // User may not have root/Shizuku, which is fine
         }
 
+        // Clean up NetworkPolicyManager uid policies (if any exist).
+        // Android persists these in /data/system/netpolicy.xml, so they survive the process, a
+        // reboot and an uninstall. The backend keeps the uid list in SharedPreferences, so a fresh
+        // instance here can still revert what an earlier one blocked.
+        try {
+            val npmBackend = NetworkPolicyManagerFirewallBackend(
+                context,
+                shizukuManager,
+                errorHandler
+            )
+            // Report what actually happened. clearOrphanedPolicies returns a failure rather than
+            // throwing when Shizuku is gone, so the try/catch below would not see it and the old
+            // unconditional "completed" line claimed success while apps stayed blocked.
+            npmBackend.clearOrphanedPolicies()
+                .onSuccess { AppLogger.d(TAG, "NetworkPolicyManager cleanup completed") }
+                .onFailure { AppLogger.w(TAG, "NetworkPolicyManager cleanup incomplete: ${it.message}") }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to clean up NetworkPolicyManager policies: ${e.message}")
+            // Ignore errors - best effort cleanup
+            // User may not have Shizuku, which is fine
+        }
+
         // VPN and ConnectivityManager backends don't leave orphaned state:
         // - VPN: Service stops cleanly, Android removes VPN interface automatically
         // - ConnectivityManager: Chain is disabled via shell command, no persistent state
-        // So we only need to clean up iptables rules
     }
 
     /**
@@ -1160,7 +1193,7 @@ class FirewallManager(
         if (!plan.requiresVpnPermission || plan.selectedBackendType != FirewallBackendType.VPN) {
             // Planner chose a non-VPN backend or VPN that doesn't require permission (shouldn't happen),
             // just delegate to normal startFirewall flow.
-            val result = startFirewall(plan.mode)
+            val result = startFirewallInternal(plan.mode)
             result.onSuccess { backendType ->
                 AppLogger.d(TAG, "✅ Backend failure handled via planner: switched to $backendType")
             }.onFailure { error ->
@@ -1223,7 +1256,7 @@ class FirewallManager(
             // VPN permission granted - automatic fallback
             AppLogger.d(TAG, "VPN permission granted - attempting automatic VPN fallback via startFirewall(plan.mode)...")
 
-            val result = startFirewall(plan.mode)
+            val result = startFirewallInternal(plan.mode)
             result.onSuccess { backendType ->
                 AppLogger.d(TAG, "✅ VPN fallback successful via planner: backend=$backendType")
             }.onFailure { error ->

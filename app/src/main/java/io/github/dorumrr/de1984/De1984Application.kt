@@ -7,6 +7,7 @@ import com.google.android.material.color.DynamicColors
 import com.topjohnwu.superuser.Shell
 import io.github.dorumrr.de1984.data.firewall.ConnectivityManagerFirewallBackend
 import io.github.dorumrr.de1984.data.firewall.IptablesFirewallBackend
+import io.github.dorumrr.de1984.data.firewall.NetworkPolicyManagerFirewallBackend
 import io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
@@ -130,7 +131,23 @@ class De1984Application : Application() {
                         AppLogger.w(TAG, "Failed to clean up orphaned ConnectivityManager rules: ${e.message}")
                     }
 
-                    // NetworkPolicyManager doesn't need cleanup (no persistent state)
+                    // Clean up NetworkPolicyManager uid policies
+                    // Android persists these in /data/system/netpolicy.xml, so they outlive the
+                    // process. This is the only fresh-process sweep in the app, and the reason the
+                    // backend mirrors its uid list to SharedPreferences: after a crash, or a stop
+                    // that failed because Shizuku was down, this is where the retry happens.
+                    try {
+                        val npmBackend = NetworkPolicyManagerFirewallBackend(
+                            this@De1984Application,
+                            dependencies.shizukuManager,
+                            dependencies.errorHandler
+                        )
+                        npmBackend.clearOrphanedPolicies()
+                            .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned NetworkPolicyManager policies") }
+                            .onFailure { AppLogger.w(TAG, "Orphaned NetworkPolicyManager policies remain: ${it.message}") }
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed to clean up orphaned NetworkPolicyManager policies: ${e.message}")
+                    }
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to clean up orphaned firewall rules: ${e.message}")
