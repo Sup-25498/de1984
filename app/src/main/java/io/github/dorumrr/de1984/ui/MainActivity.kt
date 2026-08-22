@@ -29,6 +29,9 @@ import io.github.dorumrr.de1984.data.service.PackageMonitoringService
 import io.github.dorumrr.de1984.databinding.ActivityMainViewsBinding
 import io.github.dorumrr.de1984.presentation.viewmodel.FirewallViewModel
 import io.github.dorumrr.de1984.presentation.viewmodel.SettingsViewModel
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
+import io.github.dorumrr.de1984.ui.common.FirewallHealthAction
+import io.github.dorumrr.de1984.ui.common.FirewallHealthPresenter
 import io.github.dorumrr.de1984.ui.common.StandardDialog
 import io.github.dorumrr.de1984.ui.firewall.FirewallFragmentViews
 import io.github.dorumrr.de1984.ui.packages.PackagesFragmentViews
@@ -587,27 +590,46 @@ class MainActivity : AppCompatActivity() {
             Tab.FIREWALL -> {
                 binding.toolbarSectionName.text = getString(R.string.nav_firewall).uppercase()
                 binding.firewallToggleGroup.visibility = View.VISIBLE
-                // Update badges based on current firewall state
-                val isEnabled = firewallViewModel.uiState.value.isFirewallEnabled
-                binding.firewallActiveBadge.visibility = if (isEnabled) View.VISIBLE else View.GONE
-                binding.firewallOffBadge.visibility = if (isEnabled) View.GONE else View.VISIBLE
             }
             Tab.APPS -> {
                 binding.toolbarSectionName.text = getString(R.string.nav_packages).uppercase()
                 binding.firewallToggleGroup.visibility = View.GONE
-                binding.firewallActiveBadge.visibility = View.GONE
-                binding.firewallOffBadge.visibility = View.GONE
             }
             Tab.SETTINGS -> {
                 binding.toolbarSectionName.text = getString(R.string.nav_settings).uppercase()
                 binding.firewallToggleGroup.visibility = View.GONE
-                binding.firewallActiveBadge.visibility = View.GONE
-                binding.firewallOffBadge.visibility = View.GONE
             }
         }
+        updateFirewallBadges()
+    }
+
+    /**
+     * Show exactly one status badge in the toolbar, or none.
+     *
+     * Single place for this. Badge visibility used to be written out in four separate blocks, which
+     * is how a failed firewall ended up showing the same OFF badge as a deliberate stop - the user
+     * could not tell "I turned it off" from "it broke".
+     */
+    private fun updateFirewallBadges() {
+        val onFirewallTab = currentTab == Tab.FIREWALL
+        val isDown = FirewallHealthPresenter.isCritical(firewallViewModel.firewallHealth.value)
+        val isEnabled = firewallViewModel.uiState.value.isFirewallEnabled
+
+        binding.firewallDownBadge.visibility = if (onFirewallTab && isDown) View.VISIBLE else View.GONE
+        binding.firewallActiveBadge.visibility =
+            if (onFirewallTab && !isDown && isEnabled) View.VISIBLE else View.GONE
+        binding.firewallOffBadge.visibility =
+            if (onFirewallTab && !isDown && !isEnabled) View.VISIBLE else View.GONE
     }
 
     private fun observeFirewallState() {
+        lifecycleScope.launch {
+            firewallViewModel.firewallHealth.collect { health ->
+                renderFirewallHealthBanner(health)
+                updateFirewallBadges()
+            }
+        }
+
         lifecycleScope.launch {
             firewallViewModel.uiState.collect { state ->
                 // Update custom switch appearance
@@ -625,6 +647,73 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Draw the firewall health banner, or hide it when there is nothing to say.
+     *
+     * The banner is deliberately not dismissible. It describes a live condition - no app is being
+     * blocked right now - so it must disappear only when that condition ends, never because the
+     * user tapped it away.
+     */
+    private fun renderFirewallHealthBanner(health: FirewallHealth) {
+        val banner = binding.firewallHealthBanner
+        val title = FirewallHealthPresenter.title(this, health)
+        val message = FirewallHealthPresenter.message(this, health)
+
+        if (title == null || message == null) {
+            banner.root.visibility = View.GONE
+            return
+        }
+
+        val isCritical = FirewallHealthPresenter.isCritical(health)
+
+        banner.root.setBackgroundResource(
+            if (isCritical) R.drawable.firewall_down_banner_background
+            else R.drawable.warning_banner_background
+        )
+        banner.healthBannerTitle.text = title
+        banner.healthBannerTitle.setTextColor(
+            ContextCompat.getColor(this, if (isCritical) R.color.error_red else R.color.warning_orange)
+        )
+        banner.healthBannerMessage.text = message
+
+        val action = FirewallHealthPresenter.action(health)
+        if (action == null) {
+            banner.healthBannerAction.visibility = View.GONE
+        } else {
+            banner.healthBannerAction.visibility = View.VISIBLE
+            banner.healthBannerAction.setText(action.label)
+            banner.healthBannerAction.setOnClickListener { onFirewallHealthAction(action) }
+        }
+
+        banner.root.visibility = View.VISIBLE
+        AppLogger.d(TAG, "Firewall health banner shown: $health")
+    }
+
+    /**
+     * Run the one useful recovery step for this failure.
+     *
+     * Every branch reuses a path that already exists, so the banner button and the notification it
+     * mirrors always end up in the same place.
+     */
+    private fun onFirewallHealthAction(action: FirewallHealthAction) {
+        AppLogger.d(TAG, "Firewall health banner action tapped: $action")
+        when (action) {
+            FirewallHealthAction.CHOOSE_BACKEND ->
+                binding.bottomNavigation.selectedItemId = R.id.settingsFragment
+
+            FirewallHealthAction.RETRY -> {
+                val prepareIntent = firewallViewModel.startFirewall()
+                if (prepareIntent != null) {
+                    vpnPermissionLauncher.launch(prepareIntent)
+                }
+            }
+
+            // Both end at the same VPN permission flow the fallback notification uses
+            FirewallHealthAction.ENABLE_VPN,
+            FirewallHealthAction.REPLACE_VPN -> handleVpnFallbackRequest()
+        }
+    }
+
     private fun updateSwitchAppearance(isEnabled: Boolean) {
         // Update switch state without triggering the listener
         binding.firewallToggle.setOnCheckedChangeListener(null)
@@ -633,14 +722,7 @@ class MainActivity : AppCompatActivity() {
             onFirewallToggleChanged(isChecked)
         }
 
-        // Update badge visibility (only show on Firewall tab)
-        if (currentTab == Tab.FIREWALL && binding.firewallToggleGroup.visibility == View.VISIBLE) {
-            binding.firewallActiveBadge.visibility = if (isEnabled) View.VISIBLE else View.GONE
-            binding.firewallOffBadge.visibility = if (isEnabled) View.GONE else View.VISIBLE
-        } else {
-            binding.firewallActiveBadge.visibility = View.GONE
-            binding.firewallOffBadge.visibility = View.GONE
-        }
+        updateFirewallBadges()
     }
 
     private fun onFirewallToggleChanged(enabled: Boolean) {

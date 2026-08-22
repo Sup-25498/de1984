@@ -55,14 +55,19 @@ object HiddenApiHelper {
     private var installedAppsCache: MutableMap<Int, List<ApplicationInfo>> = mutableMapOf()
     @Volatile
     private var installedAppsCacheTime: Long = 0
-    // The TTL is a backstop, not the primary invalidation. PackageAddedReceiver and
-    // PackageChangedReceiver drop these caches the moment a package is added, changed or removed, so
-    // a stale entry cannot outlive a real change.
+    // Deliberately short, and NOT raised despite the cost of what it guards.
     //
-    // It used to be 5 seconds, which was shorter than the work it guarded: rebuilding the
-    // network-permission list takes 5-9 seconds on a two-profile device with 466 packages, so the
-    // cache expired before it could ever serve a hit and every rule toggle paid the full cost.
-    private const val INSTALLED_APPS_CACHE_TTL = 60_000L
+    // The receivers below it invalidate on package add, change and removal, but only for the user
+    // De1984 is installed in. Verified on hardware: installing a package into the work profile
+    // (user 10) while De1984 is installed only in user 0 fires no receiver at all, so a work-profile
+    // install is caught by this TTL and nothing else. Raising it to 60 s made that blind spot twelve
+    // times longer - a newly installed work-profile app would go unblocked for a minute.
+    //
+    // It buys nothing anyway: AndroidPackageDataSource.loadPackagesInternal clears these caches on
+    // every package-list load, and a rule toggle triggers one, so the cache is wiped microseconds
+    // before the firewall needs it regardless of the TTL. Fixing that properly needs work-profile
+    // aware invalidation, not a longer window.
+    private const val INSTALLED_APPS_CACHE_TTL = 5_000L
 
     // Which packages request a network permission. Shares the installed-apps TTL and invalidation,
     // because the answer changes only when a package is installed or removed.

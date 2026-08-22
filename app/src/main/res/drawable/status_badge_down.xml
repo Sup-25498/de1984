@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deeper than status_badge_off so a failure never reads as "the user switched it off". -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/firewall_down_red" />
+    <corners android:radius="4dp" />
+</shape>

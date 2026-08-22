@@ -21,9 +21,11 @@ import io.github.dorumrr.de1984.data.monitor.NetworkStateMonitor
 import io.github.dorumrr.de1984.data.monitor.ScreenStateMonitor
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackend
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.ui.MainActivity
+import io.github.dorumrr.de1984.ui.common.FirewallHealthPresenter
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.CoroutineScope
@@ -111,8 +113,16 @@ class FirewallManager(
     private val _activeBackendType = MutableStateFlow<FirewallBackendType?>(null)
     val activeBackendType: StateFlow<FirewallBackendType?> = _activeBackendType.asStateFlow()
 
-    private val _backendHealthWarning = MutableStateFlow<String?>(null)
-    val backendHealthWarning: StateFlow<String?> = _backendHealthWarning.asStateFlow()
+    /**
+     * Whether the firewall is actually enforcing, for the UI to render.
+     *
+     * Every path that loses protection must publish here through [reportFirewallDown], and every
+     * path that regains or intentionally releases it through [reportFirewallHealthy]. Setting the
+     * flow by hand re-opens the drift this replaced: nine hand-written failure paths, five of which
+     * warned nobody.
+     */
+    private val _firewallHealth = MutableStateFlow<FirewallHealth>(FirewallHealth.Healthy)
+    val firewallHealth: StateFlow<FirewallHealth> = _firewallHealth.asStateFlow()
 
     // Current firewall mode - exposed as StateFlow so UI can observe changes
     private val _currentMode = MutableStateFlow(FirewallMode.AUTO)
@@ -564,9 +574,8 @@ class FirewallManager(
             _firewallState.value = FirewallState.Running(newBackendType)
             emitStateChangeBroadcast(_firewallState.value)
 
-            // Clear firewall down flag - firewall is now running successfully
-            _isFirewallDown.value = false
-            dismissBackendFailedNotification()
+            // Clear firewall down flag and any stale warning - firewall is now running successfully
+            reportFirewallHealthy()
 
             // No monitoring is started here, for any backend:
             // - VPN monitors internally via VpnService
@@ -630,9 +639,9 @@ class FirewallManager(
             _firewallState.value = FirewallState.Stopped
             emitStateChangeBroadcast(_firewallState.value)
 
-            // Clear firewall down flag - firewall is intentionally stopped by user
-            _isFirewallDown.value = false
-            dismissBackendFailedNotification()
+            // Clear firewall down flag and any stale warning - the user stopped it on purpose,
+            // so this is not a failure and must not leave a "your apps are unblocked" banner behind
+            reportFirewallHealthy()
 
             AppLogger.d(TAG, "Firewall stopped successfully")
             Result.success(Unit)
@@ -980,7 +989,7 @@ class FirewallManager(
                             AppLogger.d(TAG, "Health check: User is in manual VPN mode - respecting choice, not checking for privilege gain (interval: ${currentHealthCheckInterval}ms)")
                             consecutiveSuccessfulHealthChecks++
                             AppLogger.d(TAG, "✅ Health check passed: VPN backend is active (manual mode, consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                            _backendHealthWarning.value = null
+                            reportFirewallHealthy()
                         } else {
                             // AUTO mode: Check if better backends become available
                             AppLogger.d(TAG, "Health check: Checking if better backends available (AUTO mode)... (interval: ${currentHealthCheckInterval}ms, consecutive successes: $consecutiveSuccessfulHealthChecks)")
@@ -1021,7 +1030,7 @@ class FirewallManager(
                             // No better backend available - VPN is still the best option
                             consecutiveSuccessfulHealthChecks++
                             AppLogger.d(TAG, "✅ Health check passed: VPN is still the best available backend (AUTO mode, consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                            _backendHealthWarning.value = null
+                            reportFirewallHealthy()
                         }
 
                     } else {
@@ -1062,7 +1071,7 @@ class FirewallManager(
                         // Health check passed - increment success counter
                         consecutiveSuccessfulHealthChecks++
                         AppLogger.d(TAG, "✅ Health check passed: $backendType backend is healthy (consecutive successes: $consecutiveSuccessfulHealthChecks)")
-                        _backendHealthWarning.value = null // Clear any previous warnings
+                        reportFirewallHealthy() // Clear any previous warning
                     }
 
                     // Check if we should increase interval (backend is stable)
@@ -1092,6 +1101,50 @@ class FirewallManager(
     }
 
     /**
+     * Single entry point for "the firewall is no longer enforcing".
+     *
+     * Publishes the typed health state the UI renders, mirrors it into [_firewallState], tells the
+     * widget, preserves user intent so recovery can run, and raises the matching notification.
+     *
+     * Backend teardown stays at the call sites. Some paths must keep [currentBackend] so the health
+     * monitor can still see it and drive recovery, so this helper never touches it.
+     */
+    private fun reportFirewallDown(
+        reason: FirewallHealth.Down.Reason,
+        backend: FirewallBackendType?,
+        stateMessage: String
+    ) {
+        AppLogger.e(TAG, "🚨 FIREWALL DOWN ($reason, backend=$backend): apps are UNBLOCKED - $stateMessage")
+
+        _firewallHealth.value = FirewallHealth.Down(reason, backend)
+        _firewallState.value = FirewallState.Error(message = stateMessage, lastBackend = backend)
+        emitStateChangeBroadcast(_firewallState.value)
+
+        // Preserve user intent so handlePrivilegeChange() can attempt recovery later
+        _isFirewallDown.value = true
+
+        when (reason) {
+            // These two already have their own actionable notifications, with buttons that drive
+            // the VPN permission flow. Reusing them keeps one notification per situation.
+            FirewallHealth.Down.Reason.VPN_CONFLICT -> showVpnConflictNotification()
+            FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED -> showVpnFallbackNotification()
+            else -> showFirewallDownNotification(reason, backend)
+        }
+    }
+
+    /**
+     * Clear the "not enforcing" state, either because a backend is running again or because the
+     * user stopped the firewall on purpose.
+     *
+     * The notification is dismissed here too, so a warning can never outlive the condition.
+     */
+    private fun reportFirewallHealthy() {
+        _firewallHealth.value = FirewallHealth.Healthy
+        _isFirewallDown.value = false
+        dismissBackendFailedNotification()
+    }
+
+    /**
      * Handle backend failure using the planner.
      *
      * Rules (per FIREWALL_BACKEND_RELIABILITY_PLAN):
@@ -1111,18 +1164,11 @@ class FirewallManager(
 
             currentBackend = null
             _activeBackendType.value = null
-            _backendHealthWarning.value = "FIREWALL DOWN: $failedBackendType backend failed. Restore privileges or choose another backend."
-            _firewallState.value = FirewallState.Error(
-                message = "$failedBackendType backend not available",
-                lastBackend = failedBackendType
+            reportFirewallDown(
+                reason = FirewallHealth.Down.Reason.MANUAL_BACKEND_FAILED,
+                backend = failedBackendType,
+                stateMessage = "$failedBackendType backend not available"
             )
-            emitStateChangeBroadcast(_firewallState.value)
-
-            // Preserve user intent for recovery attempts
-            _isFirewallDown.value = true
-
-            // Surface notification to guide the user
-            showBackendFailedNotification(failedBackendType)
             dismissVpnFallbackNotification()
             return@withLock
         }
@@ -1137,15 +1183,11 @@ class FirewallManager(
 
             currentBackend = null
             _activeBackendType.value = null
-            _backendHealthWarning.value = "FIREWALL DOWN: Failed to compute fallback plan. Your apps are UNBLOCKED!"
-            _firewallState.value = FirewallState.Error(
-                message = "Failed to compute fallback plan: ${error?.message}",
-                lastBackend = failedBackendType
+            reportFirewallDown(
+                reason = FirewallHealth.Down.Reason.NO_FALLBACK_PLAN,
+                backend = failedBackendType,
+                stateMessage = "Failed to compute fallback plan: ${error?.message}"
             )
-            emitStateChangeBroadcast(_firewallState.value)
-
-            // Mark firewall as down (preserve user intent for recovery)
-            _isFirewallDown.value = true
             return@withLock
         }
 
@@ -1162,15 +1204,11 @@ class FirewallManager(
                 AppLogger.e(TAG, "❌ Failed to start fallback backend via planner: ${error.message}")
                 currentBackend = null
                 _activeBackendType.value = null
-                _backendHealthWarning.value = "FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED!"
-                _firewallState.value = FirewallState.Error(
-                    message = "Fallback start failed: ${error.message}",
-                    lastBackend = failedBackendType
+                reportFirewallDown(
+                    reason = FirewallHealth.Down.Reason.FALLBACK_FAILED,
+                    backend = failedBackendType,
+                    stateMessage = "Fallback start failed: ${error.message}"
                 )
-                emitStateChangeBroadcast(_firewallState.value)
-
-                // Mark firewall as down (preserve user intent for recovery)
-                _isFirewallDown.value = true
             }
             return@withLock
         }
@@ -1184,21 +1222,16 @@ class FirewallManager(
 
         if (isAnotherVpnActive) {
             // Another VPN is active - don't call VpnService.prepare() yet
-            AppLogger.e(TAG, "Another VPN is active - showing VPN conflict notification")
-            showVpnConflictNotification()
+            AppLogger.e(TAG, "Another VPN is active - reporting VPN conflict")
 
-            // Update state to reflect firewall is down
+            // Update state to reflect firewall is down (reportFirewallDown raises the notification)
             currentBackend = null
             _activeBackendType.value = null
-            _backendHealthWarning.value = "FIREWALL DOWN: Another VPN active. Tap notification to replace VPN and enable firewall."
-            _firewallState.value = FirewallState.Error(
-                message = "VPN conflict - another VPN is active",
-                lastBackend = failedBackendType
+            reportFirewallDown(
+                reason = FirewallHealth.Down.Reason.VPN_CONFLICT,
+                backend = failedBackendType,
+                stateMessage = "VPN conflict - another VPN is active"
             )
-            emitStateChangeBroadcast(_firewallState.value)
-
-            // Mark firewall as down (preserve user intent for recovery)
-            _isFirewallDown.value = true
 
             // Start monitoring for VPN permission grant
             // This will automatically start VPN fallback when user grants permission
@@ -1225,34 +1258,26 @@ class FirewallManager(
                 AppLogger.e(TAG, "❌ VPN fallback FAILED via planner: ${error.message}")
                 currentBackend = null
                 _activeBackendType.value = null
-                _backendHealthWarning.value = "FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED!"
-                _firewallState.value = FirewallState.Error(
-                    message = "VPN fallback failed: ${error.message}",
-                    lastBackend = failedBackendType
+                reportFirewallDown(
+                    reason = FirewallHealth.Down.Reason.FALLBACK_FAILED,
+                    backend = failedBackendType,
+                    stateMessage = "VPN fallback failed: ${error.message}"
                 )
-
-                // Mark firewall as down (preserve user intent for recovery)
-                _isFirewallDown.value = true
             }
         } else {
             // VPN permission not granted - show notification
-            AppLogger.e(TAG, "VPN permission not granted - showing fallback notification...")
-            showVpnFallbackNotification()
+            AppLogger.e(TAG, "VPN permission not granted - reporting, which shows the fallback notification...")
 
-            // Update state to reflect firewall is down
+            // Update state to reflect firewall is down.
+            // reportFirewallDown also preserves user intent: when the user grants VPN permission or
+            // handlePrivilegeChange() runs, it checks isFirewallDown and attempts recovery.
             currentBackend = null
             _activeBackendType.value = null
-            _backendHealthWarning.value = "FIREWALL DOWN: VPN permission required. Tap notification to enable fallback."
-            _firewallState.value = FirewallState.Error(
-                message = "VPN permission required for fallback",
-                lastBackend = failedBackendType
+            reportFirewallDown(
+                reason = FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED,
+                backend = failedBackendType,
+                stateMessage = "VPN permission required for fallback"
             )
-            emitStateChangeBroadcast(_firewallState.value)
-
-            // Mark firewall as down (preserve user intent for recovery)
-            // When user grants VPN permission or when handlePrivilegeChange() runs,
-            // it will check isFirewallDown and attempt recovery.
-            _isFirewallDown.value = true
 
             // Start monitoring for VPN permission grant
             // This will automatically start VPN fallback when user grants permission
@@ -1278,18 +1303,15 @@ class FirewallManager(
             AppLogger.d(TAG, "Starting VPN backend as fallback (legacy path)...")
             vpnBackend.start().getOrElse { error ->
                 AppLogger.e(TAG, "❌ CRITICAL: VPN fallback FAILED: ${error.message}")
-                _backendHealthWarning.value = "FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED!"
 
                 // Update state to reflect firewall is down
                 currentBackend = null
                 _activeBackendType.value = null
-                _firewallState.value = FirewallState.Error(
-                    message = "VPN fallback failed",
-                    lastBackend = failedBackendType
+                reportFirewallDown(
+                    reason = FirewallHealth.Down.Reason.FALLBACK_FAILED,
+                    backend = failedBackendType,
+                    stateMessage = "VPN fallback failed"
                 )
-
-                // Mark firewall as down (preserve user intent for recovery)
-                _isFirewallDown.value = true
 
                 return
             }
@@ -1299,17 +1321,14 @@ class FirewallManager(
 
             if (!vpnBackend.isActive()) {
                 AppLogger.e(TAG, "❌ CRITICAL: VPN fallback started but not active!")
-                _backendHealthWarning.value = "FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED!"
 
                 currentBackend = null
                 _activeBackendType.value = null
-                _firewallState.value = FirewallState.Error(
-                    message = "VPN fallback VPN not active",
-                    lastBackend = failedBackendType
+                reportFirewallDown(
+                    reason = FirewallHealth.Down.Reason.FALLBACK_FAILED,
+                    backend = failedBackendType,
+                    stateMessage = "VPN fallback VPN not active"
                 )
-
-                // Mark firewall as down (preserve user intent for recovery)
-                _isFirewallDown.value = true
 
                 return
             }
@@ -1326,39 +1345,32 @@ class FirewallManager(
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, true).apply()
 
-            // Clear firewall down flag - firewall is now running
-            _isFirewallDown.value = false
-
-            // Dismiss notification if it was shown
+            // Protection is restored - clear the down state and both failure notifications.
+            // The health value set below then downgrades this to the informational "switched" state.
+            reportFirewallHealthy()
             dismissVpnFallbackNotification()
 
             // Apply firewall rules to the VPN backend
             applyRules()
 
-            // Show warning to user
-            val warningMessage = if (wasManualSelection) {
-                "$failedBackendType backend failed. Switched to AUTO mode and using VPN."
-            } else {
-                "$failedBackendType backend failed. Automatically switched to VPN."
-            }
-            _backendHealthWarning.value = warningMessage
+            // Tell the user protection survived, but not on the backend they had
+            _firewallHealth.value = FirewallHealth.SwitchedToVpn(
+                failedBackend = failedBackendType,
+                fromManualMode = wasManualSelection
+            )
 
             // VPN monitors internally, no need to start monitoring
 
         } catch (e: Exception) {
             AppLogger.e(TAG, "❌ CRITICAL: Exception during VPN fallback", e)
-            _backendHealthWarning.value = "FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED!"
 
             currentBackend = null
             _activeBackendType.value = null
-            _firewallState.value = FirewallState.Error(
-                message = "Exception during VPN fallback: ${e.message}",
-                lastBackend = failedBackendType
+            reportFirewallDown(
+                reason = FirewallHealth.Down.Reason.FALLBACK_FAILED,
+                backend = failedBackendType,
+                stateMessage = "Exception during VPN fallback: ${e.message}"
             )
-            emitStateChangeBroadcast(_firewallState.value)
-
-            // Mark firewall as down (preserve user intent for recovery)
-            _isFirewallDown.value = true
         }
     }
 
@@ -1506,10 +1518,17 @@ class FirewallManager(
     }
 
     /**
-     * Show notification when a manually selected backend fails and no automatic fallback is attempted.
+     * Show the "firewall is down" notification.
+     *
+     * A firewall usually fails while the app is closed, so the in-app banner alone would go unseen.
+     * Raised by [reportFirewallDown] for every reason that has no more specific notification of its
+     * own, which previously left five failure paths warning nobody at all.
      */
-    private fun showBackendFailedNotification(failedBackendType: FirewallBackendType) {
-        AppLogger.d(TAG, "Showing backend failed notification for $failedBackendType")
+    private fun showFirewallDownNotification(
+        reason: FirewallHealth.Down.Reason,
+        failedBackendType: FirewallBackendType?
+    ) {
+        AppLogger.d(TAG, "Showing firewall down notification ($reason, backend=$failedBackendType)")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -1533,18 +1552,17 @@ class FirewallManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val backendName = when (failedBackendType) {
-            FirewallBackendType.CONNECTIVITY_MANAGER -> "Connectivity Manager"
-            FirewallBackendType.IPTABLES -> "iptables"
-            FirewallBackendType.NETWORK_POLICY_MANAGER -> "Network Policy Manager"
-            FirewallBackendType.VPN -> "VPN"
-        }
-
-        val body = "$backendName backend is not available. Restore required privileges or choose another backend in settings."
+        // Same wording as the in-app banner, so the notification and the banner cannot drift apart.
+        // This is also what makes the text translatable - it used to be assembled here in English.
+        val health = FirewallHealth.Down(reason, failedBackendType)
+        val title = FirewallHealthPresenter.title(context, health)
+            ?: context.getString(R.string.privileged_firewall_failure_notification_title)
+        val body = FirewallHealthPresenter.message(context, health)
+            ?: context.getString(R.string.firewall_down_reason_manual_backend_unknown)
 
         val notification = NotificationCompat.Builder(context, Constants.BackendFailure.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield)
-            .setContentTitle(context.getString(R.string.privileged_firewall_failure_notification_title))
+            .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -2024,15 +2042,16 @@ class FirewallManager(
      */
     private fun handleVpnConflictFallbackFailed() {
         AppLogger.w(TAG, "🔐 VPN conflict: No fallback available - firewall protection LOST")
-        
-        // Mark firewall as down
-        _isFirewallDown.value = true
-        _firewallState.value = FirewallState.Error("Another VPN is active", FirewallBackendType.VPN)
-        emitStateChangeBroadcast(_firewallState.value)
+
         _activeBackendType.value = null
-        
-        // Show notification
-        showVpnConflictNotification()
+
+        // currentBackend is deliberately left alone here. The dead VPN backend must stay visible to
+        // the health monitor, which is what drives recovery from this state.
+        reportFirewallDown(
+            reason = FirewallHealth.Down.Reason.VPN_CONFLICT,
+            backend = FirewallBackendType.VPN,
+            stateMessage = "Another VPN is active"
+        )
     }
 
     /**

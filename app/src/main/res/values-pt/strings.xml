@@ -355,6 +355,23 @@
     <string name="vpn_fallback_notification_text">Backend privilegiado falhou. Toque para ativar fallback VPN e restaurar proteção do firewall.</string>
     <string name="vpn_fallback_notification_action_text">Ativar Fallback VPN</string>
 
+    <!-- Firewall Down warning (in-app banner + notification) -->
+    <string name="firewall_down_title">Firewall inativa \u2014 as suas apps est\u00e3o desbloqueadas</string>
+    <string name="firewall_down_reason_manual_backend">O backend %1$s deixou de funcionar. Restaure os privil\u00e9gios dele ou escolha outro backend.</string>
+    <string name="firewall_down_reason_manual_backend_unknown">O backend da firewall deixou de funcionar. Restaure os privil\u00e9gios dele ou escolha outro backend.</string>
+    <string name="firewall_down_reason_no_plan">N\u00e3o h\u00e1 nenhum backend de firewall utiliz\u00e1vel neste dispositivo.</string>
+    <string name="firewall_down_reason_fallback_failed">O backend de reserva n\u00e3o arrancou. Nada est\u00e1 a bloquear o acesso \u00e0 rede.</string>
+    <string name="firewall_down_reason_vpn_conflict">Outra app VPN est\u00e1 a ocupar o slot de VPN. O De1984 tem de a substituir para o proteger.</string>
+    <string name="firewall_down_reason_vpn_permission">O De1984 precisa da permiss\u00e3o de VPN para restaurar a prote\u00e7\u00e3o.</string>
+    <string name="firewall_down_action_choose_backend">Escolher backend</string>
+    <string name="firewall_down_action_retry">Tentar de novo</string>
+    <string name="firewall_down_action_enable_vpn">Ativar VPN</string>
+    <string name="firewall_down_action_replace_vpn">Substituir VPN</string>
+    <string name="firewall_switched_title">Backend alterado</string>
+    <string name="firewall_switched_message_auto">O backend %1$s falhou. O De1984 mudou para VPN e continua a proteg\u00ea-lo.</string>
+    <string name="firewall_switched_message_manual">O backend %1$s falhou. O De1984 mudou para o modo AUTO e est\u00e1 a usar VPN.</string>
+    <string name="firewall_status_down">INATIVA</string>
+
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">De1984 Firewall Inativo - Conflito VPN</string>
     <string name="vpn_conflict_notification_text">Outra VPN está ativa. De1984 precisa de permissão VPN para restaurar a proteção do firewall. Isso substituirá sua conexão VPN atual. Toque para conceder permissão.</string>

@@ -356,6 +356,23 @@
     <string name="vpn_fallback_notification_text">Privileged backend failed. Tap to enable VPN fallback and restore firewall protection.</string>
     <string name="vpn_fallback_notification_action_text">Enable VPN Fallback</string>
 
+    <!-- Firewall Down warning (in-app banner + notification) -->
+    <string name="firewall_down_title">Firewall down \u2014 your apps are unblocked</string>
+    <string name="firewall_down_reason_manual_backend">The %1$s backend stopped working. Restore its privileges, or choose a different backend.</string>
+    <string name="firewall_down_reason_manual_backend_unknown">The firewall backend stopped working. Restore its privileges, or choose a different backend.</string>
+    <string name="firewall_down_reason_no_plan">No usable firewall backend is available on this device.</string>
+    <string name="firewall_down_reason_fallback_failed">The backup backend did not start. Nothing is blocking network access.</string>
+    <string name="firewall_down_reason_vpn_conflict">Another VPN app is using the VPN slot. De1984 must replace it to protect you.</string>
+    <string name="firewall_down_reason_vpn_permission">De1984 needs VPN permission to restore protection.</string>
+    <string name="firewall_down_action_choose_backend">Choose backend</string>
+    <string name="firewall_down_action_retry">Try again</string>
+    <string name="firewall_down_action_enable_vpn">Enable VPN</string>
+    <string name="firewall_down_action_replace_vpn">Replace VPN</string>
+    <string name="firewall_switched_title">Backend switched</string>
+    <string name="firewall_switched_message_auto">The %1$s backend failed. De1984 switched to VPN and is still protecting you.</string>
+    <string name="firewall_switched_message_manual">The %1$s backend failed. De1984 switched to AUTO mode and is using VPN.</string>
+    <string name="firewall_status_down">DOWN</string>
+
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">De1984 Firewall Down - VPN Conflict</string>
     <string name="vpn_conflict_notification_text">Another VPN is active. De1984 needs VPN permission to restore firewall protection. This will replace your current VPN connection. Tap to grant permission.</string>

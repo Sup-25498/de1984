@@ -15,6 +15,7 @@
     <color name="success_green">#2E7D32</color>
     <color name="warning_orange">#FF9800</color>
     <color name="error_red">#EF5350</color>
+    <color name="firewall_down_red">#C62828</color> <!-- Deeper than error_red: firewall failed, not switched off -->
     <color name="error_red_light">#FFCDD2</color>
     
     <!-- Surface Colors -->

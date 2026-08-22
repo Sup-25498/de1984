@@ -355,6 +355,23 @@
     <string name="vpn_fallback_notification_text">Le backend privilégié a échoué. Appuyez pour activer le basculement VPN et restaurer la protection du pare-feu.</string>
     <string name="vpn_fallback_notification_action_text">Activer le basculement VPN</string>
 
+    <!-- Firewall Down warning (in-app banner + notification) -->
+    <string name="firewall_down_title">Pare-feu hors service \u2014 vos applications sont d\u00e9bloqu\u00e9es</string>
+    <string name="firewall_down_reason_manual_backend">Le moteur %1$s a cess\u00e9 de fonctionner. R\u00e9tablissez ses privil\u00e8ges ou choisissez un autre moteur.</string>
+    <string name="firewall_down_reason_manual_backend_unknown">Le moteur du pare-feu a cess\u00e9 de fonctionner. R\u00e9tablissez ses privil\u00e8ges ou choisissez un autre moteur.</string>
+    <string name="firewall_down_reason_no_plan">Aucun moteur de pare-feu utilisable n\'est disponible sur cet appareil.</string>
+    <string name="firewall_down_reason_fallback_failed">Le moteur de secours n\'a pas d\u00e9marr\u00e9. Rien ne bloque l\'acc\u00e8s au r\u00e9seau.</string>
+    <string name="firewall_down_reason_vpn_conflict">Une autre application VPN occupe l\'emplacement VPN. De1984 doit la remplacer pour vous prot\u00e9ger.</string>
+    <string name="firewall_down_reason_vpn_permission">De1984 a besoin de l\'autorisation VPN pour r\u00e9tablir la protection.</string>
+    <string name="firewall_down_action_choose_backend">Choisir un moteur</string>
+    <string name="firewall_down_action_retry">R\u00e9essayer</string>
+    <string name="firewall_down_action_enable_vpn">Activer le VPN</string>
+    <string name="firewall_down_action_replace_vpn">Remplacer le VPN</string>
+    <string name="firewall_switched_title">Moteur chang\u00e9</string>
+    <string name="firewall_switched_message_auto">Le moteur %1$s a \u00e9chou\u00e9. De1984 est pass\u00e9 au VPN et vous prot\u00e8ge toujours.</string>
+    <string name="firewall_switched_message_manual">Le moteur %1$s a \u00e9chou\u00e9. De1984 est pass\u00e9 en mode AUTO et utilise le VPN.</string>
+    <string name="firewall_status_down">HORS SERVICE</string>
+
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">Pare-feu De1984 inactif - Conflit VPN</string>
     <string name="vpn_conflict_notification_text">Un autre VPN est actif. De1984 nécessite la permission VPN pour restaurer la protection du pare-feu. Cela remplacera votre connexion VPN actuelle. Appuyez pour accorder la permission.</string>

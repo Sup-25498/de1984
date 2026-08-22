@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Warns that the firewall is not enforcing, or that it survived on a different backend.
+
+    Text, colour and button come from FirewallHealthPresenter, driven by FirewallManager's
+    firewallHealth flow. Nothing here is hard-coded to one failure.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/firewall_down_banner_background"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/health_banner_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/error_red"
+        tools:text="Firewall down - your apps are unblocked" />
+
+    <TextView
+        android:id="@+id/health_banner_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:textColor="?android:attr/textColorSecondary"
+        android:lineSpacingMultiplier="1.2"
+        tools:text="The iptables backend stopped working." />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/health_banner_action"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:layout_gravity="end"
+        android:textSize="12sp"
+        android:minHeight="36dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        app:icon="@drawable/ic_shield"
+        app:iconSize="16dp"
+        tools:text="Choose backend" />
+
+</LinearLayout>

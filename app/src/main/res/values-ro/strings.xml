@@ -357,6 +357,23 @@
     <string name="vpn_fallback_notification_text">Backend-ul privilegiat a eșuat. Apasă pentru a activa conectarea prin VPN și a restabili protecția firewall.</string>
     <string name="vpn_fallback_notification_action_text">Activează conectarea prin VPN</string>
 
+    <!-- Firewall Down warning (in-app banner + notification) -->
+    <string name="firewall_down_title">Firewall picat \u2014 aplica\u021biile tale sunt deblocate</string>
+    <string name="firewall_down_reason_manual_backend">Backendul %1$s a \u00eencetat s\u0103 func\u021bioneze. Reface-i privilegiile sau alege alt backend.</string>
+    <string name="firewall_down_reason_manual_backend_unknown">Backendul firewallului a \u00eencetat s\u0103 func\u021bioneze. Reface-i privilegiile sau alege alt backend.</string>
+    <string name="firewall_down_reason_no_plan">Pe acest dispozitiv nu exist\u0103 niciun backend de firewall utilizabil.</string>
+    <string name="firewall_down_reason_fallback_failed">Backendul de rezerv\u0103 nu a pornit. Nimic nu blocheaz\u0103 accesul la re\u021bea.</string>
+    <string name="firewall_down_reason_vpn_conflict">Alt\u0103 aplica\u021bie VPN ocup\u0103 slotul VPN. De1984 trebuie s\u0103 o \u00eenlocuiasc\u0103 pentru a te proteja.</string>
+    <string name="firewall_down_reason_vpn_permission">De1984 are nevoie de permisiunea VPN pentru a reface protec\u021bia.</string>
+    <string name="firewall_down_action_choose_backend">Alege backend</string>
+    <string name="firewall_down_action_retry">\u00cencearc\u0103 din nou</string>
+    <string name="firewall_down_action_enable_vpn">Activeaz\u0103 VPN</string>
+    <string name="firewall_down_action_replace_vpn">\u00cenlocuie\u0219te VPN</string>
+    <string name="firewall_switched_title">Backend schimbat</string>
+    <string name="firewall_switched_message_auto">Backendul %1$s a e\u0219uat. De1984 a trecut pe VPN \u0219i te protejeaz\u0103 \u00een continuare.</string>
+    <string name="firewall_switched_message_manual">Backendul %1$s a e\u0219uat. De1984 a trecut \u00een modul AUTO \u0219i folose\u0219te VPN.</string>
+    <string name="firewall_status_down">PICAT</string>
+
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">De1984 Firewall Oprit - Conflict VPN</string>
     <string name="vpn_conflict_notification_text">Un alt VPN este activ. De1984 necesită permisiunea VPN pentru a restabili protecția firewall-ului. Aceasta va înlocui conexiunea VPN curentă. Apasă pentru a acorda permisiunea.</string>

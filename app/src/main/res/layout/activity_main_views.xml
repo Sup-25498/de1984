@@ -118,6 +118,23 @@
                         android:background="@drawable/status_badge_off"
                         android:visibility="visible" />
 
+                    <!-- DOWN Badge: the firewall failed, as opposed to being switched off -->
+                    <TextView
+                        android:id="@+id/firewall_down_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:text="@string/firewall_status_down"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_white"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:background="@drawable/status_badge_down"
+                        android:visibility="gone" />
+
                     <!-- Firewall Toggle Switch -->
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/firewall_toggle"
@@ -166,12 +183,30 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
+    <!--
+        Firewall health warning. Lives here rather than inside the firewall fragment so it stays
+        visible on every tab - including Settings, which is where the user goes to fix it.
+        GONE by default; ConstraintLayout collapses it so the fragment sits under the app bar.
+    -->
+    <include
+        android:id="@+id/firewall_health_banner"
+        layout="@layout/firewall_health_banner"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="12dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/app_bar_layout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- Fragment Container -->
     <FrameLayout
         android:id="@+id/fragment_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@id/app_bar_layout"
+        app:layout_constraintTop_toBottomOf="@id/firewall_health_banner"
         app:layout_constraintBottom_toTopOf="@id/bottom_navigation"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

@@ -1,5 +1,7 @@
 package io.github.dorumrr.de1984.domain.firewall
 
+import android.content.Context
+import io.github.dorumrr.de1984.R
 import io.github.dorumrr.de1984.domain.model.FirewallRule
 import io.github.dorumrr.de1984.domain.model.NetworkType
 
@@ -93,7 +95,22 @@ enum class FirewallBackendType {
     /**
      * NetworkPolicyManager-based firewall (requires Shizuku, no VPN icon, legacy option for Android 12 and below)
      */
-    NETWORK_POLICY_MANAGER
+    NETWORK_POLICY_MANAGER;
+
+    /**
+     * The backend name to show a user, in their language.
+     *
+     * Reuses the same strings as the backend picker in Settings, so a backend is called the same
+     * thing everywhere the user meets it.
+     */
+    fun displayName(context: Context): String = context.getString(
+        when (this) {
+            VPN -> R.string.backend_vpn_name
+            IPTABLES -> R.string.backend_iptables_name
+            CONNECTIVITY_MANAGER -> R.string.backend_connectivity_manager_name
+            NETWORK_POLICY_MANAGER -> R.string.backend_network_policy_manager_name
+        }
+    )
 }
 
 /**

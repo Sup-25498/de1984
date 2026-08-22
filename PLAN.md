@@ -1906,8 +1906,174 @@ step 2:  Found 110 packages in 4764ms  + "Reusing ..."  ->  applyRules 3806ms
 step 3:  Found 110 packages in 3284ms  + "Reusing ..."  ->  applyRules 2796ms
 ```
 
-**Not yet measured: a repeat toggle inside the 60 s window**, which is where the TTL should now give a
-near-instant apply. Needs one more rule toggle on the device.
+### Measured: the TTL is cancelled out by the UI, and the reason is one line
+A repeat toggle inside the 60 s window still paid full price:
+```
+23:58:50.943  FirewallViewModel: Package data changed, refreshing list
+23:58:50.975  AndroidPackageDataSource: getPackages START
+23:58:51.023  HiddenApiHelper: Cleared installed apps cache
+23:58:58.634  📦 Found 110 packages with network permissions in 7366ms
+23:58:58.844  Backend applyRules SUCCESS: backend took 7736ms
+```
+`AndroidPackageDataSource.loadPackagesInternal:100-102` calls `clearDisabledPackagesCache()` and
+`clearInstalledAppsCache()` unconditionally on every package-list load, "to ensure fresh data for work
+profiles". A rule toggle refreshes that list, so the firewall's cache is wiped microseconds before the
+firewall needs it. **The cache can never serve a rule toggle while that line stands.**
+
+Correctness in the same run was perfect: `com.aurora.store` blocked at `262144 (REJECT_ALL)`, its true
+original recorded as `10269:0`, 85 foreign policies untouched, 0 errors.
+
+### TESTED ON HARDWARE — work-profile package events never reach the receiver
+Added a package to the work profile with root (`pm install-existing --user 10`, since Shelter locks
+plain shell out of user 10) and watched the log:
+```
+Package moe.shizuku.privileged.api installed for user: 10
+User 10: ceDataInode=83491 installed=true      <- genuinely installed
+De1984/PackageAddedReceiver / PackageChangedReceiver:  NOTHING
+```
+De1984 is installed for **user 0 only** (`User 10: installed=false`), and a manifest receiver is only
+delivered broadcasts for users its app is installed in. So a work-profile install is invisible to both
+receivers. The test package was removed afterwards and user 10 confirmed clean; user 0 and the running
+`shizuku_server` were untouched.
+
+### Consequence: the TTL raise was reverted
+Raising `INSTALLED_APPS_CACHE_TTL` from 5 s to 60 s therefore made the **work-profile blind spot twelve
+times longer** - a newly installed work-profile app would go unblocked for a minute, where before it
+was caught within five seconds. And it bought nothing, because the UI's cache clear wipes the cache
+before every rule toggle anyway.
+
+Reverted to `5_000L`, with the measurement and the reason written into the constant so it does not get
+"optimised" again. **The stampede lock and the new PACKAGE_REMOVED / PACKAGE_FULLY_REMOVED receivers
+are kept** - both are pure wins and neither depends on the TTL. The startup improvement came from the
+lock, not the TTL:
+```
+before the lock:  applyRules 9200ms   (two instances, 9499ms each)
+after the lock:   applyRules 3806ms   (one computes, one reuses)
+```
+
+### The remaining fix, still NOT implemented
+Dropping `clearInstalledAppsCache()` from the UI path would let the firewall's cache survive. The
+installed-app set changes only on package events, which `PackageAddedReceiver` and
+`PackageChangedReceiver` now cover for add, change and removal. `clearDisabledPackagesCache()` should
+stay - that is about enabled/disabled state, which De1984 changes internally without a broadcast.
+
+**The blocker is now a proven fact, not an assumption:** work-profile package events reach neither
+receiver, so the UI's clear is currently the only thing that notices a work-profile install between
+TTL expiries. Removing it without replacing that coverage would be a correctness regression.
+
+A real fix needs work-profile aware invalidation - watching user 10 as well, or having the UI clear
+only the caches it actually needs rather than the shared installed-apps one. Not attempted.
+
+---
+
+# NEW P0-11 — the app knows the firewall is down and tells nobody — VERIFIED
+
+`FirewallManager` exposes two StateFlows that **nothing in the app ever reads**:
+
+```
+activeBackendType        external readers: 10
+firewallState            external readers: 4
+currentMode              external readers: 1
+backendHealthWarning     external readers: 0     <-
+isFirewallDown           external readers: 0     <-
+```
+(`isFirewallDown` appears once outside the class, in a comment.)
+
+`_backendHealthWarning` is written at 12 sites, 9 of them with a message that begins **"FIREWALL
+DOWN"**, several ending **"Your apps are UNBLOCKED!"**. It is `asStateFlow()`-exposed and collected by
+no ViewModel, Activity, Fragment, service or tile.
+
+## Five failure paths are completely silent
+Of the 9 "FIREWALL DOWN" sites, 4 also post a notification. **5 do not**, and since the warning flow has
+no reader, those five tell the user nothing at all:
+
+| Line | Message |
+|---|---|
+| `FirewallManager.kt:1140` | FIREWALL DOWN: Failed to compute fallback plan. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:1165` | FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:1281` | FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:1302` | FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:1350` | FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED! |
+
+In each of those the firewall has stopped enforcing, every app has full network access, and the only
+record is a debug log line. `_isFirewallDown` is set to `true` alongside them and is likewise read by
+nothing, so nothing recovers from it or displays it either.
+
+The state machine still reaches `FirewallState.Error`, which **is** read (4 consumers), so the toggle
+and tile do reflect the failure. What is missing is the *reason* and the "your apps are unblocked"
+warning - the app composes both and discards them.
+
+## FIXED — 2026-08-23
+
+Decision taken: banner on every tab, plus a red DOWN badge; notifications extended to all 9 paths.
+
+### What changed
+
+**The string flow became a typed state.** `backendHealthWarning: StateFlow<String?>` is gone,
+replaced by `firewallHealth: StateFlow<FirewallHealth>`
+(`domain/firewall/FirewallHealth.kt`): `Healthy` | `Down(reason, backend)` | `SwitchedToVpn(...)`.
+The old flow composed English sentences inside the data layer, so the app's seven locales could never
+translate them. `Down.Reason` has five values, one per real failure.
+
+**One entry point for losing protection.** `FirewallManager.reportFirewallDown(reason, backend,
+stateMessage)` publishes the health state, mirrors it into `_firewallState`, broadcasts to the widget,
+sets `_isFirewallDown`, and raises the matching notification. Ten call sites, all nine former "FIREWALL
+DOWN" writes plus `handleVpnConflictFallbackFailed`, which previously set no warning state at all.
+`reportFirewallHealthy()` is the matching clear.
+
+**Two bugs found while wiring it, both fixed:**
+- `stopFirewall` cleared `_isFirewallDown` but never the warning. Nothing but the health-check loop
+  ever cleared it, so a clean user stop would have left a stale "your apps are UNBLOCKED" banner.
+- `handleVpnConflictFallbackFailed` (`FirewallManager.kt`) set the down flag and a notification but
+  no warning state - a 13th site missed by the first count.
+
+**Behaviour change, deliberate:** three sites that set `FirewallState.Error` without calling
+`emitStateChangeBroadcast` now do, because the shared helper always broadcasts. The widget was not
+updating on those paths. Verified the only receiver of that broadcast is `FirewallWidget`, which is
+display-only and already hardened against spoofed payloads.
+
+**Notifications now cover all 9.** `showFirewallDownNotification(reason, backend)` replaced
+`showBackendFailedNotification`. `VPN_CONFLICT` and `VPN_PERMISSION_REQUIRED` keep their own existing
+actionable notifications, so there is exactly one notification per situation. IDs checked for
+collisions: BackendFailure 1006, VpnFallback 1004, PrivilegedFirewallService 1003. No overlap.
+
+**Wording lives in one place.** `ui/common/FirewallHealthPresenter` maps health to title, message and
+action. Both the banner and the notification read from it, so they cannot drift. Added
+`FirewallBackendType.displayName(context)` reusing the existing `backend_*_name` strings.
+
+**UI.** `firewall_health_banner.xml` included in `activity_main_views.xml` between the app bar and the
+fragment container, so it stays visible on Settings - which is where the user goes to fix it. Not
+dismissible: it describes a live condition and must end only when the condition ends. New
+`firewall_down_badge` in the toolbar; badge visibility consolidated into
+`MainActivity.updateFirewallBadges()` from four separate blocks. 16 strings added to all 7 locales.
+
+### Verified
+- Build clean. Static: 0 references to the removed flow, 0 hardcoded "FIREWALL DOWN" strings,
+  10 `reportFirewallDown` sites, 7 `reportFirewallHealthy` sites, all 7 locales at 647 strings.
+- Rendered on an AOSP 13 emulator via a temporary probe, since reverted (tree confirmed clean):
+  red Down banner with the DOWN badge, banner persisting onto the Settings tab, orange
+  `SwitchedToVpn` variant with no button and the ACTIVE badge retained, dark mode correct.
+- **Not verified on hardware:** no `Down` state was reachable on the emulator. Every path into
+  `handleBackendFailure` requires a privileged backend to fail first, and on that emulator `su` is
+  mode 4750 root:shell so apps cannot get root, while Shizuku 13.6 could not be started headlessly.
+  The device test that would close this is in "Open" below.
+
+### Open
+- **Device test.** On the phone: pick NetworkPolicyManager or ConnectivityManager manually in
+  Settings, start the firewall, then press Stop in the Shizuku app. Within one health-check interval
+  the banner, DOWN badge and notification should appear; restarting Shizuku should clear all three.
+- **A silent unblocked state this fix does not cover.** `SettingsViewModel.restartFirewallIfRunning`
+  calls `stopFirewall()` then `startFirewall(newMode)`. A failure there returns through
+  `startFirewallInternal`, which sets `FirewallState.Error` but never publishes `FirewallHealth.Down`
+  and never sets `_isFirewallDown`. The firewall is off, apps are unblocked, and only a Settings error
+  string is shown. The comment above it - "FirewallManager will set isFirewallDown=true to track the
+  error state" - is factually wrong. Not folded in: it is a new site, not one of the nine.
+- **P0-8 honesty gap** still open. On a ROM without `POLICY_REJECT_ALL` the UI says an app is Blocked
+  while only metered background data is blocked. `FirewallHealth` is now the obvious place to carry a
+  "degraded" state for it.
+- Pre-existing duplication: `FirewallBackendType` is mapped to a display name by hand in five other
+  places (`FirewallManager` x2, `PrivilegedFirewallService` x2, `BackendMonitoringService`). Only the
+  new code uses `displayName(context)`. Left alone as out of scope.
 
 ---
 

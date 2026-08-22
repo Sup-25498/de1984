@@ -23,6 +23,7 @@ import io.github.dorumrr.de1984.domain.usecase.GetNetworkPackagesUseCase
 import io.github.dorumrr.de1984.domain.usecase.ManageNetworkAccessUseCase
 import io.github.dorumrr.de1984.data.firewall.FirewallManager.FirewallState
 
+import io.github.dorumrr.de1984.domain.firewall.FirewallHealth
 import io.github.dorumrr.de1984.ui.common.SuperuserBannerState
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.Job
@@ -67,6 +68,15 @@ class FirewallViewModel(
 
     val showRootBanner: StateFlow<Boolean>
         get() = superuserBannerState.showBanner
+
+    /**
+     * Whether the firewall is actually enforcing, for the warning banner in MainActivity.
+     *
+     * Passed straight through: FirewallManager already owns this state and every backend path
+     * publishes into it, so re-deriving it here would only create a second version of the truth.
+     */
+    val firewallHealth: StateFlow<FirewallHealth>
+        get() = firewallManager.firewallHealth
 
     fun dismissRootBanner() {
         superuserBannerState.hideBanner()
