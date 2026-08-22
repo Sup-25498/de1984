@@ -1165,6 +1165,128 @@ or block first and relax afterwards.
 
 ---
 
+# NEW P0-10 — one dropped network latches the firewall off, on every backend — VERIFIED
+
+`NetworkStateMonitor.observeNetworkType()`'s `onLost` callback
+(`data/monitor/NetworkStateMonitor.kt:176-179`) hardcodes the answer:
+
+```kotlin
+override fun onLost(network: Network) {
+    AppLogger.d(TAG, "📡 SYSTEM EVENT: Network lost - type: NONE")
+    trySend(NetworkType.NONE)
+}
+```
+
+`onAvailable` and `onCapabilitiesChanged` both call `getCurrentNetworkType()`. `onLost` does not. It
+never asks whether another network is still up, so **any** secondary network going away reports the
+device as offline while WiFi is connected and validated.
+
+`FirewallRule.isBlockedOn` returns `false` for `NetworkType.NONE`
+(`domain/model/FirewallRule.kt:44`), so at that moment **every rule stops blocking**. All three
+consumers of the flow are affected — `FirewallManager.kt:934`, `PrivilegedFirewallService.kt:383`,
+`FirewallVpnService.kt:202` — which means **all four backends**, iptables included.
+
+The flow ends in `.distinctUntilChanged()`, so recovery needs a *changed* value. WiFi was already up
+and stays up, so nothing new is emitted. The state latches.
+
+## Proven on hardware, 2026-08-22
+System view — WiFi never dropped:
+```
+NetworkAgentInfo{network{101} ni{WIFI CONNECTED} created=2026-08-22T20:26:44Z
+  Score(... EVER_VALIDATED&IS_VALIDATED) firstValidated 40096 lastValidated 40096
+  nc{[ Transports: WIFI Capabilities: INTERNET&VALIDATED&NOT_METERED ... ]}
+```
+De1984's view at the same moment:
+```
+22:15:16.158  📡 SYSTEM EVENT: Network capabilities changed - type: WIFI
+22:15:16.416  📡 SYSTEM EVENT: Network lost - type: NONE
+22:15:16.436  📡 SYSTEM EVENT: Network lost - type: NONE
+   (no network event of any kind after this)
+22:15:17.690  Applied policy for io.github.dorumrr.happytaxes (UID 10212, has rule): policy=RESTORED
+22:15:17.703  Applied policy for com.aurora.store (UID 10269, has rule): policy=RESTORED
+```
+Meanwhile the app kept reporting itself fine, once a minute:
+```
+22:18:33.273  ✅ SERVICE: Health check passed - NETWORK_POLICY_MANAGER is healthy (consecutive successes: 11)
+22:18:34.481  ✅ Health check passed: NETWORK_POLICY_MANAGER backend is healthy (consecutive successes: 11)
+```
+with `firewall_enabled=true`, `privileged_service_running=true`, and **no policy applied to either
+blocked app**. State held for over three minutes and was still holding when observed.
+
+**The health check cannot catch this.** It only tests that the backend's binder is reachable
+(`checkAvailability()`), never that the rules are actually in force. A firewall that is blocking
+nothing passes it every time.
+
+Very likely the root cause of the archived user reports **"Firewall Not Running But The Switch Was On"**
+and **"Not Responding"** in `/Users/doru/dev/phi/de1984-feedback-archive/` — those were previously
+attributed to P0-3 Deadlock alone.
+
+## FIXED 2026-08-22 — both parts, on Doru's decision
+
+**Part 1 — `onLost` asks what is left.** New private `networkTypeExcluding(lost)` skips the departing
+network (ConnectivityManager can still name it as `activeNetwork` for a moment) and falls back to the
+remaining `NET_CAPABILITY_INTERNET` networks. `getCurrentNetworkType()` keeps its exact previous
+behaviour; both now share a `networkTypeOf(capabilities)` helper.
+
+**Part 2 — `NetworkType.NONE` no longer lifts blocks.** `FirewallRule.isBlockedOn` returns
+`wifiBlocked || mobileBlocked || blockWhenRoaming` for `NONE` instead of `false`.
+
+Part 2 turned out not to be a new design at all. `FirewallVpnService` **already** did exactly this,
+locally, at two sites, with the same reasoning in its comment:
+```kotlin
+// When network is NONE (e.g., at boot), block if app has ANY blocking rules
+currentNetworkType == NetworkType.NONE -> rule.wifiBlocked || rule.mobileBlocked
+```
+The other three backends never got it. One rule, two places, drifted — the multi-site invariant
+problem. Both local workarounds are now removed and the rule lives once, in `FirewallRule`.
+`blockWhenRoaming` is included where the VPN version omitted it; that is a small widening, in the
+safe direction, so a roaming-only rule is also held across a network gap.
+
+Checked every other `NetworkType.NONE` site: the remaining ones are just initial values of
+`currentNetworkType` in `FirewallManager`, `PrivilegedFirewallService` and `FirewallVpnService`, which
+this change makes safer — rules are now in force at startup rather than lifted. No test references
+`isBlockedOn` or `NetworkType.NONE`.
+
+### Hardware verification
+**Part 2 — PROVEN.** Dropped WiFi with the firewall running:
+```
+22:25:22.015  📡 SYSTEM EVENT: Network lost - remaining type: NONE
+22:25:22.369  Rules count: 12, networkType: NONE, screenOn: true
+22:25:26.165  ✅ Applied 0 policies, skipped 87 unchanged, left 0 foreign policies alone, 0 errors
+```
+`Applied 0 policies` on a `NONE` pass. The identical event on the previous build produced
+`Applied 2 policies ... policy=RESTORED`, unblocking both apps. Policy table confirmed both still
+blocked (`UID=10212 policy=1`, `UID=10269 policy=1`) throughout.
+
+**The reconnect gap is closed too.** On WiFi return: `✅ Applied 0 policies, skipped 87 unchanged` —
+no re-block pass at all, because the block never lifted. The ~1 s window in the P1 above is gone.
+
+**Part 1 — code path live, non-`NONE` return NOT verified on hardware.** The new
+`Network lost - remaining type: ...` line proves the new code runs, but it returned `NONE` because
+only one network existed at that moment. Three attempts to stage two simultaneous networks failed:
+this device tears down the cellular data network whenever WiFi is up, so `dumpsys connectivity` never
+showed more than one `NetworkAgentInfo`.
+
+That teardown **is** the trigger. When WiFi connects, the cellular data network is dropped and
+`onLost` fires for it while WiFi is perfectly healthy — which is why this latched on a device that
+never lost connectivity. It also means the bug fires for most users on most WiFi connects, not in some
+rare corner.
+
+To verify later: a device or emulator that holds WiFi and cellular data at once, or a second WiFi/VPN
+network. Expect `Network lost - remaining type: WIFI`.
+
+## Original fix direction (superseded by the above)
+`onLost` should ask the system what is left, excluding the network that just went away, exactly as the
+other two callbacks do. Care is needed because `activeNetwork` can still name the lost network for a
+moment, so the check must skip it and fall back to the remaining networks that carry
+`NET_CAPABILITY_INTERNET`.
+
+Worth deciding at the same time: whether `NetworkType.NONE` should unblock at all. Blocking rules
+could simply be left in force when there is no network — nothing can connect anyway, and it removes
+both this failure and the reconnect window in the P1 above.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

@@ -176,8 +176,14 @@ class NetworkStateMonitor(
             }
 
             override fun onLost(network: Network) {
-                AppLogger.d(TAG, "📡 SYSTEM EVENT: Network lost - type: NONE")
-                trySend(NetworkType.NONE)
+                // Ask what is still connected instead of assuming nothing is - the other two
+                // callbacks already do. A secondary network going away does not put the device
+                // offline, and reporting NONE here unblocked every app on every backend. The flow
+                // ends in distinctUntilChanged(), so the unchanged WIFI that followed was swallowed
+                // and the firewall stayed off until some other network event happened to arrive.
+                val networkType = networkTypeExcluding(network)
+                AppLogger.d(TAG, "📡 SYSTEM EVENT: Network lost - remaining type: $networkType")
+                trySend(networkType)
             }
         }
 
@@ -198,8 +204,41 @@ class NetworkStateMonitor(
     
     fun getCurrentNetworkType(): NetworkType {
         val activeNetwork = connectivityManager.activeNetwork ?: return NetworkType.NONE
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return NetworkType.NONE
-        
+        return networkTypeOf(connectivityManager.getNetworkCapabilities(activeNetwork))
+    }
+
+    /**
+     * The current network type, ignoring [lost].
+     *
+     * ConnectivityManager can still name a departing network as `activeNetwork` for a moment after
+     * `onLost`, so it is skipped explicitly and the remaining internet-capable networks are checked.
+     */
+    private fun networkTypeExcluding(lost: Network?): NetworkType {
+        return try {
+            val active = connectivityManager.activeNetwork
+            if (active != null && active != lost) {
+                val activeType = networkTypeOf(connectivityManager.getNetworkCapabilities(active))
+                if (activeType != NetworkType.NONE) return activeType
+            }
+
+            @Suppress("DEPRECATION")
+            for (candidate in connectivityManager.allNetworks) {
+                if (candidate == lost) continue
+                val capabilities = connectivityManager.getNetworkCapabilities(candidate) ?: continue
+                if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+                val candidateType = networkTypeOf(capabilities)
+                if (candidateType != NetworkType.NONE) return candidateType
+            }
+            NetworkType.NONE
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to resolve the remaining network type", e)
+            NetworkType.NONE
+        }
+    }
+
+    private fun networkTypeOf(capabilities: NetworkCapabilities?): NetworkType {
+        if (capabilities == null) return NetworkType.NONE
+
         return when {
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
                 NetworkType.WIFI

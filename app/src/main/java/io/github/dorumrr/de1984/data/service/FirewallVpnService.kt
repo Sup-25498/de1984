@@ -583,11 +583,11 @@ class FirewallVpnService : VpnService() {
             val rule = rulesMap["$packageName:$userId"]
 
             val shouldBlock = if (rule != null && rule.enabled) {
-                // Has explicit rule - use same logic as applyFirewallRules() for consistency
-                // When network is NONE (e.g., at boot), block if app has ANY blocking rules
+                // Has explicit rule - use same logic as applyFirewallRules() for consistency.
+                // The NetworkType.NONE case now lives in FirewallRule.isBlockedOn, so every backend
+                // gets it instead of only this one.
                 when {
                     !isScreenOn && rule.blockWhenBackground -> true
-                    currentNetworkType == NetworkType.NONE -> rule.wifiBlocked || rule.mobileBlocked
                     else -> rule.isBlockedOn(currentNetworkType)
                 }
             } else {
@@ -769,9 +769,7 @@ class FirewallVpnService : VpnService() {
                     // Has explicit rule - determine blocking based on rule configuration
                     val blocked = when {
                         !isScreenOn && rule.blockWhenBackground -> true
-                        // For VPN backend: When network is NONE (e.g., at boot), block if app has ANY blocking rules
-                        // Otherwise, use network-specific blocking to support WiFi-only or Mobile-only rules
-                        currentNetworkType == NetworkType.NONE -> rule.wifiBlocked || rule.mobileBlocked
+                        // NetworkType.NONE is handled inside isBlockedOn now - see FirewallRule.
                         else -> rule.isBlockedOn(currentNetworkType)
                     }
                     AppLogger.d(TAG, "  $packageName (user $userId): explicit rule, shouldBlock=$blocked (wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, currentNetwork=$currentNetworkType)")

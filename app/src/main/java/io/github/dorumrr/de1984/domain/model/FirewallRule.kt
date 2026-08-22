@@ -34,6 +34,15 @@ data class FirewallRule(
     
     fun isPartiallyBlocked(): Boolean = (wifiBlocked || mobileBlocked) && !isFullyBlocked()
     
+    /**
+     * Whether this rule blocks the app on [networkType].
+     *
+     * [NetworkType.NONE] keeps the block in force rather than lifting it. Nothing can connect with
+     * no network, so holding the block costs nothing, and lifting it opened a gap: when a network
+     * appeared, every app was unblocked until the next rule pass landed - about a second on a light
+     * rule set. The VPN backend already worked around this locally; this is the same rule, in one
+     * place, for every backend.
+     */
     fun isBlockedOn(networkType: NetworkType): Boolean {
         if (!enabled) return false
         
@@ -41,7 +50,7 @@ data class FirewallRule(
             NetworkType.WIFI -> wifiBlocked
             NetworkType.MOBILE -> mobileBlocked
             NetworkType.ROAMING -> blockWhenRoaming || mobileBlocked
-            NetworkType.NONE -> false
+            NetworkType.NONE -> wifiBlocked || mobileBlocked || blockWhenRoaming
         }
     }
     
