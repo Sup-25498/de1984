@@ -21,6 +21,12 @@ class PackageAddedReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
+        // A package appeared, so the cached package data is stale. Do this before the validation
+        // below, which deliberately ignores cases - a reinstall, our own package - that still change
+        // what is installed. The firewall backends read a cached network-permission list built from
+        // this, and a stale one means a new app is not blocked.
+        io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.clearInstalledAppsCache()
+
         try {
             // Initialize dependencies
             val app = context.applicationContext as De1984Application

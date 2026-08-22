@@ -411,7 +411,7 @@ class PrivilegedFirewallService : Service() {
         consecutiveSuccessfulHealthChecks = 0
         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
-        AppLogger.d(TAG, "🔍 STARTING ADAPTIVE SERVICE HEALTH MONITORING | Initial interval: ${currentHealthCheckInterval}ms (30 seconds) | Stable interval: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS}ms (5 minutes) | Threshold: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD} successful checks | Purpose: Detect permission loss within service")
+        AppLogger.d(TAG, "🔍 STARTING ADAPTIVE SERVICE HEALTH MONITORING | Initial interval: ${currentHealthCheckInterval}ms | Stable interval: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS}ms | Threshold: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD} successful checks | Purpose: Detect permission loss within service")
 
         healthMonitoringJob = serviceScope.launch {
             while (isServiceActive) {
@@ -470,7 +470,7 @@ class PrivilegedFirewallService : Service() {
                     if (consecutiveSuccessfulHealthChecks >= Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD &&
                         currentHealthCheckInterval == Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS) {
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS
-                        AppLogger.d(TAG, "⚡ SERVICE: BACKEND STABLE - INCREASING INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms (5 minutes) | Battery savings: ~90% reduction in wake-ups")
+                        AppLogger.d(TAG, "⚡ SERVICE: BACKEND STABLE - INCREASING INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | Battery savings: ~90% reduction in wake-ups")
                     }
 
                 } catch (e: Exception) {

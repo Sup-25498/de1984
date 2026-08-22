@@ -14,7 +14,7 @@ When in AUTO mode, the app selects the best available backend using this priorit
 
 1. **iptables** (highest priority)
    - **Requires**: Root access OR Shizuku in root mode
-   - **Check**: Try to execute `iptables -L` command (is this the best way to check in order to be compatible with most android versions and devices?)
+   - **Check**: root or Shizuku permission must be present (a Shizuku-only device must have Shizuku started in root mode), then `iptables --version` is executed and must exit 0
    - **If available**: Use iptables backend ✅
    - **If not available**: Try next backend ⬇️
 
@@ -26,7 +26,7 @@ When in AUTO mode, the app selects the best available backend using this priorit
 
 3. **VPN** (fallback, always available)
    - **Requires**: Only VPN permission (user grants via system dialog)
-   - **Always available**: No special requirements
+   - **Not unconditional**: the VPN slot must be free. If a third-party VPN is connected and De1984 has no root/Shizuku, the start is refused with "Another VPN is active" and the firewall goes to `Error` instead of taking the slot
    - **Use as last resort**: When no privileged access available ✅
 
 ### Manual Mode
@@ -135,19 +135,18 @@ When a privileged backend fails and VPN permission is not granted:
 
 The app uses adaptive health check intervals to balance responsiveness and battery efficiency:
 
-- **Initial interval**: 1 second (fast detection of privilege changes)
-- **After 10 consecutive successful checks**: Increase to 5 seconds
-- **After 20 consecutive successful checks**: Increase to 10 seconds
-- **After 30 consecutive successful checks**: Increase to 30 seconds (stable state)
-- **On any failure**: Reset to 1 second immediately (fast recovery)
+- **Initial interval**: 15 seconds (`BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS`)
+- **After 10 consecutive successful checks**: Increase to 60 seconds (`BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS`). This is the stable state and the only step-up - there are no further tiers
+- **On any failure**: Reset to 15 seconds immediately and reset the success counter to 0 (fast recovery)
+- **On a health-check exception**: neither the interval nor the counter is reset, and no fallback is triggered - exceptions are treated as possibly transient
 
 **What to Monitor**:
 
 1. **Root Status** (for iptables backend):
-   - Execute `su -c id` command
-   - Check for `uid=0` in output
-   - Timeout after 3 seconds
-   - Cache result to avoid hammering Magisk/SuperSU
+   - Run `id` on the existing cached libsu root shell, never a fresh `su -c id` - spawning a new `su` is what triggers Magisk's toast on every check
+   - Treat root as valid only if the output contains `uid=0`
+   - Only when no live cached root shell exists does it fall back to `Shell.getShell()`, which may create one (30 second timeout, set in `De1984Application`)
+   - Cache the result: `checkRootStatus()` skips the check once `ROOTED_WITH_PERMISSION`; health monitoring calls `forceRecheckRootStatus()` to bypass that cache and catch revocation
 
 2. **Shizuku Status** (for ConnectivityManager/iptables backends):
    - Check if Shizuku binder is available
@@ -157,7 +156,7 @@ The app uses adaptive health check intervals to balance responsiveness and batte
 
 3. **Backend Health**:
    - Verify backend can still execute commands
-   - For iptables: Test `iptables -L` command
+   - For iptables: Test `iptables --version` (exit code 0)
    - For ConnectivityManager: Test Shizuku shell command execution
    - For VPN: Check if VPN interface is active
 
@@ -199,7 +198,7 @@ Apps that should be blocked are added to the VPN tunnel. Their traffic goes thro
 - **Logic**: Roaming cannot be blocked independently - it's always "Mobile + Roaming" or neither.
 
 **Block All mode:**
-- Apps without rules: Blocked (added to VPN, traffic dropped)
+- Apps without rules: Blocked (added to VPN, traffic dropped) — except system-critical packages and apps that declare a VPN service, which are never added while Settings > "Allow Firewall Critical Packages" is OFF (the default). With that setting ON they still default to allowed when they have no rule, and so does any app sharing their UID.
 - Apps with explicit "allow" rule for current network: Allowed (bypass VPN)
 - Apps with explicit "block" rule for current network: Blocked (added to VPN)
 
@@ -258,7 +257,7 @@ When switching networks, recalculates which UIDs should be blocked based on per-
 
 Multiple apps can share the same UID. The firewall handles shared UIDs as follows:
 
-- **System-critical and VPN app exemption**: If ANY app with a UID is system-critical or a VPN app, the ENTIRE UID is exempted from blocking (all apps with that UID are allowed). This prevents bypass vulnerabilities where non-critical apps share UIDs with system packages.
+- **System-critical and VPN app exemption** (applies while Settings > "Allow Firewall Critical Packages" is OFF, the default): if ANY app with a UID is system-critical or a VPN app, the ENTIRE UID is exempted from blocking. This prevents bypass vulnerabilities where non-critical apps share UIDs with system packages. When that setting is ON the exemption is dropped — explicit rules on such UIDs are applied — and only UIDs with no rule at all are still left allowed in Block All mode.
 
 - **Block All mode**: For non-exempted UIDs, the UID is blocked if ANY app with that UID should be blocked (no explicit allow rule).
 
@@ -295,7 +294,7 @@ The ConnectivityManager firewall chain API operates at the app level, not the ne
 - **No WiFi/Mobile/Roaming switches**: Since this backend cannot do per-network blocking, the UI should NOT show separate WiFi/Mobile/Roaming switches. Instead, show a single "Block Network" toggle that blocks ALL networks.
 - **Migration from granular backends**: When switching from VPN or iptables (which have separate switches), convert rules using this logic:
   - **Partially blocked** (1-2 networks blocked): Treat as **fully blocked** (block all networks)
-  - **Partially allowed** (1-2 networks allowed): Treat as **fully allowed** (allow all networks)
+  - **Mixed** (some networks blocked, some allowed): Treat as **fully blocked** — `migrateRulesToSimple` sets all three flags to `true` whenever any one of them is blocked. Migration never converts a rule to fully allowed.
   - **Fully blocked** (all 3 networks blocked): Keep as fully blocked
   - **Fully allowed** (all 3 networks allowed): Keep as fully allowed
 
@@ -311,14 +310,14 @@ The ConnectivityManager firewall chain API operates at the app level, not the ne
 
 **Network changes:**
 
-Network changes have no effect on blocking decisions since all apps are either blocked everywhere or allowed everywhere. The backend does not recalculate rules when switching between WiFi/Mobile/Roaming.
+Rules are re-applied on every network change: PrivilegedFirewallService observes the network type and calls `applyRules`, which evaluates `rule.isBlockedOn(networkType)`. The result is normally identical, because this backend offers only a single Block Network toggle and granular rules are flattened by `migrateRulesToSimple` when switching from VPN or iptables. A rule that is still non-uniform — for example one that survived a restart where the migration did not run — will therefore change behaviour between WiFi and Mobile.
 
 **Example (Block All):**
 - Chrome (no rule) → Blocked everywhere
 - Firefox (has "allow" rule) → Allowed everywhere (WiFi, Mobile, Roaming)
 - Telegram (has "block" rule) → Blocked everywhere (WiFi, Mobile, Roaming)
 
-Switching between WiFi and Mobile has no effect - the blocking state remains the same.
+For a uniform rule, switching between WiFi and Mobile has no effect - the blocking state remains the same.
 
 ---
 
@@ -346,18 +345,14 @@ The firewall operates as a state machine with well-defined states and transition
    - Health monitoring is active
    - UI toggle should be ON
 
-4. **`Switching(from, to)`**: Transitioning between backends (atomic)
-   - New backend is starting while old backend is still active
-   - Ensures no security gap during transition
-   - Old backend stops only after new backend is confirmed active
-   - UI should show loading indicator with backend change message
-
-5. **`Error(message, lastBackend)`**: Backend failed, firewall is DOWN
+4. **`Error(message, lastBackend)`**: Backend failed, firewall is DOWN
    - Backend failed to start or crashed
    - No firewall rules are active
    - All apps are UNBLOCKED (security risk!)
    - UI must show prominent error warning
    - User must be notified
+
+There is no separate switching state. A backend switch reuses `Starting`: `startFirewall` sets `Starting(oldBackendType)`, starts the new backend before stopping the old one so there is no security gap, then sets `Running(newBackendType)`. If the new backend fails while the old one is still active, the state returns to `Running(oldBackend)` rather than going to `Error`.
 
 ### State Transitions
 
@@ -366,12 +361,13 @@ Stopped → Starting: User enables firewall
 Starting → Running: Backend confirms active (isActive() returns true)
 Starting → Error: Backend fails to start (timeout, permission denied, crash)
 
-Running → Switching: Privilege change detected OR backend failure detected
+Running → Starting: Privilege change detected OR backend failure detected
 Running → Stopped: User disables firewall
 Running → Error: Backend crashes unexpectedly
 
-Switching → Running: New backend active, old backend stopped successfully
-Switching → Error: New backend fails to start (keep old backend if still active)
+Starting → Running(new): New backend active, old backend stopped successfully
+Starting → Running(old): New backend fails, but the old backend is still active (rollback)
+Starting → Error: New backend fails and no backend is left running
 
 Error → Starting: Recovery attempt (privilege restored, VPN permission granted, user retry)
 Error → Stopped: User explicitly stops firewall
@@ -380,21 +376,20 @@ Error → Stopped: User explicitly stops firewall
 ### UI Synchronization Rules
 
 **Toggle State**:
-- ON: Only when state is `Running`
+- ON: When state is `Running` **or** `Starting` - the switch flips immediately on tap, before the backend is confirmed
 - OFF: When state is `Stopped` or `Error`
-- Disabled: When state is `Starting` or `Switching` (show loading)
+- The toggle is never disabled and there is no loading indicator: the toolbar shows only the "Firewall Active" / "Firewall OFF" badge pair, driven by the same ON/OFF flag.
 
 **Status Display**:
 - `Stopped`: "Firewall OFF" badge
 - `Starting`: "Starting..." with loading indicator
 - `Running`: "Firewall Active" badge + backend type
-- `Switching`: "Switching backend..." with loading indicator
 - `Error`: "Firewall not running" with error icon + error message
 
 **User Actions**:
 - User can always toggle OFF (stop firewall)
 - User can toggle ON only from `Stopped` or `Error` states
-- User cannot interact during `Starting` or `Switching` (prevent race conditions)
+- User cannot interact during `Starting` (prevent race conditions)
 
 ### State Persistence
 
@@ -448,9 +443,8 @@ When the app starts (or returns from background), it must recover the correct fi
      - Set `_firewallState` to `Starting(backendType)`
 
    - **Case C**: Firewall should be stopped BUT backend is active
-     - Orphaned backend service (shouldn't happen)
-     - Stop the backend service
-     - Set `_firewallState` to `Stopped`
+     - `initializeBackendState` adopts any detected backend as `Running` regardless of `KEY_FIREWALL_ENABLED`: intent is only read after all 5 detection attempts fail, so this case is never reached there
+     - `De1984Application.cleanupOrphanedFirewallRules` instead clears iptables / ConnectivityManager / NetworkPolicyManager *rules* at startup when the firewall is disabled; it does not stop the service, does not touch VPN, and does not change `_firewallState`
 
    - **Case D**: Firewall should be stopped AND no backend is active
      - Normal stopped state
@@ -479,8 +473,9 @@ When the app starts (or returns from background), it must recover the correct fi
 
 **Backend crashed**:
 - Health monitoring detects failure
-- Triggers automatic fallback to VPN
-- State transitions: `Running` → `Switching` → `Running(VPN)` or `Error`
+- In AUTO mode `handleBackendFailure` re-runs the planner, which normally picks the next privileged backend rather than VPN
+- In a manual mode there is no fallback at all: the firewall is left down, `_isFirewallDown` is set and a notification is shown
+- State transitions: `Running` → `Starting` → `Running(newBackend)`, or `Error`. There is no `Switching` state — `FirewallState` is only `Stopped`, `Starting`, `Running`, `Error`
 
 **Backend type mismatch**:
 - SharedPreferences says iptables, but VPN is running
@@ -504,19 +499,19 @@ Health checks ensure the firewall backend remains functional and triggers fallba
 
 **For Privileged Backends** (iptables, ConnectivityManager, NetworkPolicyManager):
 - Executed in PrivilegedFirewallService (foreground service)
-- Runs on adaptive interval (1s → 30s based on stability)
+- Runs on adaptive interval: 15s initially, rising to 60s after 10 consecutive successful checks
 - Checks backend availability via `checkAvailability()` method
 
 **For VPN Backend**:
 - Monitored internally in FirewallVpnService
 - Checks VPN interface status
 - Monitors network state changes
-- No external health checks needed
+- FirewallManager also runs its health loop on the VPN backend, on the same adaptive interval, for privilege-gain detection: in AUTO mode it re-checks root/Shizuku, and if `computeStartPlan()` now picks a privileged backend it stops VPN and switches automatically. In manual VPN mode the check is skipped and the user's choice is kept.
 
 ### Health Check Logic
 
 1. **Execute Check**:
-   - For iptables: Force re-check root status, then test `iptables -L`
+   - For iptables: Force re-check root status, then test `iptables --version`
    - For ConnectivityManager: Test Shizuku shell command execution
    - For NetworkPolicyManager: Test Shizuku shell command execution
 
@@ -528,7 +523,7 @@ Health checks ensure the firewall backend remains functional and triggers fallba
 3. **On Failure**:
    - Log failure with details
    - Reset consecutive success counter to 0
-   - Reset check interval to 1 second (fast recovery)
+   - Reset check interval to 15 seconds (fast recovery)
    - Trigger `handleBackendFailure()`
    - Stop health monitoring (new backend will start its own)
 
@@ -558,7 +553,7 @@ When health check fails:
 ### Retry Strategy
 
 **No automatic retries on health check failure**:
-- Health checks already run frequently (1-30 seconds)
+- Health checks already run frequently (15-60 seconds)
 - Immediate fallback is more secure than retrying failed backend
 - User can manually retry from error state
 
@@ -608,7 +603,7 @@ Notifications inform users about firewall state changes and issues.
 - ✅ Backend failure with VPN permission needed (high priority)
 - ✅ Firewall falls back to VPN at boot (low priority, dismissible)
 - ✅ Foreground service running (required by Android)
-- ❌ Automatic backend switch success (silent, no notification)
+- ✅ Automatic backend switch success (default priority, on the `firewall_alerts_channel`): "Firewall Upgraded" / "Switched from VPN to <backend>", auto-cancel
 - ❌ Health check failures (logged only, no notification spam)
 
 **Notification channels**:

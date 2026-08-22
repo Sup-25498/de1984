@@ -940,7 +940,8 @@ class FirewallManager(
 
     /**
      * Start continuous backend health monitoring with adaptive interval.
-     * Starts with fast checks (30s) for first 5 minutes, then increases to 5 minutes for battery savings.
+     * Starts at [Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS] and steps up once to
+     * [Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS] for battery savings.
      * For privileged backends (iptables, ConnectivityManager): checks if backend still has permissions (privilege loss detection).
      * For VPN backend: checks if better backends become available (privilege gain detection).
      * Per FIREWALL.md lines 92-96.
@@ -959,7 +960,7 @@ class FirewallManager(
             "PRIVILEGE LOSS (checking if backend still has permissions)"
         }
 
-        AppLogger.d(TAG, "🔍 STARTING ADAPTIVE HEALTH MONITORING | Backend: $backendType | Type: $monitoringType | Initial interval: ${currentHealthCheckInterval}ms (30 seconds) | Stable interval: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS}ms (5 minutes) | Threshold: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD} successful checks")
+        AppLogger.d(TAG, "🔍 STARTING ADAPTIVE HEALTH MONITORING | Backend: $backendType | Type: $monitoringType | Initial interval: ${currentHealthCheckInterval}ms | Stable interval: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS}ms | Threshold: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD} successful checks")
 
         healthMonitoringJob?.cancel()
         healthMonitoringJob = scope.launch {
@@ -1068,7 +1069,7 @@ class FirewallManager(
                     if (consecutiveSuccessfulHealthChecks >= Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD &&
                         currentHealthCheckInterval == Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS) {
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS
-                        AppLogger.d(TAG, "⚡ BACKEND STABLE - INCREASING HEALTH CHECK INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms (5 minutes) | Battery savings: ~90% reduction in wake-ups")
+                        AppLogger.d(TAG, "⚡ BACKEND STABLE - INCREASING HEALTH CHECK INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | Battery savings: ~90% reduction in wake-ups")
                     }
 
                 } catch (e: Exception) {

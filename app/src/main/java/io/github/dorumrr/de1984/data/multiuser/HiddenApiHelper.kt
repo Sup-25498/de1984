@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import io.github.dorumrr.de1984.utils.Constants
 import android.os.Build
 import android.os.UserHandle
 import com.topjohnwu.superuser.Shell
@@ -54,7 +55,22 @@ object HiddenApiHelper {
     private var installedAppsCache: MutableMap<Int, List<ApplicationInfo>> = mutableMapOf()
     @Volatile
     private var installedAppsCacheTime: Long = 0
-    private const val INSTALLED_APPS_CACHE_TTL = 5_000L // 5 seconds - short TTL to handle app installs/uninstalls
+    // The TTL is a backstop, not the primary invalidation. PackageAddedReceiver and
+    // PackageChangedReceiver drop these caches the moment a package is added, changed or removed, so
+    // a stale entry cannot outlive a real change.
+    //
+    // It used to be 5 seconds, which was shorter than the work it guarded: rebuilding the
+    // network-permission list takes 5-9 seconds on a two-profile device with 466 packages, so the
+    // cache expired before it could ever serve a hit and every rule toggle paid the full cost.
+    private const val INSTALLED_APPS_CACHE_TTL = 60_000L
+
+    // Which packages request a network permission. Shares the installed-apps TTL and invalidation,
+    // because the answer changes only when a package is installed or removed.
+    @Volatile
+    private var networkPackagesCache: List<ApplicationInfo>? = null
+    @Volatile
+    private var networkPackagesCacheTime: Long = 0
+    private val networkPackagesLock = Any()
     
     /**
      * Data class representing a user profile
@@ -392,7 +408,70 @@ object HiddenApiHelper {
     fun clearInstalledAppsCache() {
         installedAppsCache.clear()
         installedAppsCacheTime = 0
+        networkPackagesCache = null
+        networkPackagesCacheTime = 0
         AppLogger.d(TAG, "Cleared installed apps cache")
+    }
+
+    /**
+     * Every installed app, across every user profile, that requests a network permission.
+     *
+     * All four firewall backends ran this identical filter inline, and it is the dominant cost of
+     * applying rules: one `getPackageInfoAsUser` binder call per package, with no caching. Measured
+     * on a two-profile device with 466 packages at roughly **8 seconds per rule application** - far
+     * more than the policy writes it feeds.
+     *
+     * The result changes only when a package is installed or removed, so it shares
+     * [INSTALLED_APPS_CACHE_TTL] and is dropped by [clearInstalledAppsCache].
+     */
+    fun getPackagesWithNetworkPermissions(context: Context): List<ApplicationInfo> {
+        val entryTime = System.currentTimeMillis()
+        networkPackagesCache?.let { cached ->
+            if (entryTime - networkPackagesCacheTime < INSTALLED_APPS_CACHE_TTL) {
+                AppLogger.d(TAG, "📦 Returning cached ${cached.size} packages with network permissions")
+                return cached
+            }
+        }
+
+        // One computation at a time. This takes seconds - measured at 9,499 ms for 466 packages
+        // across two profiles - and the firewall runs two backend instances that both ask for it at
+        // startup. Without this they both paid the full cost. A caller that waited here takes
+        // whatever the winner produced, regardless of the TTL: a result computed *after* we started
+        // waiting is by definition fresher than we are.
+        synchronized(networkPackagesLock) {
+            networkPackagesCache?.let { cached ->
+                if (networkPackagesCacheTime >= entryTime) {
+                    AppLogger.d(TAG, "📦 Reusing ${cached.size} packages computed while waiting")
+                    return cached
+                }
+            }
+
+        val startTime = System.currentTimeMillis()
+        val packages = getUsers(context).flatMap { profile ->
+            getInstalledApplicationsAsUser(context, PackageManager.GET_META_DATA, profile.userId)
+                .map { appInfo -> appInfo to profile.userId }
+        }.filter { (appInfo, userId) ->
+            try {
+                val packageInfo = getPackageInfoAsUser(
+                    context,
+                    appInfo.packageName,
+                    PackageManager.GET_PERMISSIONS,
+                    userId
+                )
+                packageInfo?.requestedPermissions?.any { permission ->
+                    Constants.Firewall.NETWORK_PERMISSIONS.contains(permission)
+                } ?: false
+            } catch (e: Exception) {
+                false
+            }
+        }.map { (appInfo, _) -> appInfo }
+
+            networkPackagesCache = packages
+            networkPackagesCacheTime = System.currentTimeMillis()
+            AppLogger.d(TAG, "📦 Found ${packages.size} packages with network permissions " +
+                    "in ${System.currentTimeMillis() - startTime}ms")
+            return packages
+        }
     }
 
     /**

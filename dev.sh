@@ -577,8 +577,14 @@ populate_keystore_properties() {
             log_info "Operation cancelled"
             exit 0
         fi
-        cp "$KEYSTORE_PROPS" "${KEYSTORE_PROPS}.backup"
-        log_info "Backed up to ${KEYSTORE_PROPS}.backup"
+        # Same rule as the keystore backup: never overwrite an existing one.
+        local props_backup="${KEYSTORE_PROPS}.backup"
+        if [ -f "$props_backup" ]; then
+            props_backup="${KEYSTORE_PROPS}.backup.$(date +%Y%m%d-%H%M%S)"
+            log_warn "${KEYSTORE_PROPS}.backup already exists and will NOT be touched"
+        fi
+        cp "$KEYSTORE_PROPS" "$props_backup"
+        log_info "Backed up to $props_backup"
     fi
 
     echo ""
@@ -651,8 +657,16 @@ create_keystore() {
             log_info "Keystore creation cancelled"
             exit 0
         fi
-        log_warn "Backing up existing keystore to ${KEYSTORE_PATH}.backup"
-        cp "$KEYSTORE_PATH" "${KEYSTORE_PATH}.backup"
+        # Never overwrite an existing backup. Running this twice used to copy the FIRST
+        # replacement keystore over the backup of the original, destroying the only copy of the
+        # release signing key - after which no further update could ever be published.
+        local backup="${KEYSTORE_PATH}.backup"
+        if [ -f "$backup" ]; then
+            backup="${KEYSTORE_PATH}.backup.$(date +%Y%m%d-%H%M%S)"
+            log_warn "${KEYSTORE_PATH}.backup already exists and will NOT be touched"
+        fi
+        log_warn "Backing up existing keystore to $backup"
+        cp "$KEYSTORE_PATH" "$backup"
     fi
 
     log_info "This will create a new keystore for signing release APKs"

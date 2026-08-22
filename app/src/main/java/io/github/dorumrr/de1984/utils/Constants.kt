@@ -205,7 +205,8 @@ object Constants {
 
     object HealthCheck {
         // Adaptive health check intervals for privileged backends
-        // Start with fast checks (15s) for first 5 minutes, then slow down to 1 minute
+        // Start with fast checks, then slow down after BACKEND_HEALTH_CHECK_STABLE_THRESHOLD
+        // consecutive successes. There are exactly two intervals and one step-up.
         // This provides fast failure detection initially while saving battery once backend is stable
         const val BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS = 15_000L  // 15 seconds - fast detection
         const val BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS = 60_000L  // 1 minute - battery savings

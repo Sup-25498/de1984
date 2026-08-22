@@ -8,12 +8,14 @@ import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
 
 /**
- * Receiver for package state changes (enable/disable) from external apps.
- * 
- * When apps are enabled/disabled via external package managers (not de1984),
- * Android sends ACTION_PACKAGE_CHANGED broadcast. We listen for this to
- * refresh the package list so the UI stays in sync.
- * 
+ * Receiver for package state changes from outside de1984: enable, disable and removal.
+ *
+ * When apps are enabled/disabled via external package managers (not de1984), Android sends
+ * ACTION_PACKAGE_CHANGED. Removal sends ACTION_PACKAGE_REMOVED / ACTION_PACKAGE_FULLY_REMOVED. All
+ * three change what is installed, so all three refresh the package list and drop the cached package
+ * data - including the network-permission list the firewall backends apply from, which is the
+ * expensive one to rebuild.
+ *
  * Note: When de1984 enables/disables packages internally, it triggers
  * SharedFlow refresh directly without needing this broadcast.
  */
@@ -25,11 +27,20 @@ class PackageChangedReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         try {
-            // Verify this is a package changed event
-            if (intent?.action != Intent.ACTION_PACKAGE_CHANGED) {
-                AppLogger.d(TAG, "Ignoring non-PACKAGE_CHANGED action: ${intent?.action}")
+            val action = intent?.action
+            if (action != Intent.ACTION_PACKAGE_CHANGED &&
+                action != Intent.ACTION_PACKAGE_REMOVED &&
+                action != Intent.ACTION_PACKAGE_FULLY_REMOVED
+            ) {
+                AppLogger.d(TAG, "Ignoring unrelated action: $action")
                 return
             }
+
+            // Drop the cached package data first, before any filtering below can return early.
+            // The set of installed packages has changed, and the firewall backends read a cached
+            // network-permission list derived from it that takes seconds to rebuild - serving a
+            // stale one would mean a newly installed app is not blocked.
+            io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.clearInstalledAppsCache()
 
             // Extract package name
             val data = intent.data
@@ -55,7 +66,7 @@ class PackageChangedReceiver : BroadcastReceiver() {
             val uid = intent.getIntExtra(Intent.EXTRA_UID, -1).takeIf { it >= 0 }
             val userId = uid?.let { it / 100000 } ?: 0
 
-            AppLogger.i(TAG, "📦 Package changed externally: $packageName (userId=$userId) - triggering refresh")
+            AppLogger.i(TAG, "📦 Package $action externally: $packageName (userId=$userId) - triggering refresh")
 
             // Clear disabled packages cache to ensure fresh enabled/disabled state
             // This is critical for work profile apps where enabled state can change externally

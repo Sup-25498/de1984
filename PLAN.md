@@ -1843,6 +1843,74 @@ have been lost does not apply to this device.
 
 ---
 
+# FIREWALL.md DELIBERATE SWEEP + BACKLOG — 2026-08-22
+
+## The sweep: 21 claims challenged, 15 were wrong
+28 agents, one per document section, each finding put to a skeptic. **15 confirmed, 6 refuted.** All 15
+written, plus 4 more leftovers the mechanical pass missed and 2 leaked agent notes I had to clean out
+of the file by hand - worth remembering that applying generated replacement text needs a read-through,
+not just a diff-stat.
+
+The worst of them:
+- **`FirewallState.Switching` does not exist.** Zero hits in the codebase. The document listed it as
+  state 4 and used it in three transitions and two UI rules. `FirewallState` is only `Stopped`,
+  `Starting`, `Running`, `Error`.
+- **Every health-check number was wrong.** Document said 1s -> 5s -> 10s -> 30s with a reset to 1s.
+  Code has exactly two intervals, `15_000L` and `60_000L`, one step-up at 10 successes, reset to 15s.
+  The device log agrees with the code.
+- **`su -c id`** - the document prescribed exactly what `RootManager.verifyRootWithCachedShell` goes
+  out of its way to avoid. Following the document would reintroduce the Magisk toast spam bug.
+- **`iptables -L`** appears nowhere in the code; the probe is `iptables --version`.
+- **The migration rule contradicted itself.** "1-2 networks blocked -> fully blocked" and "1-2 networks
+  allowed -> fully allowed" describe the same state. Code resolves it as fully blocked, always.
+- **"VPN: always available, no special requirements"** - false. `startFirewallInternal` refuses to
+  start at all when another VPN holds the slot and there is no privileged access.
+- **"Automatic backend switch: silent, no notification"** - it posts "Firewall Upgraded".
+
+## Also fixed in code — six log lines that lied about their own intervals
+`(30 seconds)` where the value is 15s, `(5 minutes)` where it is 1 minute, in both health loops and
+two comments. Behaviour-neutral, but actively misleading: **that log misled me earlier in this same
+session** when I read "5 minutes" and believed it. They now print the interpolated value only.
+
+## P0-7 — `./dev.sh create-keystore` can no longer destroy the signing key
+`cp "$KEYSTORE_PATH" "${KEYSTORE_PATH}.backup"` overwrote any existing backup, so a second run replaced
+the backup of the original with the first replacement key. The same bug existed for
+`keystore.properties`.
+
+Both now refuse to touch an existing `.backup` and fall back to a timestamped name. Proven with a
+two-run simulation: after run two, `k.jks.backup` still contained `ORIGINAL KEY` and the second copy
+went to `k.jks.backup.20260822-234651`.
+
+## The slow rule toggle — 9,200 ms -> 2,796 ms, measured
+The dominant cost was never the policy writes. It was rebuilding "which packages request a network
+permission": one `getPackageInfoAsUser` binder call per package, 466 of them, uncached - and the same
+18-line filter was **copy-pasted into four places** (NPM, iptables, ConnectivityManager, and the VPN
+service has its own variant).
+
+Three fixes, each measured on the device:
+1. **One cached helper**, `HiddenApiHelper.getPackagesWithNetworkPermissions`, replacing the three
+   identical privileged-backend copies. (The two other `getInstalledApplicationsAsUser` sites in
+   iptables are *not* the same thing - they need every package for the shared-uid exemption - and were
+   correctly left alone.)
+2. **Stampede protection.** Two backend instances both asked at startup and both paid full price:
+   `9499ms` each. Now one computes and the other reuses it - a result produced *after* a caller
+   started waiting is by definition fresher than that caller, so the TTL is ignored for it.
+3. **Real invalidation, then a longer TTL.** The TTL was 5 s while the work it guarded took 5-9 s, so
+   it could never serve a hit. `PackageAddedReceiver` and `PackageChangedReceiver` now drop the caches
+   on add, change and removal - `PACKAGE_REMOVED` and `PACKAGE_FULLY_REMOVED` were not being listened
+   for at all before - which makes a 60 s TTL safe.
+
+```
+before:  Found 110 packages in 9499ms  x2 concurrent   ->  applyRules 9200ms
+step 2:  Found 110 packages in 4764ms  + "Reusing ..."  ->  applyRules 3806ms
+step 3:  Found 110 packages in 3284ms  + "Reusing ..."  ->  applyRules 2796ms
+```
+
+**Not yet measured: a repeat toggle inside the 60 s window**, which is where the TTL should now give a
+near-instant apply. Needs one more rule toggle on the device.
+
+---
+
 # PICK UP HERE — next session
 
 Doru will install on a real Android device, then we resume.

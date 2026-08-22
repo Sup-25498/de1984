@@ -195,25 +195,8 @@ class IptablesFirewallBackend(
             if (isBlockAllDefault) {
                 // Get packages from ALL user profiles for multi-user support
                 val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
-                val allPackages = userProfiles.flatMap { profile ->
-                    io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
-                        context, PackageManager.GET_META_DATA, profile.userId
-                    ).map { appInfo -> appInfo to profile.userId }
-                }.filter { (appInfo, userId) ->
-                    try {
-                        val packageInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
-                            context,
-                            appInfo.packageName,
-                            PackageManager.GET_PERMISSIONS,
-                            userId
-                        )
-                        packageInfo?.requestedPermissions?.any { permission ->
-                            Constants.Firewall.NETWORK_PERMISSIONS.contains(permission)
-                        } ?: false
-                    } catch (e: Exception) {
-                        false
-                    }
-                }.map { (appInfo, _) -> appInfo }
+                val allPackages = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
+                    .getPackagesWithNetworkPermissions(context)
 
                 AppLogger.d(TAG, "Block All mode: found ${allPackages.size} packages with network permissions across ${userProfiles.size} profiles")
 
