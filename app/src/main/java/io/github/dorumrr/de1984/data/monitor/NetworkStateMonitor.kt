@@ -250,6 +250,19 @@ class NetworkStateMonitor(
                     NetworkType.ROAMING
                 }
             }
+            // A VPN reports the transports it runs over, so the branches above already classify it.
+            // Left as NONE deliberately, to keep the VPN backend's behaviour exactly as it was.
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
+                NetworkType.NONE
+            }
+            // Ethernet, USB and Bluetooth tethering are real internet transports that this app has
+            // no separate switch for. NONE means "offline", and blocking rules are now held in
+            // force when offline, so calling an Ethernet dock or a TV box "offline" would block
+            // every rule permanently with no network event able to correct it. They are unmetered
+            // and not cellular, so the WiFi rules govern them.
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) -> {
+                NetworkType.WIFI
+            }
             else -> NetworkType.NONE
         }
     }

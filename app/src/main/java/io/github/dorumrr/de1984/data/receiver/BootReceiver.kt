@@ -162,26 +162,23 @@ class BootReceiver : BroadcastReceiver() {
                             result.onSuccess { backendType ->
                                 AppLogger.d(TAG, "✅ FIREWALL RESTORED SUCCESSFULLY | Trigger: $trigger | Backend: $backendType")
 
-                                // Reset iptables policies if boot protection was enabled
-                                val bootProtectionEnabled = prefs.getBoolean(
-                                    Constants.Settings.KEY_BOOT_PROTECTION,
-                                    Constants.Settings.DEFAULT_BOOT_PROTECTION
-                                )
-                                if (bootProtectionEnabled) {
-                                    AppLogger.d(TAG, "Boot protection was enabled - resetting iptables policies to ACCEPT")
-                                    try {
-                                        val bootProtectionManager = app.dependencies.bootProtectionManager
-                                        val resetResult = bootProtectionManager.resetIptablesPolicies()
-                                        if (resetResult.isSuccess) {
-                                            AppLogger.d(TAG, "✅ iptables policies reset successfully")
-                                        } else {
-                                            AppLogger.e(TAG, "❌ Failed to reset iptables policies: ${resetResult.exceptionOrNull()?.message}")
-                                        }
-                                    } catch (e: Exception) {
-                                        AppLogger.e(TAG, "❌ Exception while resetting iptables policies", e)
+                                // Lift the boot-protection block. Keyed on the script actually
+                                // being on disk, not on the preference: clearing app data resets
+                                // the preference to false and leaves the script in place, which is
+                                // the case clearBootBlockIfInstalled exists for. The other two
+                                // paths already use it; this one used to read the preference and
+                                // would leave the de1984_boot DROP chain up for its full timeout.
+                                AppLogger.d(TAG, "Lifting any boot protection block after successful start")
+                                try {
+                                    val bootProtectionManager = app.dependencies.bootProtectionManager
+                                    val resetResult = bootProtectionManager.clearBootBlockIfInstalled()
+                                    if (resetResult.isSuccess) {
+                                        AppLogger.d(TAG, "✅ Boot protection block lifted (or none present)")
+                                    } else {
+                                        AppLogger.e(TAG, "❌ Failed to lift boot protection block: ${resetResult.exceptionOrNull()?.message}")
                                     }
-                                } else {
-                                    AppLogger.d(TAG, "Boot protection not enabled - skipping iptables policy reset")
+                                } catch (e: Exception) {
+                                    AppLogger.e(TAG, "❌ Exception while lifting boot protection block", e)
                                 }
 
                                 // Check if we fell back to VPN and should start monitoring service

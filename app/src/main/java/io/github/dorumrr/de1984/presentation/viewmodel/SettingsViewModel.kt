@@ -235,7 +235,12 @@ class SettingsViewModel(
         }
     }
     
-    private fun saveSetting(key: String, value: Any) {
+    /**
+     * @param durable write synchronously with commit() instead of apply(). Use it when the caller is
+     * about to reboot the device: apply() hands the write to a background thread, and nothing
+     * guarantees that thread finishes before the kernel goes down.
+     */
+    private fun saveSetting(key: String, value: Any, durable: Boolean = false) {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
 
@@ -245,7 +250,12 @@ class SettingsViewModel(
             is String -> editor.putString(key, value)
         }
 
-        editor.apply()
+        if (durable) {
+            @Suppress("ApplySharedPref")
+            editor.commit()
+        } else {
+            editor.apply()
+        }
     }
     
     fun setAutoRefresh(enabled: Boolean) {
@@ -345,7 +355,10 @@ class SettingsViewModel(
 
                 if (result.isSuccess) {
                     _uiState.value = _uiState.value.copy(bootProtection = enabled)
-                    saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, enabled)
+                    // Durable, not apply(): the device is rebooted a few lines below. Losing this
+                    // write would leave the preference disagreeing with the boot script actually on
+                    // disk - the exact mismatch this feature exists to prevent.
+                    saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, enabled, durable = true)
 
                     AppLogger.d(TAG, "✅ Boot protection ${if (enabled) "enabled" else "disabled"} successfully")
 

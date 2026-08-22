@@ -297,14 +297,24 @@ class NetworkPolicyManagerFirewallBackend(
             ?: emptyMap()
     }
 
-    private fun saveOriginalPolicies(originals: Map<Int, Int>) {
+    /**
+     * @param durable flush synchronously. Use it before writing any policy, so the record of what
+     * was there cannot be lost by a process death that happens after the write.
+     */
+    private fun saveOriginalPolicies(originals: Map<Int, Int>, durable: Boolean = false) {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
+        val editor = prefs.edit()
             .putStringSet(
                 Constants.Settings.KEY_NPM_ORIGINAL_POLICIES,
                 originals.map { (uid, policy) -> "$uid:$policy" }.toSet()
             )
-            .apply()
+
+        if (durable) {
+            @Suppress("ApplySharedPref")
+            editor.commit()
+        } else {
+            editor.apply()
+        }
     }
 
     /**
@@ -462,6 +472,29 @@ class NetworkPolicyManagerFirewallBackend(
                 val originalPolicies = loadOriginalPolicies().toMutableMap()
                 val originalPoliciesBefore = originalPolicies.toMap()
 
+                // Record every original BEFORE a single policy is written, and flush that record to
+                // disk first. Writing as we went and saving once at the end inverted the durable
+                // order: a process death mid-loop left UIDs holding our blocking policy with nothing
+                // on disk saying we put it there. The next run would then read our own block back as
+                // that UID's "original" and restore the block forever.
+                desiredPolicies.forEach { (uid, shouldBlock) ->
+                    if (!shouldBlock) return@forEach
+                    if (appliedPolicies[uid] == true) return@forEach
+                    if (originalPolicies.containsKey(uid)) return@forEach
+
+                    val existing = readUidPolicy(networkPolicyManager, uid)
+                    if (existing == null) {
+                        val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
+                        AppLogger.e(TAG, "Cannot read current policy for $packageName (UID $uid) - " +
+                                "refusing to overwrite it")
+                        return@forEach
+                    }
+                    originalPolicies[uid] = existing
+                }
+                if (originalPolicies != originalPoliciesBefore) {
+                    saveOriginalPolicies(originalPolicies, durable = true)
+                }
+
                 desiredPolicies.forEach { (uid, shouldBlock) ->
                     val currentPolicy = appliedPolicies[uid]
 
@@ -486,25 +519,24 @@ class NetworkPolicyManagerFirewallBackend(
                         return@forEach
                     }
 
+                    // No recorded original means the pass above could not read it, so we must not
+                    // write - overwriting a policy we cannot record would destroy it.
+                    if (shouldBlock && !isOurs) {
+                        errorCount++
+                        return@forEach
+                    }
+
                     try {
                         if (shouldBlock) {
-                            // Record what was there before the first write, so it can be given back.
-                            if (!isOurs) {
-                                val existing = readUidPolicy(networkPolicyManager, uid)
-                                if (existing == null) {
-                                    errorCount++
-                                    val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
-                                    AppLogger.e(TAG, "Cannot read current policy for $packageName (UID $uid) - " +
-                                            "refusing to overwrite it")
-                                    return@forEach
-                                }
-                                originalPolicies[uid] = existing
-                            }
                             setUidPolicyMethod?.invoke(networkPolicyManager, uid, blockingPolicy)
                         } else {
                             // Ours, and no longer blocked: restore exactly what was there before.
-                            val original = originalPolicies.remove(uid) ?: POLICY_NONE
+                            // Read first, drop the record only once the write has actually landed.
+                            // Removing up front meant a throwing setUidPolicy left the uid holding
+                            // our blocking policy with nothing on disk recording that we set it.
+                            val original = originalPolicies[uid] ?: POLICY_NONE
                             setUidPolicyMethod?.invoke(networkPolicyManager, uid, original)
+                            originalPolicies.remove(uid)
                         }
 
                         appliedPolicies[uid] = shouldBlock  // Track applied policy

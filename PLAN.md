@@ -975,8 +975,19 @@ The constant `POLICY_REJECT_ALL = 0x4` (`:55`) is separately wrong — this ROM 
 the broken probe. Fixing the probe without fixing the constant would make the backend write an
 allowance to every blocked app.
 
+## Reachability — VERIFIED during the 2026-08-22 audit
+`FirewallManager.selectBackend(FirewallMode.AUTO)` is iptables -> ConnectivityManager -> VPN, with no
+NPM branch at any Android version (`FirewallManager.kt:791-820`). **AUTO never selects this backend.**
+It is reachable only by manual selection, which `SettingsFragmentViews.kt:766` offers whenever Shizuku
+is present, with no Android version gate.
+
+So the blast radius is users who deliberately choose NetworkPolicyManager in Settings. For them the
+firewall reports Running, the UI shows apps as Blocked, and only metered background data is actually
+blocked. Still a real defect - the app offers a backend that cannot do what its UI claims - but it is
+not on the default path for anyone.
+
 **Not fixed.** Needs a decision: probe with a real app uid and read back with `getUidPolicy`, use
-`0x40000`, or retire the backend on Android 13+.
+`0x40000`, or retire the backend.
 
 ## Also observed in the same run — needs its own entries
 - `applyRules` took **16,531 ms** for 79 uids (`PrivilegedFirewallService` TIMING log), and ran
@@ -1284,6 +1295,141 @@ moment, so the check must skip it and fall back to the remaining networks that c
 Worth deciding at the same time: whether `NetworkType.NONE` should unblock at all. Blocking rules
 could simply be left in force when there is no network — nothing can connect anyway, and it removes
 both this failure and the reconnect window in the P1 above.
+
+---
+
+# VERIFICATION AUDIT OF THE SESSION COMMITS — 2026-08-22
+
+Scope: commits `38f0a77`, `3847322`, `96f5a6c`, `0298bc9` (22 files) plus every caller reached from
+them. 17 agents over 5 lenses, each finding put to a skeptic. **12 raised, 3 survived, 9 refuted.**
+Two more were found by direct reading. All 5 are fixed.
+
+## A. Boot-protection preference was written with apply(), then the device rebooted — FIXED
+Found by direct reading, not by the fan-out. `SettingsViewModel.saveSetting` used `editor.apply()`,
+which hands the disk write to a background thread. `setBootProtection` then ran `svc power reboot`
+immediately. Nothing guarantees that thread finishes first, so the preference could disagree with the
+boot script actually on disk — the exact mismatch the forced reboot exists to eliminate.
+
+Fix: `saveSetting` gained `durable: Boolean = false` (`commit()` instead of `apply()`), used only by
+the boot-protection write. The other 13 call sites are unchanged.
+
+## B. Unblock dropped the record before the write could fail — FIXED
+`applyRules` did `originalPolicies.remove(uid)` and then wrote. A throwing `setUidPolicy` — which the
+device demonstrably produces (`cannot apply policy to UID 100xxxx`) — left the uid holding De1984's
+blocking policy with its record already gone. Fix: read, write, then remove.
+`clearBlockedUidPoliciesInternal` already had the correct order.
+
+## C. The record was persisted only after the whole write loop — FIXED (audit, high)
+The in-memory order was right but the durable order was inverted: N binder writes, then one
+`apply()`. A process death mid-loop left uids blocked with nothing on disk. The next run would then
+read De1984's own blocking value back as that uid's "original" and restore the block forever.
+
+Fix: a pre-pass reads and records every original **before** any policy is written, and flushes it with
+`commit()`. The write loop now refuses to write any uid it has no record for. A uid already blocked in
+this process (`appliedPolicies[uid] == true`) is skipped by the pre-pass, so De1984's own value can
+never be read back as an original.
+
+## D. `NetworkType.NONE` also means "transport I do not recognise" — FIXED (audit, high)
+**A regression introduced by 0298bc9.** `networkTypeOf` maps anything that is not WiFi or cellular to
+`NONE`, and `observeNetworkType` filters only on `NET_CAPABILITY_INTERNET`. So an Ethernet dock, a USB
+or Bluetooth tether, or an Android TV box reports `NONE` **while fully online**. With
+`isBlockedOn(NONE)` now holding blocks, every rule carrying any flag would block totally and
+permanently on such a device, with no network event able to correct it. Before the commit those three
+backends blocked nothing there.
+
+Fix: an internet-capable transport that is neither WiFi nor cellular now maps to `WIFI` — unmetered
+and not cellular, so the WiFi rules govern it. `TRANSPORT_VPN` is left mapping to `NONE` deliberately,
+to keep the VPN backend's behaviour byte-identical. `isWiFi()`, `isMobile()`, `isRoaming()` and
+`isConnected()` have no callers outside the monitor, so nothing else is affected.
+
+**Not verified on hardware** — the test device has no Ethernet.
+
+## E. BootReceiver's success path still keyed the lift on the preference — FIXED (audit, high)
+`clearBootBlockIfInstalled()` exists because clearing app data resets `KEY_BOOT_PROTECTION` to false
+while leaving the script on disk. `BootReceiver` used it on the failure path and the
+firewall-not-enabled path, but its **success** path still read the preference and called
+`resetIptablesPolicies()` only if it was true. On Android 11 and below, or via the
+WorkManager-unavailable fallback, an app-data clear would leave the `de1984_boot` DROP chain up until
+the script's own 120 s timer fired — no network for two minutes after every boot.
+
+Fix: that path now calls `clearBootBlockIfInstalled()` like the other two. `BootWorker` was already
+correct — it lifts unconditionally before anything else.
+
+### Verified live after the fixes
+```
+22:46:40.054  ✅ Applied 2 policies, skipped 0 unchanged, left 85 foreign policies alone, 0 errors
+22:46:40.656  De1984.BootReceiver: Lifting any boot protection block after successful start
+22:46:40.695  De1984.BootReceiver: ✅ Boot protection block lifted (or none present)
+```
+The record survived the reinstall intact — `10212:262144`, `10269:0` — and the five foreign policies
+were untouched.
+
+## Refuted, worth recording
+- *"Removing the pref-gated reset breaks the protected window"* — refuted; `BootWorker` lifts before
+  the firewall starts by design, decided earlier in the session.
+- *"`blockWhenRoaming` widening blocks a reachable rule state"* — refuted as harmful; widening is in
+  the safe direction for a firewall and the state is rare.
+- *"In-flight NonCancellable applyRules can re-block uids cleanupAllBackends just reverted"* —
+  refuted; the shared `originalPolicyLock` serialises them.
+- *"Service cancels its own VPN-fallback coroutine via onDestroy"* — refuted.
+
+## Left open deliberately
+- `BootWorker:91-105` still has a preference-gated `resetIptablesPolicies()` that is now redundant,
+  because line 58 already lifted unconditionally. Harmless and idempotent, but it is a second way to
+  do the same thing. Not removed: in the case "preference true, script absent" the two differ, and
+  that difference has not been reasoned through.
+- `commit()`'s return value is not checked in either durable write. Disk-full territory only.
+
+---
+
+# FIREWALL.md — VERIFIED DRIFT, PROPOSED WORDING AWAITING APPROVAL
+
+Not written. These are proposals only.
+
+## D1 — Manual Mode lists 3 backends; the app offers 5
+`FIREWALL.md:35-45` names VPN, iptables and ConnectivityManager. `SettingsFragmentViews.getAllBackends()`
+returns **AUTO, VPN, ConnectivityManager, iptables and NetworkPolicyManager**. There is no
+`## 4. NetworkPolicyManager Backend` section either, although the picker offers it whenever Shizuku is
+present, with no Android version gate.
+
+`FIREWALL.md:35` currently reads:
+> **Important**: The dropdown should only show backends that are currently available on the device.
+
+The code shows every backend and marks the unavailable ones with a requirement line explaining what is
+missing. That is better UX than hiding them; the document is what is out of date. Proposed replacement:
+> **Important**: The dropdown lists every backend. Ones that cannot run on this device are shown
+> disabled, with a line stating what they require, so the user can see why a backend is unavailable
+> rather than wondering where it went.
+
+Proposed additions to the **Available backends check** list (`FIREWALL.md:37-40`):
+> - **AUTO**: Always available (always shown, and is the default)
+> - **NetworkPolicyManager**: Requires Shizuku. Available on every Android version.
+
+and to **User selection** (`FIREWALL.md:42-45`):
+> - **Force NetworkPolicyManager**: Only use NetworkPolicyManager (only selectable if Shizuku is
+>   available). See the limitation in P0-8 — this backend currently blocks metered background data
+>   only; WiFi is never blocked.
+
+## D2 — the AUTO section is correct, no change needed
+`FIREWALL.md:11-30` describes iptables -> ConnectivityManager -> VPN. `selectBackend(FirewallMode.AUTO)`
+matches exactly, with no NPM branch. **Verified accurate.**
+
+## D3 — no-network behaviour is not covered anywhere
+`FIREWALL.md` never mentions `NetworkType.NONE` or what happens with no network. It is now
+load-bearing: blocks are held rather than lifted. Proposed new subsection under **Firewall State
+Machine**:
+> ### No network
+> When the device has no usable network, blocking rules stay in force rather than being lifted.
+> Nothing can connect with no network, so holding them costs nothing, and lifting them opened a window
+> on reconnect where every app was unblocked until the next rule pass landed. Transports the app has
+> no separate switch for — Ethernet, USB and Bluetooth tethering — are treated as WiFi, not as
+> "no network".
+
+## D4 — boot protection is undocumented, including the forced reboot
+Neither `FIREWALL.md` nor `README.md` mentions boot protection. It now **reboots the device
+immediately** on both enable and disable, straight after the confirmation dialog, with no second
+prompt. That is a large, surprising behaviour with no documentation anywhere. Recommend a short
+section; wording to be drafted once Doru confirms where it belongs.
 
 ---
 
