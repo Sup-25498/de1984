@@ -117,6 +117,30 @@ class De1984Application : Application() {
                     dependencies.shizukuManager.checkShizukuStatus()
                     kotlinx.coroutines.delay(500)
 
+                    // RE-READ the gate. The check above happened a full second ago, and one widget
+                    // or tile tap does BOTH of these at once: it cold-starts this process, which
+                    // schedules this sweep, and it runs FirewallToggleReceiver's startFirewall with
+                    // no delay at all. So the start wins the race, creates the chains - and then
+                    // this sweep wakes up and deletes them.
+                    //
+                    // The result is the worst state this app can be in: the toggle, the badge and
+                    // the notification all say ACTIVE while nothing is enforcing. Nothing catches
+                    // it either - the health check only runs "iptables --version" and reads a
+                    // preference, and never looks for de1984_output.
+                    //
+                    // The privilege warm-up above is what made this bite. Before it, the sweep ran
+                    // with no root and its teardown commands were inert, so the collision was
+                    // harmless. Giving the sweep real privileges gave it real teeth.
+                    val enabledNow = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, false)
+                    val backendUp = dependencies.firewallManager.activeBackendType.value != null
+                    if (enabledNow || backendUp) {
+                        AppLogger.i(
+                            TAG,
+                            "Firewall came up while the sweep was warming up (enabled=$enabledNow, backend=$backendUp) - skipping the sweep"
+                        )
+                        return@launch
+                    }
+
                     // Collected, not just logged. This sweep is the only retry that happens after a
                     // stop failed and the process died, and the health state it would have restored
                     // is in-memory only - so a device whose rules are still enforcing used to start
