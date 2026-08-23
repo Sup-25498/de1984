@@ -976,6 +976,7 @@ class AndroidPackageDataSource(
                         wifiBlocked = !allowed,
                         mobileBlocked = !allowed,
                         blockWhenRoaming = !allowed,
+                        lanBlocked = !allowed,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
                         hasInternetPermission = hasNetworkPermissions(packageName, userId)
@@ -1297,7 +1298,8 @@ class AndroidPackageDataSource(
                     // Use atomic batch update to prevent race conditions
                     firewallRepository.updateAllNetworkBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with all networks set to the same blocking state
+                    // Create new rule with the three internet transports set to the same state.
+                    // LAN is left at its default on purpose - see updateAllNetworkBlocking.
                     val rule = FirewallRule(
                         packageName = packageName,
                         userId = userId,

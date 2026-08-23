@@ -122,6 +122,14 @@ class FirewallManager(
      * flow by hand re-opens the drift this replaced: nine hand-written failure paths, five of which
      * warned nobody.
      */
+    /**
+     * Set when any teardown reports a failure, including one the privileged service finds after
+     * stopFirewallInternal has already moved on. Volatile because the service writes it from its
+     * own scope while the stop path reads it.
+     */
+    @Volatile
+    private var stopTeardownFailed = false
+
     private val _firewallHealth = MutableStateFlow<FirewallHealth>(FirewallHealth.Healthy)
     val firewallHealth: StateFlow<FirewallHealth> = _firewallHealth.asStateFlow()
 
@@ -629,18 +637,54 @@ class FirewallManager(
         return try {
             AppLogger.d(TAG, "Stopping firewall")
 
+            // A fresh attempt gets a fresh verdict. The privileged service reports its teardown
+            // asynchronously, so this flag is how a failure it finds mid-sweep stops the success
+            // path below from declaring the firewall healthy.
+            stopTeardownFailed = false
+
             // Stop monitoring
             stopMonitoring()
 
-            // Stop current backend
-            currentBackend?.stop()?.getOrElse { error ->
-                AppLogger.w(TAG, "Failed to stop current backend: ${error.message}")
+            // Stop current backend.
+            //
+            // The failure is captured, not just logged. This used to fall through to
+            // Result.success(Unit), so a backend that refused to tear down left its rules in the
+            // kernel while the preference, the widget and the toggle all went to OFF, and the user
+            // was told nothing. Apps could be offline with every control saying the firewall was
+            // off. Only the running backend counts here - the opportunistic sweep below stays
+            // best-effort, because it also runs for backends the user has no privilege for.
+            // On a retry there is no active backend to read: the first stop returned before the
+            // privileged service reported its failure asynchronously, so it had already cleared the
+            // refs. The standing StopFailed warning still names the backend, and that is the one
+            // whose sweep failure has to be reported - otherwise "Stop again" sweeps, fails, and
+            // still says the firewall stopped.
+            val stoppedBackendType = _activeBackendType.value
+                ?: (_firewallHealth.value as? FirewallHealth.StopFailed)?.backend
+            var stopFailure: Throwable? = null
+            currentBackend?.stop()?.onFailure { error ->
+                AppLogger.e(TAG, "Failed to stop current backend ($stoppedBackendType): ${error.message}", error)
+                stopFailure = error
             }
 
             // Clean up ALL backend types to prevent orphaned rules
             // This ensures that if user switched backends, old rules are cleaned up
             // Per user request: when firewall is OFF, there should be NO rules from ANY backend
-            cleanupAllBackends()
+            val sweepFailure = cleanupAllBackends(reportFailureFor = stoppedBackendType)
+
+            val teardownError = stopFailure
+                ?: sweepFailure
+                ?: if (stopTeardownFailed) Exception("Backend teardown reported a failure") else null
+            if (teardownError != null) {
+                // currentBackend and _activeBackendType are deliberately KEPT here. The backend may
+                // well still be enforcing, and the banner's "Stop again" button calls straight back
+                // into this function - with them nulled, `currentBackend?.stop()` short-circuited,
+                // no failure was captured, and the retry fell through to success and erased the
+                // warning without removing a single rule.
+                reportStopFailed(stoppedBackendType, teardownError)
+                return Result.failure(
+                    errorHandler.handleError(teardownError, "stop firewall")
+                )
+            }
 
             currentBackend = null
             _activeBackendType.value = null
@@ -670,8 +714,23 @@ class FirewallManager(
      * rules may remain active. When firewall is disabled, we want a truly clean state with
      * no rules from any backend.
      */
-    private suspend fun cleanupAllBackends() {
+    /**
+     * @param reportFailureFor the backend that was actually running, or null.
+     *
+     * The sweep is best-effort for every OTHER backend - it also runs for backends the user has no
+     * privilege for, so reporting those would be a stream of false alarms. For the one that was
+     * running, a failure here IS the teardown failing: these calls are what remove the rules.
+     *
+     * This matters most on a retry. The privileged backends do their real teardown inside
+     * PrivilegedFirewallService, which has already stopped itself by then, so `backend.stop()` fires
+     * an intent nobody answers and reports success. The sweep is the only thing still doing work,
+     * and swallowing its failure is what let "Stop again" claim success over live rules.
+     *
+     * @return the failure for [reportFailureFor], or null.
+     */
+    private suspend fun cleanupAllBackends(reportFailureFor: FirewallBackendType? = null): Throwable? {
         AppLogger.d(TAG, "Cleaning up all backend types to ensure no orphaned rules...")
+        var reportable: Throwable? = null
 
         // Clean up iptables rules (if any exist)
         // This is the most important cleanup because iptables rules persist in the kernel
@@ -684,9 +743,14 @@ class FirewallManager(
                 errorHandler
             )
             iptablesBackend.stop()
-            AppLogger.d(TAG, "Iptables cleanup completed")
+                .onSuccess { AppLogger.d(TAG, "Iptables cleanup completed") }
+                .onFailure {
+                    AppLogger.w(TAG, "Iptables cleanup incomplete: ${it.message}")
+                    if (reportFailureFor == FirewallBackendType.IPTABLES) reportable = it
+                }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up iptables: ${e.message}")
+            if (reportFailureFor == FirewallBackendType.IPTABLES) reportable = e
             // Ignore errors - best effort cleanup
             // User may not have root/Shizuku, which is fine
         }
@@ -706,16 +770,47 @@ class FirewallManager(
             // unconditional "completed" line claimed success while apps stayed blocked.
             npmBackend.clearOrphanedPolicies()
                 .onSuccess { AppLogger.d(TAG, "NetworkPolicyManager cleanup completed") }
-                .onFailure { AppLogger.w(TAG, "NetworkPolicyManager cleanup incomplete: ${it.message}") }
+                .onFailure {
+                    AppLogger.w(TAG, "NetworkPolicyManager cleanup incomplete: ${it.message}")
+                    if (reportFailureFor == FirewallBackendType.NETWORK_POLICY_MANAGER) reportable = it
+                }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up NetworkPolicyManager policies: ${e.message}")
+            if (reportFailureFor == FirewallBackendType.NETWORK_POLICY_MANAGER) reportable = e
             // Ignore errors - best effort cleanup
             // User may not have Shizuku, which is fine
         }
 
-        // VPN and ConnectivityManager backends don't leave orphaned state:
-        // - VPN: Service stops cleanly, Android removes VPN interface automatically
-        // - ConnectivityManager: Chain is disabled via shell command, no persistent state
+        // Clean up ConnectivityManager package denials (if any exist).
+        //
+        // The comment that used to sit here said this backend leaves no persistent state. It does:
+        // "cmd connectivity set-package-networking-enabled false <pkg>" and the OEM_DENY_3 chain are
+        // system state, and the only record of what we denied lived in an in-memory map. A crash,
+        // a force-stop or a backend switch left denied apps with no network and nothing to undo it.
+        // The record is now on disk, so this fresh instance can put it back.
+        try {
+            val cmBackend = ConnectivityManagerFirewallBackend(
+                context,
+                shizukuManager,
+                errorHandler
+            )
+            cmBackend.clearOrphanedPolicies()
+                .onSuccess { AppLogger.d(TAG, "ConnectivityManager cleanup completed") }
+                .onFailure {
+                    AppLogger.w(TAG, "ConnectivityManager cleanup incomplete: ${it.message}")
+                    if (reportFailureFor == FirewallBackendType.CONNECTIVITY_MANAGER) reportable = it
+                }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to clean up ConnectivityManager policies: ${e.message}")
+            if (reportFailureFor == FirewallBackendType.CONNECTIVITY_MANAGER) reportable = e
+            // Ignore errors - best effort cleanup
+            // User may not have Shizuku, which is fine
+        }
+
+        // VPN leaves no orphaned state: the service stops cleanly and Android removes the
+        // VPN interface automatically.
+
+        return reportable
     }
 
     /**
@@ -1103,6 +1198,18 @@ class FirewallManager(
      * This is called when the service detects a failure and stops itself.
      * We handle it immediately instead of waiting for the health check to detect it.
      */
+    /**
+     * The privileged service could not tear a backend down.
+     *
+     * Deliberately takes no lock. It is called from the service's own stop handler, which runs while
+     * stopFirewallInternal may still be sweeping, and blocking there would serialise the two halves
+     * of a stop against each other. It only publishes state.
+     */
+    suspend fun handleStopFailureFromService(backendType: FirewallBackendType, error: Throwable) {
+        AppLogger.e(TAG, "Service reported a failed teardown for $backendType")
+        reportStopFailed(backendType, error)
+    }
+
     suspend fun handleBackendFailureFromService(failedBackendType: FirewallBackendType) {
         AppLogger.e(TAG, "Received backend failure notification from service: $failedBackendType")
         handleBackendFailure(failedBackendType)
@@ -1166,10 +1273,96 @@ class FirewallManager(
      * recovery, and a timer tick is not evidence that a lost firewall came back.
      */
     private fun reportFirewallHealthy() {
+        stopTeardownFailed = false
         _firewallHealth.value = FirewallHealth.Healthy
         _isFirewallDown.value = false
         dismissBackendFailedNotification()
         dismissVpnFallbackNotification()
+        dismissStopFailedNotification()
+    }
+
+    /**
+     * The user asked to stop and the backend would not tear down, so its rules may still be live.
+     *
+     * [_isFirewallDown] is cleared on purpose: that flag arms automatic recovery, which restarts the
+     * firewall. Arming it here would fight the user, who just asked for the opposite. The stale
+     * failure notifications go too - whatever was wrong before, "will not stop" is the live problem
+     * now, and the banner carries it.
+     */
+    private fun reportStopFailed(backend: FirewallBackendType?, error: Throwable) {
+        AppLogger.e(TAG, "⚠️ FIREWALL WOULD NOT STOP (backend=$backend): rules may still be enforced", error)
+
+        stopTeardownFailed = true
+
+        _firewallHealth.value = FirewallHealth.StopFailed(backend)
+        _isFirewallDown.value = false
+        dismissBackendFailedNotification()
+        dismissVpnFallbackNotification()
+
+        _firewallState.value = FirewallState.Error(
+            message = context.getString(R.string.firewall_stop_failed_title),
+            lastBackend = backend
+        )
+        emitStateChangeBroadcast(_firewallState.value)
+
+        // _firewallHealth is in-memory and resets to Healthy on process death, so without this the
+        // warning would live only inside an open Activity: swipe the app away, come back, and the
+        // UI would say OFF with rules still enforced. The notification is the part that survives.
+        showStopFailedNotification(backend)
+    }
+
+    /**
+     * Tell the user, outside the app, that the firewall would not shut down.
+     *
+     * Same wording as the banner, through the same presenter, so the two cannot drift apart.
+     * Its own notification id: [dismissBackendFailedNotification] must not cancel it, because a
+     * later "backend healthy" is not evidence that the stuck rules were removed.
+     */
+    private fun showStopFailedNotification(backend: FirewallBackendType?) {
+        AppLogger.d(TAG, "Showing stop-failed notification (backend=$backend)")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                Constants.BackendFailure.CHANNEL_ID,
+                Constants.BackendFailure.CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifications when preferred firewall backend fails"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val health = FirewallHealth.StopFailed(backend)
+        val title = FirewallHealthPresenter.title(context, health).orEmpty()
+        val body = FirewallHealthPresenter.message(context, health).orEmpty()
+
+        val notification = NotificationCompat.Builder(context, Constants.BackendFailure.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_shield)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(Constants.StopFailure.NOTIFICATION_ID, notification)
+    }
+
+    /** Clear the stop-failed notification once a stop or a start has genuinely succeeded. */
+    private fun dismissStopFailedNotification() {
+        notificationManager.cancel(Constants.StopFailure.NOTIFICATION_ID)
     }
 
     /**

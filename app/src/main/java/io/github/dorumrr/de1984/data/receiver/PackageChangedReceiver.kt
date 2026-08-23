@@ -6,6 +6,8 @@ import android.content.Intent
 import io.github.dorumrr.de1984.De1984Application
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Receiver for package state changes from outside de1984: enable, disable and removal.
@@ -18,6 +20,13 @@ import io.github.dorumrr.de1984.utils.Constants
  *
  * Note: When de1984 enables/disables packages internally, it triggers
  * SharedFlow refresh directly without needing this broadcast.
+ *
+ * It also carries the firewall rule for a package that is still installed. That is a safety net for
+ * PackageAddedReceiver: on TrebleDroid / Android 14, measured 2026-08-23, a real install delivers
+ * ACTION_PACKAGE_ADDED to other apps but never to ours, while ACTION_PACKAGE_CHANGED arrives
+ * reliably. Without this a reinstalled app kept the uid from its previous install - and the
+ * privileged backends block by uid, so it was enforced against nothing while the UI read "Blocked".
+ * Both receivers run the same use case, which is idempotent: whichever arrives first does the work.
  */
 class PackageChangedReceiver : BroadcastReceiver() {
 
@@ -75,6 +84,25 @@ class PackageChangedReceiver : BroadcastReceiver() {
             // Notify observers that package data changed
             val app = context.applicationContext as De1984Application
             app.dependencies.notifyPackageDataChanged()
+
+            // Only for a package that still exists. The two removal actions land here too, and there
+            // is nothing to look up for a package that is gone.
+            if (action == Intent.ACTION_PACKAGE_CHANGED) {
+                val pendingResult = goAsync()
+                app.dependencies.applicationScope.launch(Dispatchers.IO) {
+                    try {
+                        // Creates the rule if the package has none, and re-points an existing rule at
+                        // the app's current uid and label. No notification is shown from here; that
+                        // stays with PackageAddedReceiver, which owns the "new app" story.
+                        app.dependencies.provideHandleNewAppInstallUseCase()
+                            .execute(packageName, uid)
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to refresh rule for $packageName", e)
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
+            }
 
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error handling package changed broadcast", e)

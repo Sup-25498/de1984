@@ -70,8 +70,26 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                     // Immediately show loading state on widgets for responsive UX
                     FirewallWidget.setLoadingState(context)
 
+                    // Honour the mode the user picked in Settings. Hard-coding AUTO here started a
+                    // different backend than the one they chose, and a manual VPN choice was ignored
+                    // every time the firewall was started from the widget or the tile.
+                    val persistedMode = firewallManager.getCurrentMode()
+                    AppLogger.d(TAG, "Using persisted firewall mode: $persistedMode")
+
                     // Check if VPN permission is needed
-                    val planResult = firewallManager.computeStartPlan(FirewallMode.AUTO)
+                    var mode = persistedMode
+                    var planResult = firewallManager.computeStartPlan(mode)
+
+                    // A manual mode whose backend is no longer available - root lost, Shizuku gone -
+                    // makes computeStartPlan fail outright. Hard-coded AUTO used to reach VPN here,
+                    // so honouring the mode without this would cost the user the ability to start
+                    // the firewall from the widget at all. Honour the choice, then fall back.
+                    if (planResult.isFailure && mode != FirewallMode.AUTO) {
+                        AppLogger.w(TAG, "Persisted mode $mode is unavailable (${planResult.exceptionOrNull()?.message}); falling back to AUTO")
+                        mode = FirewallMode.AUTO
+                        planResult = firewallManager.computeStartPlan(mode)
+                    }
+
                     val plan = planResult.getOrNull()
                     AppLogger.d(TAG, "computeStartPlan result: $plan")
                     AppLogger.d(TAG, "requiresVpnPermission: ${plan?.requiresVpnPermission}")
@@ -87,12 +105,25 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                         AppLogger.d(TAG, "VpnPermissionActivity launched")
                     } else {
                         AppLogger.d(TAG, "🚀 No VPN permission needed, starting firewall directly...")
-                        val startResult = firewallManager.startFirewall(FirewallMode.AUTO)
+                        val startResult = firewallManager.startFirewall(mode)
                         AppLogger.d(TAG, "startFirewall() result: $startResult")
-                        // Update SharedPreferences to reflect the change
-                        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-                        prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, true).apply()
-                        AppLogger.d(TAG, "SharedPreferences updated: KEY_FIREWALL_ENABLED=true")
+
+                        // Only record "enabled" when the start actually succeeded. Writing it
+                        // unconditionally told boot restore the firewall had been running when it
+                        // never started, so the next reboot tried to restore a firewall that was
+                        // never up - and the widget showed ON over an unprotected device.
+                        startResult
+                            .onSuccess {
+                                val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+                                prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, true).apply()
+                                AppLogger.d(TAG, "SharedPreferences updated: KEY_FIREWALL_ENABLED=true")
+                            }
+                            .onFailure { error ->
+                                // The widget clears its own loading state: a failed start reports
+                                // down through FirewallManager, which broadcasts the new state and
+                                // FirewallWidget.onReceive redraws from it.
+                                AppLogger.e(TAG, "❌ Start from widget/tile failed, leaving KEY_FIREWALL_ENABLED untouched", error)
+                            }
                     }
                 }
             } catch (e: Exception) {

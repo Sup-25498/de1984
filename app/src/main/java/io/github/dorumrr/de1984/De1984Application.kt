@@ -125,8 +125,14 @@ class De1984Application : Application() {
                             dependencies.shizukuManager,
                             dependencies.errorHandler
                         )
-                        cmBackend.stopInternal()
-                        AppLogger.d(TAG, "Cleaned up orphaned ConnectivityManager rules")
+                        // clearOrphanedPolicies(), not stopInternal(): it returns immediately when
+                        // there is no record of ours, so the many users who never run this backend
+                        // keep a cold start that issues no shell commands at all. An upgrade from a
+                        // build that kept no record is already covered - this sweep only runs when
+                        // the firewall was off, and that old build's own stop disabled the chain.
+                        cmBackend.clearOrphanedPolicies()
+                            .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned ConnectivityManager rules") }
+                            .onFailure { AppLogger.w(TAG, "Orphaned ConnectivityManager denials remain: ${it.message}") }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Failed to clean up orphaned ConnectivityManager rules: ${e.message}")
                     }

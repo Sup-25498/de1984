@@ -13,6 +13,7 @@ import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.model.FirewallRule
 import io.github.dorumrr.de1984.domain.model.NetworkType
 import io.github.dorumrr.de1984.utils.Constants
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,9 +54,18 @@ class ConnectivityManagerFirewallBackend(
         private const val SERVICE_NAME = "connectivity"
         private const val MIN_API_LEVEL = Build.VERSION_CODES.TIRAMISU // Android 13
         private const val FIREWALL_CHAIN_OEM_DENY_3 = 3 // OEM-specific deny chain
-    }
 
-    private val mutex = Mutex()
+        /**
+         * Process-wide, NOT per-instance.
+         *
+         * Everything this backend guards - the OEM_DENY_3 chain, the system's per-package denials,
+         * the on-disk record - is shared by every instance. FirewallManager.cleanupAllBackends()
+         * builds a second instance while the privileged service may still be inside applyRules, and
+         * a per-instance lock let the sweep restore every package and write an empty record while
+         * that apply re-denied them, leaving apps offline with the firewall off.
+         */
+        private val mutex = Mutex()
+    }
 
     // Track applied policies to avoid redundant shell commands (memory leak fix)
     // Maps packageName -> isBlocked
@@ -100,6 +110,13 @@ class ConnectivityManagerFirewallBackend(
                 return Result.failure(Exception(error))
             }
 
+            // Recorded durably so a fresh process after a crash knows this backend ran and has
+            // something to undo. It records "De1984 asked for this chain", NOT "De1984 was first":
+            // set-chain3-enabled reports success whether or not the chain was already on, and the
+            // connectivity shell offers no getter, so a chain an OEM had already enabled cannot be
+            // told apart from one we enabled. Undoing it on stop is what the app has always done.
+            setChain3EnabledByUs(true)
+
             AppLogger.d(TAG, "✅ Firewall chain enabled (FIREWALL_CHAIN_OEM_DENY_3)")
             Result.success(Unit)
         } catch (e: Exception) {
@@ -138,16 +155,33 @@ class ConnectivityManagerFirewallBackend(
         return try {
             AppLogger.d(TAG, "stopInternal: Disabling firewall chain")
 
+            // Re-enable networking for every package we denied, BEFORE the chain goes down.
+            // Disabling the chain alone only masks those denials; they stay recorded in the system
+            // and come back the moment anything turns the chain on again.
+            val notRestored = restoreBlockedPackages()
+
             // Disable the firewall chain using shell command
             val (exitCode, output) = shizukuManager.executeShellCommand("cmd connectivity set-chain3-enabled false")
             if (exitCode != 0) {
                 AppLogger.w(TAG, "Failed to disable firewall chain: $output")
                 // Don't fail on stop - just log the warning
+            } else {
+                setChain3EnabledByUs(false)
             }
 
             // Clear applied policies cache when stopping firewall
             appliedPolicies.clear()
             AppLogger.d(TAG, "Cleared applied policies cache")
+
+            if (notRestored.isNotEmpty()) {
+                AppLogger.e(TAG, "❌ ${notRestored.size} packages still denied networking after stop")
+                return Result.failure(
+                    errorHandler.handleError(
+                        Exception("${notRestored.size} packages could not have networking restored"),
+                        "restore ConnectivityManager package networking"
+                    )
+                )
+            }
 
             AppLogger.d(TAG, "Firewall chain disabled")
             Result.success(Unit)
@@ -283,6 +317,26 @@ class ConnectivityManagerFirewallBackend(
             // This drastically reduces shell command execution (memory leak fix)
             // NOTE: This only affects user 0 packages due to ConnectivityManager limitations
             AppLogger.d(TAG, "🔍 [CACHE DEBUG] appliedPolicies cache size: ${appliedPolicies.size}, desiredPolicies size: ${desiredPolicies.size}")
+
+            // Record what we are ABOUT to deny, durably, before the first command runs. If the
+            // process dies mid-loop the record still covers everything that was denied. It
+            // deliberately over-records: a package whose command later failed is listed anyway, and
+            // re-enabling an already-enabled package is a harmless no-op. The other direction -
+            // denying a package we never recorded - strands it with no network and nothing to
+            // point at. One synchronous write per apply, not one per package.
+            // Union, not overwrite. After a process restart appliedPolicies is empty, so this loop
+            // also re-enables packages that were denied by the previous process. Overwriting the
+            // record first would drop them from it, and a death before the loop reached them would
+            // strand them with no network and no record to undo it.
+            val intendedBlocked = desiredPolicies.filterValues { it }.keys.toSet()
+            val existingRecord = loadBlockedPackages()
+            // Only pay for the synchronous commit when the record would actually change. Under the
+            // Block All default intendedBlocked is close to every network-capable package, and this
+            // runs on every network change, screen toggle and rule edit.
+            if (!existingRecord.containsAll(intendedBlocked)) {
+                saveBlockedPackages(existingRecord + intendedBlocked, durable = true)
+            }
+
             desiredPolicies.forEach { (packageName, shouldBlock) ->
                 val currentPolicy = appliedPolicies[packageName]
 
@@ -321,6 +375,18 @@ class ConnectivityManagerFirewallBackend(
                     AppLogger.e(TAG, "Failed to apply policy for $packageName", e)
                 }
             }
+
+            // Update the record from what this pass actually did, rather than overwriting it with
+            // appliedPolicies. A package can be denied and absent from desiredPolicies - it was
+            // uninstalled, disabled, or moved out of the enumeration - and after a cache clear it is
+            // in neither map. Overwriting dropped it from the record while the system denial stood,
+            // leaving it offline with nothing left to undo it. Only an explicit re-enable removes a
+            // package from the record.
+            val record = loadBlockedPackages().toMutableSet()
+            appliedPolicies.forEach { (pkg, isBlocked) ->
+                if (isBlocked) record.add(pkg) else record.remove(pkg)
+            }
+            saveBlockedPackages(record)
 
                 AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $errorCount errors")
                 Result.success(Unit)
@@ -417,6 +483,136 @@ class ConnectivityManagerFirewallBackend(
     fun clearAppliedPoliciesCache() {
         appliedPolicies.clear()
         AppLogger.d(TAG, "Cleared applied policies cache (forced)")
+    }
+
+    /**
+     * Undo everything this backend did to the system, from any process.
+     *
+     * Exists because none of it lives in this app. `set-package-networking-enabled false` and
+     * `set-chain3-enabled true` are system state: if De1984 is force-stopped, crashes, or is
+     * uninstalled while this backend is running, nothing calls [stopInternal] and the denied apps
+     * stay offline with no De1984 on screen to explain it. FirewallManager.cleanupAllBackends()
+     * calls this on every stop, so a fresh process cleans up after a dead one.
+     *
+     * Returns success without touching anything when there is no record of ours - the normal case
+     * for the many users who never run this backend. That matters: blindly disabling chain3 could
+     * clobber an OEM that uses it for its own purposes.
+     */
+    suspend fun clearOrphanedPolicies(): Result<Unit> = mutex.withLock {
+        val blocked = loadBlockedPackages()
+        val weEnabledChain3 = chain3EnabledByUs()
+
+        if (blocked.isEmpty() && !weEnabledChain3) {
+            AppLogger.d(TAG, "No ConnectivityManager state of ours to undo")
+            appliedPolicies.clear()
+            return Result.success(Unit)
+        }
+
+        AppLogger.d(TAG, "Undoing ConnectivityManager state: ${blocked.size} denied packages, chain3ByUs=$weEnabledChain3")
+
+        val notRestored = restoreBlockedPackages()
+
+        // A non-empty package record is equally good evidence that this backend ran, and covers an
+        // upgrade from a build that never wrote the flag.
+        if (weEnabledChain3 || blocked.isNotEmpty()) {
+            val (exitCode, output) = shizukuManager.executeShellCommand("cmd connectivity set-chain3-enabled false")
+            if (exitCode == 0) {
+                setChain3EnabledByUs(false)
+            } else {
+                AppLogger.w(TAG, "Failed to disable firewall chain during cleanup: $output")
+            }
+        }
+
+        appliedPolicies.clear()
+
+        return if (notRestored.isEmpty()) {
+            AppLogger.d(TAG, "✅ Restored networking for ${blocked.size} packages")
+            Result.success(Unit)
+        } else {
+            AppLogger.e(TAG, "❌ ${notRestored.size} of ${blocked.size} packages could not have networking restored")
+            Result.failure(
+                errorHandler.handleError(
+                    Exception("${notRestored.size} packages could not have networking restored"),
+                    "restore ConnectivityManager package networking"
+                )
+            )
+        }
+    }
+
+    /**
+     * Re-enable networking for every package in the persisted record.
+     *
+     * @return the packages that could not be restored. They stay on disk for the next attempt
+     * rather than being silently forgotten.
+     */
+    private suspend fun restoreBlockedPackages(): Set<String> {
+        val blocked = loadBlockedPackages()
+        if (blocked.isEmpty()) return emptySet()
+
+        val restored = mutableSetOf<String>()
+        val failed = mutableSetOf<String>()
+        blocked.forEach { packageName ->
+            try {
+                val (exitCode, output) = shizukuManager.executeShellCommand(
+                    "cmd connectivity set-package-networking-enabled true $packageName"
+                )
+                if (exitCode == 0) {
+                    restored.add(packageName)
+                    appliedPolicies.remove(packageName)
+                    AppLogger.d(TAG, "Restored networking for $packageName")
+                } else {
+                    failed.add(packageName)
+                    AppLogger.e(TAG, "Failed to restore networking for $packageName: $output")
+                }
+            } catch (e: Exception) {
+                failed.add(packageName)
+                AppLogger.e(TAG, "Failed to restore networking for $packageName", e)
+            }
+        }
+
+        // Re-read the record instead of writing the snapshot taken before the loop. This function
+        // can run on a second backend instance - cleanupAllBackends() builds a fresh one - while the
+        // service instance is still inside applyRules and denying new packages. Writing the stale
+        // snapshot would erase whatever it recorded in the meantime.
+        saveBlockedPackages(loadBlockedPackages() - restored, durable = true)
+        return failed
+    }
+
+    /** Packages this backend has denied networking, as last written to disk. */
+    private fun loadBlockedPackages(): Set<String> {
+        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(Constants.Settings.KEY_CM_BLOCKED_PACKAGES, emptySet())?.toSet()
+            ?: emptySet()
+    }
+
+    /**
+     * @param durable flush synchronously. Use it before denying anything and after restoring, so
+     * the record cannot be lost by a process death that lands between the write and the command.
+     */
+    private suspend fun saveBlockedPackages(packages: Set<String>, durable: Boolean = false) {
+        withContext(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            val editor = prefs.edit().putStringSet(Constants.Settings.KEY_CM_BLOCKED_PACKAGES, packages)
+            if (durable) {
+                @Suppress("ApplySharedPref")
+                editor.commit()
+            } else {
+                editor.apply()
+            }
+        }
+    }
+
+    private fun chain3EnabledByUs(): Boolean {
+        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(Constants.Settings.KEY_CM_CHAIN3_ENABLED_BY_US, false)
+    }
+
+    private suspend fun setChain3EnabledByUs(enabled: Boolean) {
+        withContext(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            @Suppress("ApplySharedPref")
+            prefs.edit().putBoolean(Constants.Settings.KEY_CM_CHAIN3_ENABLED_BY_US, enabled).commit()
+        }
     }
 
     /**

@@ -59,6 +59,8 @@ class HandleNewAppInstallUseCase constructor(
                         firewallRepository.insertRule(defaultRule)
                         AppLogger.d(TAG, "Created rule for pre-existing app: $packageName")
                     }
+                } else {
+                    refreshRuleIdentity(existingRule, packageInfo)
                 }
                 return Result.failure(Exception("Pre-existing app - notification skipped"))
             }
@@ -69,6 +71,11 @@ class HandleNewAppInstallUseCase constructor(
 
             val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
             if (existingRule != null) {
+                // The old rule is kept on purpose - the user configured it - but its UID must be
+                // re-read. Android hands a reinstalled app a NEW uid, and the privileged backends
+                // block by uid: a stale one matches nothing, so the app showed "Blocked" in the UI
+                // while its traffic flowed. The label is refreshed for the same reason.
+                refreshRuleIdentity(existingRule, packageInfo)
                 return Result.success(Unit)
             }
 
@@ -123,6 +130,43 @@ class HandleNewAppInstallUseCase constructor(
         }
     }
     
+    /**
+     * Re-point an existing rule at the app as it exists now.
+     *
+     * A reinstall keeps the package name and changes the uid. Rules are keyed on
+     * (packageName, userId), so the row survives - carrying a uid that no longer belongs to anyone.
+     * Writes only when something actually changed, to avoid waking every rule observer on boot.
+     */
+    private suspend fun refreshRuleIdentity(
+        existingRule: FirewallRule,
+        packageInfo: android.content.pm.PackageInfo
+    ) {
+        val appInfo = packageInfo.applicationInfo ?: return
+        val currentUid = appInfo.uid
+        val currentName = try {
+            context.packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            existingRule.appName
+        }
+
+        if (existingRule.uid == currentUid && existingRule.appName == currentName) {
+            return
+        }
+
+        AppLogger.d(
+            TAG,
+            "Refreshing rule identity for ${existingRule.packageName}: " +
+                "uid ${existingRule.uid} -> $currentUid, name '${existingRule.appName}' -> '$currentName'"
+        )
+        firewallRepository.updateRule(
+            existingRule.copy(
+                uid = currentUid,
+                appName = currentName,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
     private fun createDefaultFirewallRule(packageName: String, packageInfo: android.content.pm.PackageInfo, userId: Int): FirewallRule? {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val defaultPolicy = prefs.getString(
@@ -199,6 +243,7 @@ class HandleNewAppInstallUseCase constructor(
                     wifiBlocked = true,
                     mobileBlocked = true,
                     blockWhenRoaming = true,
+                    lanBlocked = true,
                     enabled = true,
                     isSystemApp = isSystemApp
                 )

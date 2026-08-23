@@ -41,8 +41,15 @@ data class NetworkPackage(
     val isFullyBlocked: Boolean
         get() = wifiBlocked && mobileBlocked
 
+    /**
+     * Nothing is blocked at all - LAN included.
+     *
+     * LAN counts here even though only the iptables backend enforces it. Without it an app with
+     * only lanBlocked set rendered as "Allowed" and matched the Allowed filter, which is how a
+     * silently-set LAN block became invisible.
+     */
     val isFullyAllowed: Boolean
-        get() = !wifiBlocked && !mobileBlocked && !roamingBlocked
+        get() = !wifiBlocked && !mobileBlocked && !roamingBlocked && !lanBlocked
 
     val isPartiallyBlocked: Boolean
         get() = !isFullyBlocked && !isFullyAllowed

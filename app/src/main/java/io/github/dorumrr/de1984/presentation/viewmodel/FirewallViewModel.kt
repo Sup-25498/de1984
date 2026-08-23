@@ -657,11 +657,35 @@ class FirewallViewModel(
         )
     }
 
+    /**
+     * Guards against a second stop being queued while one is running.
+     *
+     * The health banner's "Stop again" button calls straight in here with no confirmation dialog in
+     * front of it, so repeated taps would each queue a full iptables + NetworkPolicyManager +
+     * ConnectivityManager sweep behind FirewallManager's start/stop lock.
+     */
+    private var stopInFlight = false
+
     fun stopFirewall() {
+        if (stopInFlight) {
+            AppLogger.d(TAG, "stopFirewall ignored - a stop is already running")
+            return
+        }
+        stopInFlight = true
         viewModelScope.launch {
             // Save state BEFORE stopping so widget reads correct state when broadcast arrives
             saveFirewallState(false)
-            firewallManager.stopFirewall()
+
+            firewallManager.stopFirewall().onFailure { error ->
+                // The preference deliberately stays false. It records what the user wants, and they
+                // asked for the firewall off; flipping it back would make boot restore start the
+                // firewall again on the next reboot. What the teardown failure needs is to be
+                // visible, and FirewallManager publishes it as FirewallHealth.StopFailed, which the
+                // banner renders with a retry button.
+                AppLogger.e(TAG, "stopFirewall failed - rules may still be enforced: ${error.message}", error)
+            }
+
+            stopInFlight = false
         }
     }
 
@@ -705,11 +729,19 @@ class FirewallViewModel(
 
                 // Optimistically update UI
                 updatePackageInList(packageId.packageName, packageId.userId) { pkg ->
-                    pkg.copy(wifiBlocked = true, mobileBlocked = true, roamingBlocked = true)
+                    pkg.copy(wifiBlocked = true, mobileBlocked = true, roamingBlocked = true, lanBlocked = true)
                 }
 
-                // Persist
-                manageNetworkAccessUseCase.setAllNetworkBlocking(packageId.packageName, packageId.userId, blocked = true)
+                // Persist. setNetworkAccess, not setAllNetworkBlocking: the button says "Block All
+                // Networks", and "all" was settled as WiFi + Mobile + Roaming + LAN.
+                // setAllNetworkBlocking is the narrower "Internet Access" control and leaves LAN.
+                //
+                // The LAN row is only shown on the iptables backend, so on the other three this
+                // writes a lanBlocked the user cannot see. It is recoverable - "Allow All Networks"
+                // clears it through the same path - and those backends ignore lanBlocked entirely.
+                // Hiding rather than disabling unenforceable controls is a settled decision that is
+                // not implemented yet; see PLAN.md, product decision 4.
+                manageNetworkAccessUseCase.setNetworkAccess(packageId.packageName, packageId.userId, allowed = false)
                     .onSuccess {
                         succeeded.add(packageId.packageName)
                     }
@@ -758,11 +790,12 @@ class FirewallViewModel(
 
                 // Optimistically update UI
                 updatePackageInList(packageId.packageName, packageId.userId) { pkg ->
-                    pkg.copy(wifiBlocked = false, mobileBlocked = false, roamingBlocked = false)
+                    pkg.copy(wifiBlocked = false, mobileBlocked = false, roamingBlocked = false, lanBlocked = false)
                 }
 
                 // Persist
-                manageNetworkAccessUseCase.setAllNetworkBlocking(packageId.packageName, packageId.userId, blocked = false)
+                // Mirrors batchBlockPackages: "Allow All Networks" must clear LAN too.
+                manageNetworkAccessUseCase.setNetworkAccess(packageId.packageName, packageId.userId, allowed = true)
                     .onSuccess {
                         succeeded.add(packageId.packageName)
                     }

@@ -95,6 +95,8 @@ object Constants {
         const val KEY_VPN_INTERFACE_ACTIVE = "vpn_interface_active"  // Tracks if VPN interface is established (separate from service running)
         const val KEY_PRIVILEGED_SERVICE_RUNNING = "privileged_service_running"  // Tracks if privileged firewall service is running
         const val KEY_NPM_ORIGINAL_POLICIES = "npm_original_policies"  // "uid:policy" pairs: what each UID looked like before the NetworkPolicyManager backend touched it
+        const val KEY_CM_BLOCKED_PACKAGES = "cm_blocked_packages"  // package names the ConnectivityManager backend has denied networking; survives the process so a fresh one can undo them
+        const val KEY_CM_CHAIN3_ENABLED_BY_US = "cm_chain3_enabled_by_us"  // true only while De1984 is the one that turned FIREWALL_CHAIN_OEM_DENY_3 on
         const val KEY_PRIVILEGED_BACKEND_TYPE = "privileged_backend_type"  // Stores which privileged backend is active (iptables/connectivity_manager/network_policy_manager)
         const val KEY_NEW_APP_NOTIFICATIONS = "new_app_notifications"
         const val KEY_BOOT_PROTECTION = "boot_protection"
@@ -546,6 +548,16 @@ object Constants {
      */
     object VpnFailure {
         const val NOTIFICATION_ID = 1008
+    }
+
+    /**
+     * Raised when the user stopped the firewall and the backend refused to tear down.
+     *
+     * Its own id so that dismissing the backend-failure notification cannot cancel it: a backend
+     * reporting healthy again says nothing about rules that were never removed.
+     */
+    object StopFailure {
+        const val NOTIFICATION_ID = 1009
     }
 
     object VpnConflict {

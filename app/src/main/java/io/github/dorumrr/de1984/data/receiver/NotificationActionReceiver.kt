@@ -56,10 +56,16 @@ class NotificationActionReceiver : BroadcastReceiver() {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             scope.launch {
                 try {
-                    // Update firewall rule for all networks
+                    // Update firewall rule for all networks.
+                    //
+                    // setNetworkAccess, not setAllNetworkBlocking: these buttons say "Block All" and
+                    // "Allow All", so they must cover all four dimensions including LAN. The narrow
+                    // call could not clear the lanBlocked that a new app's own Block All rule sets,
+                    // so tapping "Allow All" left the app's LAN blocked while the list read Allowed.
+                    //
                     // Note: For notifications, we use userId=0 (personal profile) as notifications
                     // are typically for newly installed apps in the main profile
-                    manageNetworkAccessUseCase.setAllNetworkBlocking(packageName, userId = 0, blocked)
+                    manageNetworkAccessUseCase.setNetworkAccess(packageName, userId = 0, allowed = !blocked)
                         .onSuccess {
                             AppLogger.d(TAG, "Successfully updated network access for $packageName: blocked=$blocked")
 

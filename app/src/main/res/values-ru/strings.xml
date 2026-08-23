@@ -379,9 +379,14 @@
     <string name="firewall_switched_title">Бэкенд изменён</string>
     <string name="firewall_switched_message_auto">Бэкенд %1$s отказал. De1984 перешёл на VPN и продолжает вас защищать.</string>
     <string name="firewall_switched_message_manual">Бэкенд %1$s отказал. De1984 перешёл в режим AUTO и использует VPN.</string>
+    <string name="firewall_stop_failed_title">Брандмауэр не остановился</string>
+    <string name="firewall_stop_failed_message">Бэкенд %1$s не удалось остановить. Некоторые приложения могут быть по-прежнему заблокированы. Повторите попытку или перезагрузите устройство.</string>
+    <string name="firewall_stop_failed_message_unknown">Брандмауэр не удалось остановить. Некоторые приложения могут быть по-прежнему заблокированы. Повторите попытку или перезагрузите устройство.</string>
+    <string name="firewall_stop_failed_action_retry">Остановить снова</string>
     <string name="firewall_down_notifications_off">Уведомления отключены, поэтому это предупреждение не дойдёт до вас, когда De1984 закрыт.</string>
     <string name="firewall_down_action_enable_notifications">Включить уведомления</string>
     <string name="firewall_status_down">СБОЙ</string>
+    <string name="firewall_status_stuck">ЗАСТРЯЛ</string>
 
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">Файрволл De1984 отключён - Конфликт VPN</string>

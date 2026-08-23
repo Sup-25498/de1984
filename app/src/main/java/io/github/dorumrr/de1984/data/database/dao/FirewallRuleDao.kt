@@ -88,10 +88,14 @@ interface FirewallRuleDao {
     // Bulk operations - All users
     // =============================================================================================
 
-    @Query("UPDATE firewall_rules SET wifiBlocked = 1, mobileBlocked = 1, updatedAt = :timestamp WHERE enabled = 1 AND packageName NOT IN (:excludedPackages)")
+    // "All" means WiFi + Mobile + Roaming + LAN. Screen-off (blockWhenBackground) is deliberately
+    // excluded: it is a condition, not a network, and an app blocked on every network is already
+    // blocked while the screen is off. Leaving roaming out here left apps blocked while roaming with
+    // the roaming toggle reading ON, and leaving LAN out disagreed with the default-policy path.
+    @Query("UPDATE firewall_rules SET wifiBlocked = 1, mobileBlocked = 1, blockWhenRoaming = 1, lanBlocked = 1, updatedAt = :timestamp WHERE enabled = 1 AND packageName NOT IN (:excludedPackages)")
     suspend fun blockAllApps(excludedPackages: List<String>, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE firewall_rules SET wifiBlocked = 0, mobileBlocked = 0, updatedAt = :timestamp WHERE enabled = 1 AND packageName NOT IN (:excludedPackages)")
+    @Query("UPDATE firewall_rules SET wifiBlocked = 0, mobileBlocked = 0, blockWhenRoaming = 0, lanBlocked = 0, updatedAt = :timestamp WHERE enabled = 1 AND packageName NOT IN (:excludedPackages)")
     suspend fun allowAllApps(excludedPackages: List<String>, timestamp: Long = System.currentTimeMillis())
 
     // =============================================================================================
@@ -113,7 +117,10 @@ interface FirewallRuleDao {
     @Query("UPDATE firewall_rules SET lanBlocked = :blocked, updatedAt = :timestamp WHERE packageName = :packageName AND userId = :userId")
     suspend fun updateLanBlocking(packageName: String, userId: Int, blocked: Boolean, timestamp: Long = System.currentTimeMillis())
 
-    // Atomic batch update for all network types - prevents race conditions when toggling all networks at once
+    // Atomic batch update for the three internet transports - prevents race conditions when
+    // toggling them at once. Deliberately NOT LAN: this backs the "Internet Access" toggle, which
+    // is labelled "WiFi, Mobile, Roaming" and sits beside a separate LAN control. "Block All" in the
+    // policy sense is wider and goes through blockAllApps / FirewallRule.blockAll() instead.
     @Query("UPDATE firewall_rules SET wifiBlocked = :blocked, mobileBlocked = :blocked, blockWhenRoaming = :blocked, updatedAt = :timestamp WHERE packageName = :packageName AND userId = :userId")
     suspend fun updateAllNetworkBlocking(packageName: String, userId: Int, blocked: Boolean, timestamp: Long = System.currentTimeMillis())
 

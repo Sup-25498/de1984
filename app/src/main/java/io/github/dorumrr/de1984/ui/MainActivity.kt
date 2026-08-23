@@ -622,14 +622,26 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateFirewallBadges() {
         val onFirewallTab = currentTab == Tab.FIREWALL
-        val isDown = FirewallHealthPresenter.isCritical(firewallViewModel.firewallHealth.value)
+        val health = firewallViewModel.firewallHealth.value
+        val isDown = FirewallHealthPresenter.isCritical(health)
         val isEnabled = firewallViewModel.uiState.value.isFirewallEnabled
 
-        binding.firewallDownBadge.visibility = if (onFirewallTab && isDown) View.VISIBLE else View.GONE
+        // A failed teardown leaves the toggle reading OFF, because FirewallState is Error and the
+        // view model maps anything that is not Running or Starting to false. Showing the plain OFF
+        // badge there is the very confusion this function exists to prevent: the user cannot tell
+        // "I turned it off" from "it would not turn off and apps may still be blocked". Reuse the
+        // attention badge with its own word rather than inventing a third control.
+        val isStuck = health is FirewallHealth.StopFailed
+
+        binding.firewallDownBadge.setText(
+            if (isStuck) R.string.firewall_status_stuck else R.string.firewall_status_down
+        )
+        binding.firewallDownBadge.visibility =
+            if (onFirewallTab && (isDown || isStuck)) View.VISIBLE else View.GONE
         binding.firewallActiveBadge.visibility =
-            if (onFirewallTab && !isDown && isEnabled) View.VISIBLE else View.GONE
+            if (onFirewallTab && !isDown && !isStuck && isEnabled) View.VISIBLE else View.GONE
         binding.firewallOffBadge.visibility =
-            if (onFirewallTab && !isDown && !isEnabled) View.VISIBLE else View.GONE
+            if (onFirewallTab && !isDown && !isStuck && !isEnabled) View.VISIBLE else View.GONE
     }
 
     private fun observeFirewallState() {
@@ -741,6 +753,10 @@ class MainActivity : AppCompatActivity() {
                     vpnPermissionLauncher.launch(prepareIntent)
                 }
             }
+
+            // Straight to the stop, with no confirmation dialog: the user already confirmed the
+            // stop that failed, and asking again would be asking them to confirm a retry.
+            FirewallHealthAction.RETRY_STOP -> firewallViewModel.stopFirewall()
 
             // Both end at the same VPN permission flow the fallback notification uses
             FirewallHealthAction.ENABLE_VPN,

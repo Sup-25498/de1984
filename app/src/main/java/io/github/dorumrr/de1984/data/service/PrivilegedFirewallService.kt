@@ -334,19 +334,27 @@ class PrivilegedFirewallService : Service() {
             if (backend != null && backendType != null) {
                 // Call internal stop method based on backend type
                 when (backendType) {
+                    // The teardown failure is reported, not just logged. FirewallManager judges the
+                    // stop by backend.stop(), which for all three of these returns success as soon
+                    // as startService() returns - the real teardown happens here, asynchronously.
+                    // Swallowing it meant the "firewall would not stop" warning could never fire for
+                    // any privileged backend, which is three of the four.
                     FirewallBackendType.IPTABLES -> {
                         (backend as? IptablesFirewallBackend)?.stopInternal()?.getOrElse { error ->
                             AppLogger.w(TAG, "Failed to stop iptables backend: ${error.message}")
+                            reportTeardownFailure(backendType, error)
                         }
                     }
                     FirewallBackendType.CONNECTIVITY_MANAGER -> {
                         (backend as? ConnectivityManagerFirewallBackend)?.stopInternal()?.getOrElse { error ->
                             AppLogger.w(TAG, "Failed to stop ConnectivityManager backend: ${error.message}")
+                            reportTeardownFailure(backendType, error)
                         }
                     }
                     FirewallBackendType.NETWORK_POLICY_MANAGER -> {
                         (backend as? NetworkPolicyManagerFirewallBackend)?.stopInternal()?.getOrElse { error ->
                             AppLogger.w(TAG, "Failed to stop NetworkPolicyManager backend: ${error.message}")
+                            reportTeardownFailure(backendType, error)
                         }
                     }
                     else -> {
@@ -483,6 +491,21 @@ class PrivilegedFirewallService : Service() {
                     break
                 }
             }
+        }
+    }
+
+    /**
+     * Tell FirewallManager the teardown failed, so it can warn that rules may still be enforced.
+     *
+     * Suspending and called inline from the stop handler, which already runs on serviceScope: the
+     * warning has to be published before the service tears the rest of itself down.
+     */
+    private suspend fun reportTeardownFailure(backendType: FirewallBackendType, error: Throwable) {
+        try {
+            val app = application as De1984Application
+            app.dependencies.firewallManager.handleStopFailureFromService(backendType, error)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to notify FirewallManager of teardown failure: ${e.message}")
         }
     }
 

@@ -98,16 +98,10 @@ class PackageMonitoringService : Service() {
     }
     
     private suspend fun checkForNewPackages() {
-        val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-        val notificationsEnabled = prefs.getBoolean(
-            Constants.Settings.KEY_NEW_APP_NOTIFICATIONS,
-            Constants.Settings.DEFAULT_NEW_APP_NOTIFICATIONS
-        )
-
-        if (!notificationsEnabled) {
-            return
-        }
-
+        // The notification preference used to return here. This service is the ONLY code that sees
+        // installs in other user profiles - a manifest PACKAGE_ADDED receiver in user 0 never does -
+        // so with notifications off a work-profile app got no rule at all, and a reinstalled one
+        // kept a uid that matches nothing. Only the notification is optional; the rule is not.
         val currentPackages = getCurrentInstalledPackages()
         val newPackages = currentPackages - lastKnownPackages
 
@@ -116,8 +110,12 @@ class PackageMonitoringService : Service() {
             newPackages.forEach { (packageName, userId) ->
                 processNewPackage(packageName, userId)
             }
-            lastKnownPackages = currentPackages
         }
+
+        // Updated unconditionally. Inside the branch above, an uninstall left the package in the
+        // baseline, so it was never "new" again and a reinstall was never processed - the exact
+        // case the stale-uid refresh exists for.
+        lastKnownPackages = currentPackages
     }
 
     /**

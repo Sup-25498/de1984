@@ -376,9 +376,14 @@
     <string name="firewall_switched_title">Backend alterado</string>
     <string name="firewall_switched_message_auto">O backend %1$s falhou. O De1984 mudou para VPN e continua a protegê-lo.</string>
     <string name="firewall_switched_message_manual">O backend %1$s falhou. O De1984 mudou para o modo AUTO e está a usar VPN.</string>
+    <string name="firewall_stop_failed_title">A firewall não parou</string>
+    <string name="firewall_stop_failed_message">O backend %1$s não conseguiu parar. Algumas aplicações podem continuar bloqueadas. Tente novamente ou reinicie o dispositivo.</string>
+    <string name="firewall_stop_failed_message_unknown">A firewall não conseguiu parar. Algumas aplicações podem continuar bloqueadas. Tente novamente ou reinicie o dispositivo.</string>
+    <string name="firewall_stop_failed_action_retry">Parar novamente</string>
     <string name="firewall_down_notifications_off">As notificações estão desativadas, por isso este aviso não o alcança quando o De1984 está fechado.</string>
     <string name="firewall_down_action_enable_notifications">Ativar alertas</string>
     <string name="firewall_status_down">FALHA</string>
+    <string name="firewall_status_stuck">PRESO</string>
 
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">De1984 Firewall Inativo - Conflito VPN</string>

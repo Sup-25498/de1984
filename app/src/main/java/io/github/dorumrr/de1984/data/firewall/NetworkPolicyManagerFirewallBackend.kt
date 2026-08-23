@@ -262,6 +262,19 @@ class NetworkPolicyManagerFirewallBackend(
                     AppLogger.d(TAG, "Restored UID $uid to policy $original")
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "Failed to restore policy for UID $uid", e)
+
+                    // A recorded original of POLICY_NONE means there was nothing there to put back,
+                    // so this write was only ever a no-op. Android rejects setUidPolicy outright for
+                    // some UIDs - system ones, and the system UIDs inside a work profile - and
+                    // keeping those in the record made it permanently un-clearable: every stop from
+                    // then on reported a teardown failure over a device with no policies set at all.
+                    // Measured on hardware 2026-08-23: 1001, 2000, 1001001, 1001002, 1001027,
+                    // 1002000 stuck this way while /data/system/netpolicy.xml held no uid policies.
+                    if (original == POLICY_NONE) {
+                        AppLogger.w(TAG, "UID $uid had no policy to restore and rejects writes - dropping it from the record")
+                        remaining.remove(uid)
+                        appliedPolicies.remove(uid)
+                    }
                 }
             }
 

@@ -43,9 +43,10 @@ class PackageAddedReceiver : BroadcastReceiver() {
                 return
             }
 
-            if (!areNewAppNotificationsEnabled(context)) {
-                return
-            }
+            // The notification preference used to return here, which also skipped the rule work.
+            // That rule work is what re-points a reinstalled app's rule at its new uid, so with
+            // notifications off a reinstalled app kept a uid that matched nothing and was never
+            // actually blocked. Only the notification is optional; the rule is not.
 
             // Use goAsync() to keep receiver alive while coroutine runs
             val pendingResult = goAsync()
@@ -56,7 +57,9 @@ class PackageAddedReceiver : BroadcastReceiver() {
                 try {
                     handleNewAppInstallUseCase.execute(packageName, uid)
                         .onSuccess {
-                            newAppNotificationManager.showNewAppNotification(packageName)
+                            if (areNewAppNotificationsEnabled(context)) {
+                                newAppNotificationManager.showNewAppNotification(packageName)
+                            }
                         }
                 } catch (e: Exception) {
                     // Error processing new app

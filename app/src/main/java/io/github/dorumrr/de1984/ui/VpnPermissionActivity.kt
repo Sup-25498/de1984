@@ -72,14 +72,26 @@ class VpnPermissionActivity : Activity() {
         val firewallManager = app.dependencies.firewallManager
         
         scope.launch(Dispatchers.IO) {
-            AppLogger.d(TAG, "Starting firewall...")
-            val result = firewallManager.startFirewall(FirewallMode.AUTO)
+            // Every widget and tile start on a device without root lands here, so this is the path
+            // that matters most. It used to hard-code AUTO, throwing away the mode the user picked,
+            // and to record "firewall enabled" whether or not the start worked.
+            val mode = firewallManager.getCurrentMode()
+            AppLogger.d(TAG, "Starting firewall in persisted mode: $mode")
+            val result = firewallManager.startFirewall(mode)
             AppLogger.d(TAG, "startFirewall result: $result")
-            
-            // Update SharedPreferences
-            val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, MODE_PRIVATE)
-            prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, true).apply()
-            
+
+            result
+                .onSuccess {
+                    val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, MODE_PRIVATE)
+                    prefs.edit().putBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, true).apply()
+                }
+                .onFailure { error ->
+                    // Left untouched on purpose. The preference records what the user wants, and a
+                    // start that never happened is not evidence they want it on - writing true here
+                    // told boot restore to bring back a firewall that was never up.
+                    AppLogger.e(TAG, "Start after VPN permission failed, KEY_FIREWALL_ENABLED untouched", error)
+                }
+
             // Finish the activity
             runOnUiThread {
                 finish()

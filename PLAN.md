@@ -678,12 +678,63 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 1. ~~Should boot protection stay at all, and under what safety contract?~~ **SETTLED 2026-08-22:**
    it stays, with a self-healing script plus a forced reboot on both toggles. See
    "P0-1 Boot protection — DECIDED FIX DIRECTION". Four sub-decisions remain open there.
-2. Is work/clone profile a supported dimension, or best-effort?
-3. What should "Block All" mean — wifi+mobile, or a true lockdown including LAN, roaming and screen-off?
-4. Should controls the active backend cannot enforce be hidden, or shown with an explanation?
-5. Should rules be portable across devices? (Backups store the uid captured at export time.)
-6. Should the captive-portal controller stay, given P0-5 and P0-6?
-7. Tests + CI before the next feature?
+2. ~~Is work/clone profile a supported dimension, or best-effort?~~ **SETTLED 2026-08-23: BEST-EFFORT.**
+   Work/clone profiles are not a guaranteed dimension. Bugs there are real but not release blockers,
+   and the UI must not promise enforcement it cannot deliver. Affects M050, M027, and the work-profile
+   package-event gap.
+3. ~~What should "Block All" mean?~~ **SETTLED 2026-08-23: WiFi + Mobile + Roaming + LAN.**
+   Screen-off (`blockWhenBackground`) is deliberately EXCLUDED: it is a condition, not a network, and
+   an app blocked on every network is already blocked while the screen is off. All three code paths
+   must be made to agree on these four. See "THE THREE MEANINGS OF BLOCK ALL" below for the diff.
+4. ~~Should controls the active backend cannot enforce be hidden, or shown with an explanation?~~
+   **SETTLED 2026-08-23: HIDDEN.** A toggle the active backend cannot enforce must not be on screen.
+   Needs a per-backend capability declaration; see "BACKEND CAPABILITY MATRIX" below.
+5. ~~Should rules be portable across devices?~~ **SETTLED 2026-08-23: BEST-EFFORT.** Backups may be
+   restored on another device; the app must re-resolve uid from packageName at restore time rather
+   than trust the stored uid, but perfect fidelity is not promised. Affects M077.
+6. ~~Should the captive-portal controller stay, given P0-5 and P0-6?~~ **SETTLED 2026-08-23: YES, IT
+   STAYS.** P0-5 and P0-6 are already fixed; the remaining gap (reinstall destroys the true original)
+   is documented and accepted.
+7. Tests + CI before the next feature? **STILL OPEN — not answered.**
+
+### THE THREE MEANINGS OF BLOCK ALL — evidence, 2026-08-23
+
+A firewall rule has FIVE blocking dimensions: `wifiBlocked`, `mobileBlocked`, `blockWhenRoaming`,
+`blockWhenBackground` (screen-off), `lanBlocked`. `domain/model/FirewallRule.kt:20-24`
+
+Three separate code paths claim to "block all" and each covers a different subset:
+
+| Path | Where | Sets | Misses |
+|---|---|---|---|
+| Global default policy, app with no rule | `data/datasource/AndroidPackageDataSource.kt:355-363` | wifi, mobile, roaming, **LAN** | screen-off (deliberately conservative) |
+| `FirewallRule.blockAll()` — per-app, notification action | `domain/model/FirewallRule.kt:68` | wifi, mobile, roaming | **LAN**, screen-off |
+| `blockAllApps()` SQL — bulk policy switch | `data/database/dao/FirewallRuleDao.kt:92` | wifi, mobile | **roaming** (= M076), **LAN**, screen-off |
+
+The multi-select sheet makes the mismatch visible: it shows four toggles including LAN
+(`res/layout/bottom_sheet_firewall_multiselect.xml:94-147`), but its "Block All Networks" button calls
+`batchBlockPackages`, which sets only three (`presentation/viewmodel/FirewallViewModel.kt:708`).
+
+So the open question is not philosophical. It is: which of the five dimensions does the phrase cover,
+and then make all three paths agree.
+
+### BACKEND CAPABILITY MATRIX — read from code, 2026-08-23
+
+Needed to implement decision 4 (hide what cannot be enforced).
+
+| Dimension | iptables | VPN | ConnectivityManager | NetworkPolicyManager |
+|---|---|---|---|---|
+| WiFi | yes | yes | approximate | no — metered data only (P0-8) |
+| Mobile | yes | yes | approximate | yes, while metered |
+| Roaming | yes | yes | approximate | approximate |
+| Screen-off | yes | yes | yes | yes (this is its native behaviour) |
+| LAN | yes | **no** | **no** | **no** |
+
+"approximate" = the backend re-reads the per-network rule on every network change
+(`ConnectivityManagerFirewallBackend.kt:253-256`, `NetworkPolicyManagerFirewallBackend.kt:425-431`)
+but the block it installs applies to every network until the next recalculation.
+
+`lanBlocked` is read in exactly one backend: `data/firewall/IptablesFirewallBackend.kt:350`. On the
+other three the LAN toggle is stored, shown, and never enforced.
 
 ---
 
@@ -2666,3 +2717,454 @@ No further work needed here.
 - Walk through the 117 medium findings not yet reviewed.
 - Walk through the resources/localisation audit and the user-log evidence mapping.
 - Settle the 4 open sub-decisions under **P0-1 Boot protection — DECIDED FIX DIRECTION**.
+
+---
+
+# GROUP 1 — "THE FIREWALL LIES TO YOU" — FIXED 2026-08-23
+
+Doru picked this group after the product decisions were settled. Six findings were listed; two were
+already fixed in earlier sessions, so four were live. The Block All decision landed in the same pass
+because M076 is one of its symptoms.
+
+## Already fixed, verified by reading before touching anything
+
+- **M039 onLost reports NONE and over-blocks** — `data/monitor/NetworkStateMonitor.kt` `onLost` now
+  calls `networkTypeExcluding(network)` and carries a comment describing exactly this defect. Closed
+  by audit item D of the session-commit verification. No work needed.
+- **M100 boot-protection UI trusts the pref not the disk** — closed during P0-1 Boot protection
+  Part A. Disk reconciliation is live at `presentation/viewmodel/SettingsViewModel.kt:446`.
+
+## M108 stop result discarded — FIXED
+
+The finding under-described it. `stopFirewallInternal` did `currentBackend?.stop()?.getOrElse { log }`
+and then returned `Result.success(Unit)` regardless, so a backend that refused to tear down was never
+reported at all. `FirewallViewModel.stopFirewall()` then discarded even that. And
+`FirewallUiState.error` — the field the finding assumed would carry the message — **is set in several
+places and rendered nowhere**. Setting it would have changed nothing on screen.
+
+Fixed in three parts:
+- `data/firewall/FirewallManager.kt` — the running backend's stop failure is captured and returned as
+  `Result.failure`. Only the running backend counts; `cleanupAllBackends()` stays best-effort, because
+  it also sweeps backends the user has no privilege for and would raise false alarms.
+- New `FirewallHealth.StopFailed(backend)` plus `FirewallHealthAction.RETRY_STOP`, reported by
+  `reportStopFailed()`. It clears `_isFirewallDown` on purpose: that flag arms automatic recovery,
+  which restarts the firewall, and the user just asked for the opposite.
+- `ui/MainActivity.kt` renders it through the existing health banner with a "Stop again" button.
+  Amber, not red, and no DOWN badge: nothing is unprotected, the problem is the mirror image.
+
+`KEY_FIREWALL_ENABLED` deliberately stays false. It records what the user wants, and flipping it back
+would make boot restore start the firewall again on the next reboot.
+
+4 strings added in all 7 locales.
+
+## M072 reinstalled app silently reuses its old rule — FIXED
+
+`domain/usecase/HandleNewAppInstallUseCase.kt` returned early when a rule already existed, so a
+reinstalled app kept the uid from its previous install. The privileged backends group by `rule.uid`
+(`IptablesFirewallBackend.kt:191`, `NetworkPolicyManagerFirewallBackend.kt:387`), so a stale uid
+matches nothing: the UI read "Blocked" while the traffic flowed.
+
+New `refreshRuleIdentity()` re-reads uid and label from the live `PackageInfo` and writes only when
+something changed. Called from both the pre-existing-app branch and the normal branch.
+
+Second half, in `data/receiver/PackageAddedReceiver.kt`: the new-app-notification preference returned
+before the rule work, so with notifications off the uid was never refreshed. Only the notification is
+optional now; the rule is not.
+
+## M111 ConnectivityManager leaves apps offline — FIXED
+
+`cmd connectivity set-package-networking-enabled false <pkg>` and `set-chain3-enabled true` are system
+state. The only record of what had been denied was `appliedPolicies`, an in-memory map. Force-stop,
+crash or uninstall while this backend ran left denied apps with no network and nothing to undo it, and
+`cleanupAllBackends()` skipped this backend entirely under a comment claiming it had "no persistent
+state".
+
+Mirrors the NetworkPolicyManager fix from P0-2:
+- `KEY_CM_BLOCKED_PACKAGES` — the denied package names, written durably BEFORE the first deny command
+  and narrowed to reality after the loop. It over-records on purpose: re-enabling an already-enabled
+  package is a no-op, while denying a package that was never recorded strands it. The pre-loop write
+  is a union with what is already on disk, so a restart that is mid-way through re-enabling old
+  packages cannot drop them from the record.
+- `KEY_CM_CHAIN3_ENABLED_BY_US` — so a fresh process never disables an OEM_DENY_3 chain that an OEM
+  turned on for its own purposes.
+- New `clearOrphanedPolicies()`, called from `cleanupAllBackends()`. Returns success untouched when
+  there is no record of ours, which is the normal case for users who never run this backend.
+- `stopInternal()` now restores the packages before dropping the chain, and reports a failure when it
+  cannot. `De1984Application`'s startup sweep still calls `stopInternal()` rather than the new API,
+  because that one drops the chain unconditionally - which is what an upgrade from a build that kept
+  no record needs.
+
+Both cleanup orders converge; the operations are idempotent.
+
+## M099 widget/tile ignores sticky manual mode — FIXED
+
+`data/receiver/FirewallToggleReceiver.kt` hard-coded `FirewallMode.AUTO` in both `computeStartPlan`
+and `startFirewall`, so a manually chosen backend was ignored every time the firewall was started from
+the widget or the tile. It also wrote `KEY_FIREWALL_ENABLED = true` unconditionally, so a failed start
+told boot restore the firewall had been running.
+
+Now uses `firewallManager.getCurrentMode()`, and records enabled only on success. The widget clears
+its own loading state: a failed start reports down through `FirewallManager`, which broadcasts.
+
+## M076 + Block All consistency — FIXED
+
+Doru settled Block All as **WiFi + Mobile + Roaming + LAN**, screen-off excluded. Every write path
+that claims "all" now covers exactly those four:
+
+| Site | Was | Now |
+|---|---|---|
+| `FirewallRuleDao.blockAllApps` / `allowAllApps` | wifi, mobile | wifi, mobile, roaming, LAN |
+| `FirewallRule.blockAll()` / `allowAll()` | wifi, mobile, roaming | + LAN |
+| `AndroidPackageDataSource.setNetworkAccess` new rule | wifi, mobile, roaming | + LAN |
+| `HandleNewAppInstallUseCase` Block All branch | wifi, mobile, roaming | + LAN |
+| `FirewallViewModel` batch block/allow optimistic UI | wifi, mobile, roaming | + LAN |
+
+**One site was deliberately NOT widened.** `updateAllNetworkBlocking` and the matching
+`setAllNetworkBlocking` new-rule branch back the simple sheet's "Internet Access" toggle, whose own
+subtitle reads "WiFi, Mobile, Roaming" and which sits beside a LAN control the sheet shows as
+unavailable. Widening it would silently flip a control the user is told they cannot use. It keeps the
+three transports and now says so in a comment.
+
+Because of that, the multi-select sheet's "Block All Networks" / "Allow All Networks" buttons were
+re-routed from `setAllNetworkBlocking` to `setNetworkAccess`, which goes through `blockAll()`/
+`allowAll()` and therefore covers all four. That sheet does show a LAN toggle, so "all" must mean all.
+
+`FirewallManager`'s legacy partial-rule migration was left alone: it exists to make rules uniform for
+the VPN backend, which cannot enforce LAN at all, and widening it would silently turn LAN blocking on
+for existing users.
+
+## Verification
+
+- `:app:compileDebugKotlin` clean, `:app:assembleDebug` clean.
+- `:app:lintDebug` — 7 errors, **all pre-existing**, none in any touched file. `MissingTranslation`
+  is `tile_label_firewall_loading`, not the 4 new strings, which are present in all 7 locales.
+- Every `FirewallRule(` construction, every `blockWhenRoaming` write and every `UPDATE firewall_rules`
+  query was enumerated and accounted for. No truncated search.
+- **Nothing here is verified on hardware.** M111 especially wants a device with Shizuku on Android 13+.
+
+## New findings from this pass
+
+- **`FirewallUiState.error` is written and never read.** No UI surface renders it. Either wire it or
+  delete it; today it is a silent hole that makes "we set an error" look like "the user was told".
+- The app has **zero test files** under `app/src/test` and `app/src/androidTest`. That is the "tests +
+  CI" product decision, still unanswered.
+
+---
+
+# ADVERSARIAL AUDIT OF THE GROUP 1 FIXES — 2026-08-23. 18 FIXES, 3 REFUTED, 2 TRADE-OFFS FOR DORU.
+
+Five auditors, each told to assume the change was wrong and to default to REFUTED. They found two
+CRITICAL defects I introduced, and several places where a fix was applied to one path and not to its
+mirror. The pattern is consistent: **I fixed the path I was reading and missed the one beside it.**
+
+## CRITICAL — mine, caught by two independent auditors
+
+**The "Stop again" button could never retry, and reported success.** `stopFirewallInternal` nulled
+`currentBackend` and `_activeBackendType` BEFORE the failure return. On retry, `currentBackend?.stop()`
+short-circuited on null, no failure was captured, and it fell through to `reportFirewallHealthy()` -
+erasing the warning without removing a single rule. The refs are now kept on the failure path.
+
+**The warning could never fire for three of the four backends.** `backend.stop()` for iptables,
+ConnectivityManager and NetworkPolicyManager only fires an intent at `PrivilegedFirewallService` and
+returns success immediately; the service then swallowed the real teardown failure with
+`getOrElse { log }`. New `FirewallManager.handleStopFailureFromService()`, called from the service,
+plus a `@Volatile stopTeardownFailed` flag so a report that arrives mid-sweep is not overwritten by
+the success path.
+
+## Unfixed mirrors — the same bug, one file over
+
+| Site | What was still wrong |
+|---|---|
+| `ui/VpnPermissionActivity.kt` | Hard-coded `FirewallMode.AUTO` and wrote `KEY_FIREWALL_ENABLED=true` unconditionally. **Every widget start on a non-rooted device goes through here**, so both halves of the M099 fix were dead code for those users. |
+| `data/service/PackageMonitoringService.kt` | Still returned early on the notification preference. This service is the ONLY code that sees installs in other user profiles, so with notifications off a work-profile app got no rule at all. |
+| `data/receiver/NotificationActionReceiver.kt` | The last "Block All"/"Allow All" still at three dimensions. It could not clear the `lanBlocked` that a new app's own Block All rule now sets, so "Allow All" left LAN blocked while the list read Allowed. |
+| `domain/model/NetworkPackage.isFullyAllowed` + `FirewallRule.isFullyAllowed()` | Ignored `lanBlocked`, so a LAN-only block rendered as "Allowed" and matched the Allowed filter. This is what made the row above invisible. |
+
+## A regression I introduced
+
+`FirewallToggleReceiver` honouring the persisted mode meant a manual mode whose backend is gone -
+root lost, Shizuku uninstalled - made `computeStartPlan` fail outright, where hard-coded AUTO used to
+reach VPN. The user would lose the ability to start the firewall from the widget at all. Now it
+honours the choice, then falls back to AUTO when that mode is unavailable.
+
+## ConnectivityManager record-keeping — four fixes
+
+- **The narrowing write erased packages that were genuinely still denied.** A package absent from
+  `desiredPolicies` (uninstalled, disabled, out of the enumeration) and absent from `appliedPolicies`
+  after a cache clear was dropped from the record while the system denial stood. Now only an explicit
+  re-enable removes a package from the record.
+- **`restoreBlockedPackages` wrote a stale snapshot.** It now writes `diskRecord - restored`.
+- **The mutex was per-instance and gave no protection at all**, because `cleanupAllBackends()` builds
+  a SECOND backend while the service instance may still be inside `applyRules`. Moved to the companion
+  object: everything it guards is process-wide.
+- **A synchronous `commit()` of ~466 package names ran on every apply** - every network change, screen
+  toggle and rule edit. Now only when the record would actually change.
+
+## Also fixed
+
+- `reportStopFailed` posted no notification while dismissing the two that existed, so the warning
+  lived only inside an open Activity and vanished on process death. It now posts its own
+  (`Constants.StopFailure.NOTIFICATION_ID = 1009`, its own id so a "backend healthy" cannot cancel it).
+- The toolbar showed the plain OFF badge during StopFailed - the exact "did I turn it off or did it
+  break?" confusion that function exists to prevent. Reuses the attention badge with its own word,
+  `firewall_status_stuck`, added in all 7 locales.
+- "Stop again" had no in-flight guard; ten taps queued ten full sweeps.
+- The startup sweep now calls `clearOrphanedPolicies()`, which returns immediately when there is no
+  record - so users who never run this backend keep a cold start that issues no shell commands.
+- `PackageMonitoringService.lastKnownPackages` was only updated when new packages were found, so an
+  uninstall left the package in the baseline and its reinstall was never seen as new - undermining the
+  stale-uid fix on that very path.
+
+## REFUTED, with reasons
+
+- **`var stopFailure` capture** - `Result.onFailure` is `inline`, so there is no `Ref` wrapper.
+- **`getStringSet` corruption** - `loadBlockedPackages` returns `.toSet()`, always a copy; the cached
+  instance is never mutated or re-put.
+- **`setNetworkAccess` losing fields on the re-route** - `blockAll()`/`allowAll()` are `copy()`, the
+  mapper round-trips all 14 columns, and the PK is `(packageName, userId)`, so REPLACE preserves
+  `blockWhenBackground`, `enabled`, `uid`, `appName`, `createdAt` and cannot touch the other profile.
+- **Work-profile uid in `refreshRuleIdentity`** - `HiddenApiHelper.getPackageInfoAsUser` returns the
+  correct absolute uid for `userId != 0`; a work-only app returns null and bails before the refresh.
+- **`migrateRulesToSimple` ignoring LAN** - deliberate. It exists to make rules uniform for the VPN
+  backend, which cannot enforce LAN at all; widening it would silently turn LAN blocking on.
+
+## TWO DELIBERATE TRADE-OFFS — Doru should confirm these
+
+1. **Flipping the Default Policy now also resets per-app roaming and LAN.** `blockAllApps` /
+   `allowAllApps` back the Settings Default Policy switch, and they already overwrote every enabled
+   rule's wifi and mobile. Extending them to roaming and LAN is what closes M076, and follows directly
+   from the Block All decision - but per-app roaming and LAN choices that used to survive a policy flip
+   no longer do.
+2. **A failed widget/tile start no longer arms automatic recovery.** It used to write
+   `KEY_FIREWALL_ENABLED=true` even on failure, which is what armed `handlePrivilegeChange`. That write
+   is also the M099 defect: it told boot restore the firewall had been running. Leaving it untouched
+   matches `FirewallViewModel`, which writes false on a failed start, and matches the reasoning already
+   recorded in `reportFirewallDown`. The cost is that granting Shizuku after a failed widget start no
+   longer auto-starts the firewall; the user must tap again.
+
+## Still open, recorded not fixed
+
+- **`cleanupAllBackends()` can still race an in-flight `applyRules` for iptables and
+  NetworkPolicyManager.** Fixed for ConnectivityManager by the process-wide mutex; the other two have
+  the same shape and pre-date this work. A real fix needs the privileged service to acknowledge the
+  stop before the sweep begins.
+- `SmartPolicySwitchUseCase` matches critical packages by `packageName` alone, ignoring `userId`, so a
+  VPN app present in two profiles gets one copy restored. Pre-existing, now covering two more columns.
+- `FirewallUiState.error` is still written and never rendered.
+
+## Verification
+
+`:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, all pre-existing, none in a touched file; the
+`MissingTranslation` is `tile_label_firewall_loading`, not the 5 new strings, which are in all 7
+locales. **Nothing in this round is verified on hardware.**
+
+---
+
+# HARDWARE TEST OF THE GROUP 1 FIXES — 2026-08-23, TrebleDroid GSI / Android 14 / Magisk root
+
+Device: `JELLYS0000045428`, Android 14 (SDK 34), Magisk root, Shizuku running as root, work profile
+present (user 10). Device restored to its exact starting state afterwards, verified.
+
+## PASSED
+
+**M099 persisted mode + fallback — PROVEN.** Set `firewall_mode=connectivity_manager`, a backend this
+GSI genuinely cannot run, then fired the widget toggle:
+```
+Using persisted firewall mode: CONNECTIVITY_MANAGER
+computeStartPlan: Failed to select backend
+Persisted mode CONNECTIVITY_MANAGER is unavailable (Shizuku permission required); falling back to AUTO
+computeStartPlan: mode=AUTO, backendType=VPN, requiresVpnPermission=true
+```
+Both halves in one run: the mode is honoured (it used to say AUTO immediately), and the regression the
+audit found is closed. `firewall_enabled` stayed **false** through a start that never completed.
+
+**M072 uid refresh, code path — PROVEN.** Corrupted `com.aurora.store`'s rule to uid 99999 / appName
+"STALE NAME", fired a real `PACKAGE_ADDED`:
+```
+Pre-existing app (installed before De1984): com.aurora.store
+Refreshing rule identity for com.aurora.store: uid 99999 -> 10269, name 'STALE NAME' -> 'Aurora Store'
+```
+
+**Block All = four dimensions — PROVEN twice.** Generated Room SQL:
+```
+blockAllApps            SET wifiBlocked = 1, mobileBlocked = 1, blockWhenRoaming = 1, lanBlocked = 1
+allowAllApps            SET wifiBlocked = 0, mobileBlocked = 0, blockWhenRoaming = 0, lanBlocked = 0
+updateAllNetworkBlocking SET wifiBlocked = ?, mobileBlocked = ?, blockWhenRoaming = ?   <- narrow, as designed
+```
+Then through the real Settings switch: Allow All -> Block All set all four to 1 on every eligible rule
+(system-recommended packages correctly untouched), and Block All -> Allow All cleared all four.
+**M076 is closed**: roaming used to stay at 1 on that second flip.
+
+**P0-11 banner, live and unplanned.** A genuine backend loss during the run produced
+`DOWN` badge + "Firewall down — your apps are unblocked" / "No usable firewall backend is available on
+this device." + "Choose backend". Restoring the privilege cleared it and the badge returned to ACTIVE.
+
+## NOT TESTED
+
+**M108 StopFailed.** Forcing a real teardown failure needs the backend to break while the process
+lives. Revoking the Shizuku permission force-stops the app, so the firewall was never running by the
+time the stop ran. The remaining route is killing `shizuku_server`, which needs a manual restart
+afterwards. Code-verified only.
+
+**M111 ConnectivityManager.** Not possible on this device: `cmd connectivity help` lists only `help`
+and `airplane-mode`, so `set-chain3-enabled` does not exist and the backend can never run here. This
+is the same probe `checkAvailability()` uses. Code-reviewed only.
+
+## NEW FINDING — M072's TRIGGER IS BROKEN, so the finding is NOT closed
+
+A real uninstall + reinstall of `com.aurora.store` was run twice, once with `adb install -r` and once
+with a clean `adb install`. Both times:
+
+- Android really did assign a new uid (10269 -> 10270 -> 10271).
+- De1984's rule kept **10269**.
+- `PackageAddedReceiver` produced **no log line at all**, on either run.
+- The system *did* broadcast it - another app logged
+  `mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_ADDED` at the same instant.
+- Only `PackageChangedReceiver` fired, seeing `PACKAGE_FULLY_REMOVED` then `PACKAGE_CHANGED`.
+
+Ruled out: the merged manifest is correct (`PACKAGE_ADDED` + `<data android:scheme="package"/>`,
+exported, enabled); `QUERY_ALL_PACKAGES` is held; the app process was alive and being unfrozen for
+broadcasts. **Root cause not established.** Reproduced twice.
+
+Consequences, both live today:
+1. A reinstalled app keeps a stale uid, so the privileged backends enforce nothing for it while the UI
+   reads Blocked. That is M072, still reachable.
+2. An app installed while De1984 is closed gets no rule row at all. Less severe - enumeration still
+   applies the default policy to ruleless apps - but the row is missing.
+
+The polling fallback does not cover it either: `PackageMonitoringService` is started only by
+`MainActivity.onCreate`, and it rebuilds `lastKnownPackages` from scratch each time it starts, so a
+change that happened while the app was closed is never "new".
+
+**Proposed fix, NOT implemented, needs Doru's call:** `PackageChangedReceiver` does fire on a real
+install. Routing it through the same `refreshRuleIdentity` would close the hole on this ROM without
+depending on why `PACKAGE_ADDED` goes missing.
+
+## Also observed, not part of this work
+
+- `PackageMonitoringService.processNewPackage` computes `uid = userId * 100000 + 0` for work-profile
+  apps, because `getApplicationInfoAsUser` returns null there and `appId` falls back to 0. Logged as
+  `uid=1000000` for three work-profile packages. Harmless today - `createDefaultFirewallRule` re-reads
+  the uid itself - but the value is wrong and is passed around.
+- `VpnPermissionActivity` cannot be launched from `FirewallToggleReceiver`: Android 14 blocks it with
+  `BAL_BLOCK` (background activity launch). So on a device needing VPN permission, the widget start
+  silently does nothing. Pre-existing, unrelated to this work, and it means the
+  `VpnPermissionActivity` fixes above are correct but currently unreachable from the widget.
+
+## Device left as found
+
+Firewall ACTIVE on NETWORK_POLICY_MANAGER, banner clear, `ping 1.1.1.1` 0% loss, Shizuku permission
+restored, `firewall_mode=network_policy_manager`, `default_firewall_policy=allow_all`, and the two
+rules the policy-flip test reset (`com.aurora.store`, `io.github.dorumrr.happytaxes`) put back to
+1/1/1/0. Aurora Store's own app data was lost to the uninstall/reinstall - the APK was backed up and
+the identical version reinstalled.
+
+---
+
+# SECOND HARDWARE ROUND — M072 CLOSED, M108 CLOSED, 3 MORE DEFECTS FOUND AND FIXED — 2026-08-23
+
+Doru approved routing the install refresh through `PackageChangedReceiver`, and approved killing
+`shizuku_server` to force a real teardown failure. Both were done. Shizuku restarts cleanly from its
+own starter binary (`.../lib/arm64/libshizuku.so` under root), so the test was fully reversible.
+
+## M072 — NOW CLOSED END TO END ON HARDWARE
+
+`PackageChangedReceiver` now runs `HandleNewAppInstallUseCase.execute` for `ACTION_PACKAGE_CHANGED`,
+which does fire on a real install on this ROM. Both receivers run the same idempotent use case;
+whichever arrives first does the work.
+
+Real uninstall + reinstall of `com.aurora.store`:
+```
+PackageChangedReceiver: 📦 Package android.intent.action.PACKAGE_CHANGED externally: com.aurora.store
+HandleNewAppInstallUseCase: Refreshing rule identity for com.aurora.store: uid 10271 -> 10272
+```
+Android assigned uid 10272, the rule followed, and its blocking flags (1/1/1/0) were preserved.
+
+## M108 — NOW PROVEN ON HARDWARE, after two more defects
+
+Firewall running on NetworkPolicyManager, `shizuku_server` killed, firewall stopped from the UI:
+```
+FirewallManager: Service reported a failed teardown for NETWORK_POLICY_MANAGER
+FirewallManager: ⚠️ FIREWALL WOULD NOT STOP (backend=NETWORK_POLICY_MANAGER): rules may still be enforced
+MainActivity:    Firewall health banner shown: StopFailed(backend=NETWORK_POLICY_MANAGER)
+FirewallManager: Showing stop-failed notification (backend=NETWORK_POLICY_MANAGER)
+```
+- Badge read **STUCK**, not OFF - the auditor's badge finding, fixed and confirmed.
+- Banner: "Firewall did not stop" / "The NetworkPolicyManager (Legacy) backend would not shut down.
+  Some apps may still be blocked. Try again, or restart the device." / "Stop again".
+- Notification **id=1009**, channel `backend_failure_channel`, `flags=0x18`
+  (ONLY_ALERT_ONCE | AUTO_CANCEL), exactly as designed.
+- **StopFailed survives health ticks**: still STUCK at t+22s and t+34s, past two 15s intervals. The
+  worry that keeping `_activeBackendType` would let `clearHealthWarningIfEnforcing` erase it is
+  REFUTED on hardware.
+
+### DEFECT 1 — "Stop again" still faked success. Found by testing, not by the audit.
+
+The audit fix (keeping `currentBackend` on the failure path) was necessary but not sufficient. For the
+three privileged backends `backend.stop()` only fires an intent at `PrivilegedFirewallService` - and
+after the first stop that service has already stopped itself, so the intent goes nowhere and returns
+success. The only thing still doing real work on a retry is `cleanupAllBackends()`, whose failures
+were all swallowed as best-effort.
+
+`cleanupAllBackends(reportFailureFor:)` now returns the failure for the backend that was actually
+running, and the stop path treats it as a teardown failure. Every other backend stays best-effort,
+because the sweep also runs for backends the user has no privilege for.
+
+### DEFECT 2 — on a retry there was no backend to report for.
+
+`reportFailureFor` read `_activeBackendType`, but the first stop had already cleared it: that stop
+returned BEFORE the service's asynchronous failure report arrived. Falls back to the backend named in
+the standing `FirewallHealth.StopFailed`.
+
+**Proven after both fixes.** "Stop again" with Shizuku still dead:
+```
+FirewallManager:   Stopping firewall
+FirewallManager:   NetworkPolicyManager cleanup incomplete: ... Failed to get NetworkPolicyManager instance
+FirewallManager:   ⚠️ FIREWALL WOULD NOT STOP (backend=NETWORK_POLICY_MANAGER)
+FirewallViewModel: stopFirewall failed - rules may still be enforced
+```
+UI stayed STUCK. Before these two fixes the same tap logged "Firewall stopped successfully" and
+cleared the banner over live rules.
+
+### DEFECT 3 — the NPM record could never be cleared, so every stop reported failure forever
+
+With the sweep now reporting, a clean stop with Shizuku healthy still failed:
+`6 UID policies could not be restored`. The record held `1001` (radio), `2000` (shell) and four
+work-profile system UIDs. `/data/system/netpolicy.xml` held **no uid policies at all** - the record was
+spurious. Android rejects `setUidPolicy` for those UIDs, so they could never leave the record, and with
+the sweep reporting, that became a permanent "Firewall did not stop" on every stop.
+
+`clearBlockedUidPoliciesInternal` now drops a UID whose recorded original is `POLICY_NONE` when the
+write is rejected: there was nothing to put back, so the write was only ever a no-op.
+
+Confirmed: all six dropped, `npm_original_policies` now empty, and a clean stop returns
+"Firewall stopped successfully" with badge OFF and no banner.
+
+**This one matters beyond the test.** Any user whose record accumulated such a UID would have seen a
+permanent teardown-failure warning. It was silent before only because the sweep swallowed everything.
+
+## Also confirmed in this round
+
+- The normal stop keeps its confirmation dialog; the banner's "Stop again" deliberately skips it.
+- A successful start dismisses notification 1009 (`reportFirewallHealthy` -> `dismissStopFailedNotification`).
+
+## Recorded, NOT fixed
+
+**`FirewallHealth.Down` and `FirewallHealth.StopFailed` overwrite each other, and the order is racy.**
+Killing Shizuku produces both: the backend dies (Down) and the teardown fails (StopFailed). Observed
+both orders across runs - DOWN at t+4s then STUCK at t+12s in one, DOWN winning in another. They make
+contradictory claims: "your apps are unblocked" versus "some apps may still be blocked". For
+NetworkPolicyManager, whose policies persist in `/data/system/netpolicy.xml`, StopFailed is the more
+truthful of the two. Needs a precedence rule.
+
+## Device left healthy
+
+Firewall ACTIVE on NETWORK_POLICY_MANAGER, no banner, `ping 1.1.1.1` 0% loss, Shizuku running,
+`firewall_enabled=true`, `firewall_mode=network_policy_manager`, `default_firewall_policy=allow_all`,
+`npm_original_policies` empty, all 12 rules intact with `com.aurora.store` correctly at its new uid
+10272 and its blocks preserved. Aurora Store's own app data was lost to the reinstall cycles; the
+identical version 4.8.4 was restored from a backup APK.
+
+## Verification
+
+`:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, all pre-existing, none in a touched file.

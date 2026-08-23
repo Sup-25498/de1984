@@ -65,4 +65,18 @@ sealed interface FirewallHealth {
         /** True when the user had picked that backend by hand, so the mode also fell back to AUTO. */
         val fromManualMode: Boolean
     ) : FirewallHealth
+
+    /**
+     * The user asked to stop the firewall and the running backend refused to tear down.
+     *
+     * The mirror image of [Down]: there, the user wants blocking and is getting none; here, the user
+     * wants none and may still be getting some. Apps can be offline with every control showing OFF,
+     * which is why this needs to be said out loud rather than logged.
+     *
+     * Not critical - nothing is unprotected - so it is styled as a warning, not as FIREWALL DOWN.
+     */
+    data class StopFailed(
+        /** The backend that would not stop, when one is known. */
+        val backend: FirewallBackendType?
+    ) : FirewallHealth
 }

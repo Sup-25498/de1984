@@ -22,6 +22,9 @@ enum class FirewallHealthAction(@StringRes val label: Int) {
 
     /** Take the VPN slot from whichever app currently holds it. */
     REPLACE_VPN(R.string.firewall_down_action_replace_vpn),
+
+    /** Try the teardown again after a stop that failed. */
+    RETRY_STOP(R.string.firewall_stop_failed_action_retry),
 }
 
 /**
@@ -42,6 +45,7 @@ object FirewallHealthPresenter {
         is FirewallHealth.Healthy -> null
         is FirewallHealth.Down -> context.getString(R.string.firewall_down_title)
         is FirewallHealth.SwitchedToVpn -> context.getString(R.string.firewall_switched_title)
+        is FirewallHealth.StopFailed -> context.getString(R.string.firewall_stop_failed_title)
     }
 
     /** What went wrong and what it means, or null when there is nothing to warn about. */
@@ -77,6 +81,15 @@ object FirewallHealthPresenter {
                 context.getString(R.string.firewall_switched_message_auto, backendName)
             }
         }
+
+        is FirewallHealth.StopFailed -> {
+            val backendName = health.backend?.displayName(context)
+            if (backendName != null) {
+                context.getString(R.string.firewall_stop_failed_message, backendName)
+            } else {
+                context.getString(R.string.firewall_stop_failed_message_unknown)
+            }
+        }
     }
 
     /** The one useful thing to offer, or null when there is nothing the user can do from here. */
@@ -85,6 +98,8 @@ object FirewallHealthPresenter {
 
         // Protection is intact, so there is nothing to fix
         is FirewallHealth.SwitchedToVpn -> null
+
+        is FirewallHealth.StopFailed -> FirewallHealthAction.RETRY_STOP
 
         is FirewallHealth.Down -> when (health.reason) {
             FirewallHealth.Down.Reason.MANUAL_BACKEND_FAILED -> FirewallHealthAction.CHOOSE_BACKEND

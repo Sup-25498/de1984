@@ -30,7 +30,8 @@ data class FirewallRule(
 ) {
     fun isFullyBlocked(): Boolean = wifiBlocked && mobileBlocked
     
-    fun isFullyAllowed(): Boolean = !wifiBlocked && !mobileBlocked
+    /** Nothing blocked at all - LAN included. See NetworkPackage.isFullyAllowed. */
+    fun isFullyAllowed(): Boolean = !wifiBlocked && !mobileBlocked && !blockWhenRoaming && !lanBlocked
     
     fun isPartiallyBlocked(): Boolean = (wifiBlocked || mobileBlocked) && !isFullyBlocked()
     
@@ -65,10 +66,18 @@ data class FirewallRule(
         }
     }
     
+    /**
+     * "All" is WiFi + Mobile + Roaming + LAN.
+     *
+     * [blockWhenBackground] is deliberately NOT part of it: it is a condition, not a network, and an
+     * app blocked on every network is already blocked while the screen is off. Every other path that
+     * claims to block or allow "all" must cover exactly these four.
+     */
     fun blockAll(): FirewallRule = copy(
         wifiBlocked = true,
         mobileBlocked = true,
         blockWhenRoaming = true,
+        lanBlocked = true,
         updatedAt = System.currentTimeMillis()
     )
     
@@ -76,6 +85,7 @@ data class FirewallRule(
         wifiBlocked = false,
         mobileBlocked = false,
         blockWhenRoaming = false,
+        lanBlocked = false,
         updatedAt = System.currentTimeMillis()
     )
 }

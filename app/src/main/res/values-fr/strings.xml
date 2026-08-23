@@ -376,9 +376,14 @@
     <string name="firewall_switched_title">Moteur changé</string>
     <string name="firewall_switched_message_auto">Le moteur %1$s a échoué. De1984 est passé au VPN et vous protège toujours.</string>
     <string name="firewall_switched_message_manual">Le moteur %1$s a échoué. De1984 est passé en mode AUTO et utilise le VPN.</string>
+    <string name="firewall_stop_failed_title">Le pare-feu ne s\'est pas arrêté</string>
+    <string name="firewall_stop_failed_message">Le moteur %1$s n\'a pas pu s\'arrêter. Certaines applications peuvent rester bloquées. Réessayez ou redémarrez l\'appareil.</string>
+    <string name="firewall_stop_failed_message_unknown">Le pare-feu n\'a pas pu s\'arrêter. Certaines applications peuvent rester bloquées. Réessayez ou redémarrez l\'appareil.</string>
+    <string name="firewall_stop_failed_action_retry">Arrêter à nouveau</string>
     <string name="firewall_down_notifications_off">Les notifications sont désactivées : cet avertissement ne peut pas vous atteindre quand De1984 est fermé.</string>
     <string name="firewall_down_action_enable_notifications">Activer les alertes</string>
     <string name="firewall_status_down">PANNE</string>
+    <string name="firewall_status_stuck">BLOQUÉ</string>
 
     <!-- VPN Conflict Notification -->
     <string name="vpn_conflict_notification_title">Pare-feu De1984 inactif - Conflit VPN</string>
