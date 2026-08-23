@@ -521,10 +521,13 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             binding.emptyState.visibility = View.VISIBLE
 
             // Update empty state message based on filter
+            // Both of these were English no matter the device language - one from a hardcoded
+            // literal, one from a Constants string that exists as an internal value, not as UI text.
+            // Both already have translated resources in all seven locales.
             val emptyMessage = if (state.filterState.packageState?.lowercase() == Constants.Packages.STATE_UNINSTALLED.lowercase()) {
-                Constants.Packages.EMPTY_STATE_NO_UNINSTALLED
+                getString(io.github.dorumrr.de1984.R.string.packages_empty_state_no_uninstalled)
             } else {
-                "No packages found"
+                getString(io.github.dorumrr.de1984.R.string.packages_empty_state_title)
             }
             binding.emptyStateMessage.text = emptyMessage
         } else {

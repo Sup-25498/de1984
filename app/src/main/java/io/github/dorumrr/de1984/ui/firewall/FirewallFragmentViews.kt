@@ -99,6 +99,15 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
     // Track previous policy to detect changes across lifecycle events
     private var previousObservedPolicy: String? = null
+
+    /**
+     * Last `showAppIcons` value the adapter was built for.
+     *
+     * The settings flow emits on EVERY settings change, and the adapter used to be rebuilt each
+     * time - which drops the RecyclerView back to the top and reloads every visible icon from disk.
+     * Only this one setting changes what the adapter is, so only this one should rebuild it.
+     */
+    private var previousObservedShowIcons: Boolean? = null
     private var lastSubmittedPackages: List<NetworkPackage> = emptyList()
 
     // Dialog tracking to prevent multiple dialogs from stacking
@@ -486,6 +495,18 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     AppLogger.d(TAG, "observeSettingsState: settingsState changed - showAppIcons=${settingsState.showAppIcons}, defaultFirewallPolicy=${settingsState.defaultFirewallPolicy}")
                     AppLogger.d(TAG, "observeSettingsState: previousObservedPolicy=$previousObservedPolicy, newPolicy=${settingsState.defaultFirewallPolicy}")
 
+                    val iconsChanged = previousObservedShowIcons != settingsState.showAppIcons
+                    val policyChanged = previousObservedPolicy != null &&
+                        previousObservedPolicy != settingsState.defaultFirewallPolicy
+
+                    if (!iconsChanged && !policyChanged && previousObservedPolicy != null) {
+                        // Nothing this screen renders has changed. Rebuilding here reset the scroll
+                        // position and re-read every visible icon, on every unrelated settings write.
+                        AppLogger.d(TAG, "observeSettingsState: nothing relevant changed - leaving the list alone")
+                        return@collect
+                    }
+
+                    if (iconsChanged) {
                     // Exit selection mode before recreating adapter
                     if (isSelectionMode) {
                         AppLogger.d(TAG, "observeSettingsState: Exiting selection mode before adapter recreation")
@@ -528,6 +549,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
                     // Reset last submitted packages when creating new adapter
                     lastSubmittedPackages = emptyList()
+                    }
+                    previousObservedShowIcons = settingsState.showAppIcons
 
                     // If default policy changed, refresh packages to reflect new blocking states
                     if (previousObservedPolicy != null && previousObservedPolicy != settingsState.defaultFirewallPolicy) {
@@ -1707,13 +1730,31 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
+        // The sheet's own record of the selection, seeded with everything the user picked.
+        //
+        // It is MERGED on each emit, never rebuilt by filtering. state.packages is the FILTERED
+        // list, so a package that leaves the filter - which is exactly what happens when a toggle
+        // in this sheet changes its blocked state under a Blocked/Allowed filter - vanishes from
+        // it. Rebuilding by filter then recomputed the toggles from whatever survived, so the
+        // switches showed the state of PART of the selection while every tap still applied to ALL
+        // of it, via getSelectedPackagePairs().
+        val trackedSelection = LinkedHashMap<PackageId, NetworkPackage>().apply {
+            selectedPkgs.forEach { put(it.id, it) }
+        }
+
         // Observe package changes to update UI when ViewModel makes cascading changes
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
-                val updatedPkgs = state.packages.filter { selectedPackages.contains(it.id) }
-                if (updatedPkgs.isNotEmpty() && !isUpdatingProgrammatically) {
-                    AppLogger.d(TAG, "showMultiSelectRulesSheet: uiState collected - updating ${updatedPkgs.size} packages")
-                    updateTogglesFromPackages(updatedPkgs)
+                var changed = false
+                state.packages.forEach { pkg ->
+                    if (trackedSelection.containsKey(pkg.id)) {
+                        trackedSelection[pkg.id] = pkg
+                        changed = true
+                    }
+                }
+                if (changed && !isUpdatingProgrammatically) {
+                    AppLogger.d(TAG, "showMultiSelectRulesSheet: uiState collected - updating ${trackedSelection.size} packages")
+                    updateTogglesFromPackages(trackedSelection.values.toList())
                 }
             }
         }

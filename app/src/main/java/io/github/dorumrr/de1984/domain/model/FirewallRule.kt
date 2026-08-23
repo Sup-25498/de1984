@@ -55,6 +55,27 @@ data class FirewallRule(
         }
     }
     
+    /**
+     * Is this app blocked on ANY network the firewall can see?
+     *
+     * For backends that report `supportsGranularControl() == false` - ConnectivityManager and
+     * NetworkPolicyManager - this is the only honest reading of a rule. They have one switch per
+     * app, not one per network, so asking [isBlockedOn] for the CURRENT network made them silently
+     * granular: an app with only Mobile blocked was blocked on mobile and open on WiFi, while the
+     * one "Internet Access" toggle those backends show said blocked either way.
+     *
+     * Erring toward blocking is deliberate. The user asked for this app to be blocked somewhere; a
+     * backend that cannot be selective should block rather than quietly let traffic through.
+     *
+     * LAN is excluded on purpose. It is a separate axis, enforced only by iptables, and blocking an
+     * app's whole internet because its LAN access was restricted would be a different decision than
+     * the user made.
+     */
+    fun isBlockedOnAnyNetwork(): Boolean {
+        if (!enabled) return false
+        return wifiBlocked || mobileBlocked || blockWhenRoaming
+    }
+
     fun getBlockingStatus(): String {
         return when {
             !enabled -> "Disabled"

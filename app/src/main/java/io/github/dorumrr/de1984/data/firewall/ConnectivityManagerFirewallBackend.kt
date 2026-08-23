@@ -302,16 +302,22 @@ class ConnectivityManagerFirewallBackend(
                 val rule = rulesByPackageAndUser["$packageName:$userId"]
 
                 val shouldBlock = if (rule != null) {
-                    // Has explicit rule - use it
-                    // Per FIREWALL.md lines 220-230: ConnectivityManager is all-or-nothing
+                    // Has explicit rule - use it.
+                    //
+                    // isBlockedOnAnyNetwork(), NOT isBlockedOn(networkType). This backend reports
+                    // supportsGranularControl() == false and has one switch per app, so asking about
+                    // the CURRENT network made it silently granular: a rule left behind by iptables
+                    // or VPN with only Mobile blocked left the app blocked on mobile and wide open on
+                    // WiFi, while the single "Internet Access" toggle this backend shows said blocked
+                    // either way. The code and its own comment disagreed.
                     val result = when {
                         !screenOn && rule.blockWhenBackground -> true
-                        rule.isBlockedOn(networkType) -> true
+                        rule.isBlockedOnAnyNetwork() -> true
                         else -> false
                     }
                     // Debug log for packages with rules
                     AppLogger.d(TAG, "🔍 [RULE DEBUG] $packageName: found rule wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, " +
-                            "isBlockedOn($networkType)=${rule.isBlockedOn(networkType)} → shouldBlock=$result")
+                            "roaming=${rule.blockWhenRoaming}, anyNetwork=${rule.isBlockedOnAnyNetwork()} → shouldBlock=$result")
                     result
                 } else {
                     // No rule - apply default policy

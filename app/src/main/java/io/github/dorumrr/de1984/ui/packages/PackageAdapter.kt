@@ -231,14 +231,18 @@ class PackageAdapter(
 
             // Row 1 Right: Enabled/Disabled/Uninstalled Badge (always shown)
             // Check if package is uninstalled (versionName is null for uninstalled packages)
+            // Resources, not Constants.Packages.STATE_*. Those constants are internal filter keys -
+            // they are lowercased and compared in a dozen places - and putting them on screen made
+            // the list mix languages: translated filter chips beside hardcoded English badges.
+            // The keys stay English; only what the user reads is translated.
             if (pkg.versionName == null && !pkg.isEnabled && pkg.type == PackageType.SYSTEM) {
-                binding.enabledBadge.text = Constants.Packages.STATE_UNINSTALLED
+                binding.enabledBadge.setText(R.string.status_uninstalled)
                 binding.enabledBadge.setBackgroundResource(R.drawable.status_badge_background)
             } else if (pkg.isEnabled) {
-                binding.enabledBadge.text = Constants.Packages.STATE_ENABLED
+                binding.enabledBadge.setText(R.string.packages_filter_enabled)
                 binding.enabledBadge.setBackgroundResource(R.drawable.status_badge_complete)
             } else {
-                binding.enabledBadge.text = Constants.Packages.STATE_DISABLED
+                binding.enabledBadge.setText(R.string.packages_filter_disabled)
                 binding.enabledBadge.setBackgroundResource(R.drawable.status_badge_background)
             }
 

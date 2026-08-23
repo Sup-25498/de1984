@@ -82,9 +82,17 @@ class AndroidPackageDataSource(
                     if (!isLoading && (packagesFlow.replayCache.isEmpty() || (now - lastLoadTime) > CACHE_TTL)) {
                         isLoading = true
                         try {
+                            // null means the scan FAILED, which is not the same as "this device has
+                            // no apps". Emitting the old empty list showed the empty state with no
+                            // error, and - worse - stamped lastLoadTime, so every subscriber for the
+                            // next second got that empty list back instead of retrying.
                             val packages = loadPackagesInternal()
-                            lastLoadTime = System.currentTimeMillis()
-                            packagesFlow.emit(packages)
+                            if (packages != null) {
+                                lastLoadTime = System.currentTimeMillis()
+                                packagesFlow.emit(packages)
+                            } else {
+                                AppLogger.w(TAG, "Package scan failed - not caching, the next collector retries")
+                            }
                         } finally {
                             isLoading = false
                         }
@@ -93,7 +101,8 @@ class AndroidPackageDataSource(
             }
         }
     
-    private suspend fun loadPackagesInternal(): List<PackageEntity> = withContext(Dispatchers.IO) {
+    /** @return the packages, or null when the scan failed. Null and empty are not the same thing. */
+    private suspend fun loadPackagesInternal(): List<PackageEntity>? = withContext(Dispatchers.IO) {
         val flowStartTime = System.currentTimeMillis()
         AppLogger.i(TAG, "⏱️ TIMING: getPackages START at $flowStartTime")
         try {
@@ -280,7 +289,7 @@ class AndroidPackageDataSource(
             allPackages.sortedBy { it.name.lowercase() }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get packages: ${e.message}", e)
-            emptyList()
+            null
         }
     }
     

@@ -695,7 +695,10 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 6. ~~Should the captive-portal controller stay, given P0-5 and P0-6?~~ **SETTLED 2026-08-23: YES, IT
    STAYS.** P0-5 and P0-6 are already fixed; the remaining gap (reinstall destroys the true original)
    is documented and accepted.
-7. Tests + CI before the next feature? **STILL OPEN — not answered.**
+7. ~~Tests + CI before the next feature?~~ **SETTLED 2026-08-24: NO, NOT FOR NOW.** Doru's call.
+   Consequence, accepted knowingly: the Ethernet branch in `NetworkStateMonitor.networkTypeOf` stays
+   reasoned rather than proven, and anything else that can only be checked by a unit test stays
+   unchecked. Revisit before the next feature, not before the next bug fix.
 
 ### THE THREE MEANINGS OF BLOCK ALL — evidence, 2026-08-23
 
@@ -770,6 +773,12 @@ the comment says failed *deletes* are fine — but `blockedUids` is then updated
 failed DROP is recorded as applied and never retried. The intent was right; the granularity was wrong.
 
 ## Surviving medium findings (21)
+
+> **Status as of 2026-08-24: 14 of these 21 are closed.** M108, M072, M111, M099 and M076 in
+> "GROUP 1 - THE FIREWALL LIES TO YOU"; M098, M094, M006, M013, M024, M047 and M031 in
+> "MEDIUM FINDINGS BATCH"; M014 and M039 were found already fixed by earlier work. The table below is
+> the ORIGINAL verdict list and is left unedited as the record of what was found - it is not a
+> to-do list. Still open: M091, M001, M002, M050, M027, M055, M100.
 
 | ID | User impact | Where | Verdict |
 |---|---|---|---|
@@ -2928,7 +2937,7 @@ honours the choice, then falls back to AUTO when that mode is unavailable.
 - **`migrateRulesToSimple` ignoring LAN** - deliberate. It exists to make rules uniform for the VPN
   backend, which cannot enforce LAN at all; widening it would silently turn LAN blocking on.
 
-## TWO DELIBERATE TRADE-OFFS — Doru should confirm these
+## DELIBERATE TRADE-OFFS — Doru should confirm these
 
 1. **Flipping the Default Policy now also resets per-app roaming and LAN.** `blockAllApps` /
    `allowAllApps` back the Settings Default Policy switch, and they already overwrote every enabled
@@ -2941,6 +2950,18 @@ honours the choice, then falls back to AUTO when that mode is unavailable.
    matches `FirewallViewModel`, which writes false on a failed start, and matches the reasoning already
    recorded in `reportFirewallDown`. The cost is that granting Shizuku after a failed widget start no
    longer auto-starts the firewall; the user must tap again.
+3. **The two non-granular backends now block on ALL networks if a rule blocks on any.** Chosen by Doru
+   2026-08-24 to close M094. ConnectivityManager and NetworkPolicyManager both report
+   `supportsGranularControl() == false`, yet both asked `rule.isBlockedOn(networkType)` - a granular
+   question. A rule left behind by iptables or VPN with only Mobile blocked therefore left the app
+   blocked on mobile and wide open on WiFi, while the single "Internet Access" toggle those backends
+   show said blocked either way. They now ask `FirewallRule.isBlockedOnAnyNetwork()`.
+   The cost, accepted knowingly: switching FROM iptables or VPN TO one of these backends blocks more
+   apps than before, because a per-network choice they cannot honour is resolved toward blocking.
+   Rejected alternative: declare them granular and fix the docs instead - NetworkPolicyManager cannot
+   block WiFi on stock Android, so the toggle would have lied. LAN is excluded from the predicate: it
+   is a separate axis, only iptables enforces it, and cutting an app's internet because its LAN access
+   was restricted is not the decision the user made.
 
 ## Still open, recorded not fixed
 
@@ -3262,3 +3283,51 @@ Anyone changing either should re-measure the two timestamps above before assumin
 The correct fix, if it ever becomes necessary, is a generation marker rather than a shared mutex: a
 mutex gives mutual exclusion but not ordering, so it would still allow a teardown to run after the
 start it should have preceded.
+
+
+---
+
+# MEDIUM FINDINGS BATCH — 2026-08-24
+
+Nine findings taken in one pass. Two turned out to be already fixed by earlier work; both were
+verified by reading before anything was touched.
+
+## Fixed
+
+| Finding | What the user saw | Fix |
+| --- | --- | --- |
+| **M098** VPN tunnel is IPv4 only | On any IPv6 network a blocked app reached the internet normally while the UI showed it blocked. The tunnel had an IPv4 address and an IPv4 route only, so IPv6 never entered it | `FirewallVpnService.buildVpnInterface` adds `fd00:1984::2/64` (RFC 4193 unique-local) and a `::/0` route, inside its own try/catch so a device that rejects IPv6 loses IPv6 capture rather than the whole tunnel |
+| **M094** non-granular backends answered a granular question | See trade-off 3 above | `FirewallRule.isBlockedOnAnyNetwork()`, used by ConnectivityManager and NetworkPolicyManager. iptables and VPN keep `isBlockedOn(networkType)` - they really are granular |
+| **M006** list rebuilt on every settings emit | Any settings change jumped the firewall list back to the top and re-read every visible icon from disk | The adapter is rebuilt only when `showAppIcons` changes; an emit that changes neither icons nor default policy returns early |
+| **M013** multi-select aggregated a subset | Toggling under a Blocked/Allowed filter moved those apps out of the filtered list, so the switches showed the state of PART of the selection while every tap applied to ALL of it | The sheet keeps its own `trackedSelection` map, MERGED on each emit instead of rebuilt by filtering |
+| **M024** Packages list mixed languages | Translated filter chips beside hardcoded English badges, and an English empty state | Badges and empty state use string resources; `Constants.Packages.STATE_*` stay English because they are internal filter keys, lowercased and compared in a dozen places. All strings already existed in all seven locales |
+| **M047** superuser banner matched English text | In any non-English locale a root/Shizuku failure showed a raw error line and never the banner telling the user what to do | `SuperuserBannerState.shouldShowBannerForError` checks the typed `De1984Error.RootRequired` first; the string match stays as a fallback for paths that still throw a plain `SecurityException` |
+| **M031** a failed scan was cached as empty | A transient enumeration failure showed the empty-list state with no error, and every subscriber in the next second got that cached empty list instead of retrying | `loadPackagesInternal()` returns null on failure. Null is not empty: nothing is emitted and `lastLoadTime` is not stamped |
+
+## Already fixed — verified, not touched
+
+- **M014** one-shot dialogs never cleared. `StandardDialog:72` already routes an outside tap or Back
+  to `onCancel`, which calls `clearImportPreview()`. Closed by the earlier dismiss-to-cancel change.
+- **M039** `onLost` reported NONE and over-blocked. `NetworkStateMonitor.onLost` already asks what is
+  still connected via `networkTypeExcluding(network)`. Closed by the P0-10 work.
+
+## Verified on hardware
+
+TrebleDroid GSI, Android 14, Magisk root, Shizuku as root, **real global IPv6** (`2a0a:ef40:...`).
+
+- **M098** - the live tunnel `tun1` carries `inet 10.0.0.2/24` AND `inet6 fd00:1984::2/64`, and the
+  IPv6 routing table shows `default dev tun1 table tun1`. IPv4 and IPv6 both still reachable for
+  traffic that is not blocked. The tunnel establishes and tears down cleanly.
+- **M094** - `com.aurora.store` set to mobile-blocked / WiFi-allowed, device on WiFi, firewall
+  restarted:
+  `Applied policy for com.aurora.store (UID 10272, has rule): policy=BLOCK (REJECT_ALL (WiFi+Mobile))`
+  Before the fix that decision was ALLOW. The rule was restored afterwards.
+
+The UI findings (M006, M013, M024, M047, M031) are **code-verified only** - each is a small, local
+change, and none was reproduced on device.
+
+## Verification
+
+`:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, the same 7, all pre-existing and none in a
+touched file. Device left on NetworkPolicyManager, ACTIVE, rules restored, no iptables residue,
+IPv4 and IPv6 both working.

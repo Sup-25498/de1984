@@ -456,10 +456,14 @@ class NetworkPolicyManagerFirewallBackend(
                 val shouldBlock = if (rulesForUid != null && rulesForUid.isNotEmpty()) {
                     // Has explicit rules - use them
                     // For shared UIDs, block if ANY rule says to block (most restrictive)
+                    // isBlockedOnAnyNetwork(), NOT isBlockedOn(networkType) - same reason as the
+                    // ConnectivityManager backend. This one reports supportsGranularControl() ==
+                    // false too (WiFi blocking does not work here on stock Android), so honouring a
+                    // per-network rule meant an app the UI showed as blocked still had WiFi.
                     rulesForUid.any { rule ->
                         when {
                             !screenOn && rule.blockWhenBackground -> true
-                            rule.isBlockedOn(networkType) -> true
+                            rule.isBlockedOnAnyNetwork() -> true
                             else -> false
                         }
                     }

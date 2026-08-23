@@ -622,6 +622,29 @@ class FirewallVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .setBlocking(false)
 
+            // IPv6 as well as IPv4, or the block is only half a block.
+            //
+            // This tunnel blocks by capturing an app's traffic and dropping it. With an IPv4 address
+            // and an IPv4 default route only, IPv6 traffic never enters the tunnel at all - it goes
+            // straight out over the network. On any dual-stack carrier or IPv6 home network a
+            // "blocked" app reached the internet normally while the UI showed it as blocked.
+            //
+            // fd00:1984::2 is a unique-local address (RFC 4193), the IPv6 equivalent of the private
+            // 10.0.0.2 above, so it cannot collide with a real destination. Added inside its own
+            // try/catch: a device or ROM with IPv6 disabled can reject either call, and losing IPv6
+            // capture is far better than losing the whole tunnel.
+            var ipv6Captured = false
+            try {
+                builder.addAddress("fd00:1984::2", 64)
+                builder.addRoute("::", 0)
+                ipv6Captured = true
+            } catch (e: IllegalArgumentException) {
+                AppLogger.w(TAG, "IPv6 not accepted by this device - tunnel will capture IPv4 only: ${e.message}")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Could not add IPv6 to the tunnel - capturing IPv4 only: ${e.message}")
+            }
+            AppLogger.d(TAG, "buildVpnInterface: ipv6Captured=$ipv6Captured")
+
             val blockedCount = applyFirewallRules(builder)
             lastBlockedCount = blockedCount  // Track for failure detection
             AppLogger.d(TAG, "buildVpnInterface: blockedCount=$blockedCount")
