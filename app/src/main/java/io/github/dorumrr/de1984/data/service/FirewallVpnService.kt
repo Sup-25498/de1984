@@ -476,12 +476,12 @@ class FirewallVpnService : VpnService() {
             .build()
 
         val notificationManager = getSystemService(android.app.NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID + 1, notification)
+        notificationManager.notify(Constants.VpnFailure.NOTIFICATION_ID, notification)
     }
 
     private fun dismissVpnFailureNotification() {
         val notificationManager = getSystemService(android.app.NotificationManager::class.java)
-        notificationManager.cancel(NOTIFICATION_ID + 1)
+        notificationManager.cancel(Constants.VpnFailure.NOTIFICATION_ID)
     }
 
     private suspend fun shouldRestartVpn(): Boolean {

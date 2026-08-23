@@ -537,6 +537,17 @@ object Constants {
         const val NOTIFICATION_ID = 1005
     }
 
+    /**
+     * Failure notification raised by FirewallVpnService.
+     *
+     * Its own id, not FirewallVpnService.NOTIFICATION_ID + 1. That arithmetic landed on 1002, which
+     * is PrivilegedFirewallService's foreground notification - posting replaced it and dismissing
+     * cancelled it.
+     */
+    object VpnFailure {
+        const val NOTIFICATION_ID = 1008
+    }
+
     object VpnConflict {
         // Notification Channel - shared with other firewall alerts
         const val CHANNEL_ID = "firewall_alerts_channel"

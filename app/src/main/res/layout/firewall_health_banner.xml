@@ -34,19 +34,41 @@
         android:lineSpacingMultiplier="1.2"
         tools:text="The iptables backend stopped working." />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/health_banner_action"
-        style="@style/Widget.Material3.Button.TextButton"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:layout_gravity="end"
-        android:textSize="12sp"
-        android:minHeight="36dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        app:icon="@drawable/ic_shield"
-        app:iconSize="16dp"
-        tools:text="Choose backend" />
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <!-- Only shown when the OS is dropping our notifications, so the user can fix that -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/health_banner_notifications"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:text="@string/firewall_down_action_enable_notifications"
+            android:textSize="12sp"
+            android:minHeight="36dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/health_banner_action"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:minHeight="36dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            app:icon="@drawable/ic_shield"
+            app:iconSize="16dp"
+            tools:text="Choose backend" />
+
+    </LinearLayout>
 
 </LinearLayout>

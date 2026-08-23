@@ -380,6 +380,8 @@
     <string name="firewall_switched_title">后端已切换</string>
     <string name="firewall_switched_message_auto">%1$s 后端失败。De1984 已切换到 VPN，仍在保护你。</string>
     <string name="firewall_switched_message_manual">%1$s 后端失败。De1984 已切换到 AUTO 模式并使用 VPN。</string>
+    <string name="firewall_down_notifications_off">通知已关闭，因此 De1984 关闭时无法向你发出此警告。</string>
+    <string name="firewall_down_action_enable_notifications">开启通知</string>
     <string name="firewall_status_down">故障</string>
 
     <!-- VPN Conflict Notification -->
@@ -741,8 +743,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">De1984 防火墙已激活</string>
     <string name="privileged_firewall_notification_text">使用 %s 后端</string>
-    <string name="privileged_firewall_failure_notification_title">防火墙后端失败</string>
-    <string name="privileged_firewall_failure_notification_text">%s 后端停止工作。点击重新启动。</string>
     <string name="vpn_firewall_notification_title">De1984 防火墙已激活</string>
     <string name="vpn_firewall_notification_text">保护您的隐私</string>
     <string name="vpn_failure_notification_title">防火墙 VPN 失败</string>

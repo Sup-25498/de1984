@@ -370,6 +370,8 @@
     <string name="firewall_switched_title">Backend alterado</string>
     <string name="firewall_switched_message_auto">O backend %1$s falhou. O De1984 mudou para VPN e continua a protegê-lo.</string>
     <string name="firewall_switched_message_manual">O backend %1$s falhou. O De1984 mudou para o modo AUTO e está a usar VPN.</string>
+    <string name="firewall_down_notifications_off">As notificações estão desativadas, por isso este aviso não o alcança quando o De1984 está fechado.</string>
+    <string name="firewall_down_action_enable_notifications">Ativar alertas</string>
     <string name="firewall_status_down">FALHA</string>
 
     <!-- VPN Conflict Notification -->
@@ -731,8 +733,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">De1984 Firewall Ativo</string>
     <string name="privileged_firewall_notification_text">Usando backend %s</string>
-    <string name="privileged_firewall_failure_notification_title">Backend do Firewall Falhou</string>
-    <string name="privileged_firewall_failure_notification_text">Backend %s parou de funcionar. Toque para reiniciar.</string>
     <string name="vpn_firewall_notification_title">De1984 Firewall Ativo</string>
     <string name="vpn_firewall_notification_text">Protegendo sua privacidade</string>
     <string name="vpn_failure_notification_title">VPN do Firewall Falhou</string>

@@ -9,11 +9,13 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -39,6 +41,7 @@ import io.github.dorumrr.de1984.ui.packages.PackagesFragmentViews
 import io.github.dorumrr.de1984.ui.permissions.PermissionSetupViewModel
 import io.github.dorumrr.de1984.ui.settings.SettingsFragmentViews
 import io.github.dorumrr.de1984.utils.Constants
+import io.github.dorumrr.de1984.utils.openAppSettings
 import kotlinx.coroutines.launch
 
 /**
@@ -247,6 +250,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
 
         AppLogger.d(TAG, "📱 MAINACTIVITY RESUMED - CHECKING PRIVILEGES")
+
+        // Notification permission can change while we are away, and the banner's wording depends on
+        // it. The health flow will not re-emit on its own, so redraw from its current value.
+        if (::binding.isInitialized) {
+            renderFirewallHealthBanner(firewallViewModel.firewallHealth.value)
+        }
 
         // Clear disabled packages cache to detect external package state changes
         // This is critical for work profile apps where enabled/disabled state can change externally
@@ -678,11 +687,24 @@ class MainActivity : AppCompatActivity() {
             if (isCritical) R.color.firewall_down_text else R.color.firewall_switched_text
         )
 
+        // A firewall usually fails while the app is closed, so the notification is the part that
+        // actually reaches the user. If the OS is dropping it, say so here and offer the fix -
+        // otherwise the one case the notification exists for is the one case nobody is told about.
+        val alertsBlocked = isCritical && !NotificationManagerCompat.from(this).areNotificationsEnabled()
+
         banner.healthBannerTitle.text = title
         banner.healthBannerTitle.setTextColor(accent)
-        banner.healthBannerMessage.text = message
+        banner.healthBannerMessage.text = if (alertsBlocked) {
+            "$message\n\n${getString(R.string.firewall_down_notifications_off)}"
+        } else {
+            message
+        }
         banner.healthBannerAction.setTextColor(accent)
         banner.healthBannerAction.iconTint = ColorStateList.valueOf(accent)
+
+        banner.healthBannerNotifications.visibility = if (alertsBlocked) View.VISIBLE else View.GONE
+        banner.healthBannerNotifications.setTextColor(accent)
+        banner.healthBannerNotifications.setOnClickListener { openNotificationSettings() }
 
         val action = FirewallHealthPresenter.action(health)
         if (action == null) {
@@ -723,6 +745,25 @@ class MainActivity : AppCompatActivity() {
             // Both end at the same VPN permission flow the fallback notification uses
             FirewallHealthAction.ENABLE_VPN,
             FirewallHealthAction.REPLACE_VPN -> handleVpnFallbackRequest()
+        }
+    }
+
+    /**
+     * Send the user to this app's notification settings.
+     *
+     * ACTION_APP_NOTIFICATION_SETTINGS lands directly on the right screen. If a ROM does not carry
+     * it, fall back to the app details page, which every device has.
+     */
+    private fun openNotificationSettings() {
+        AppLogger.d(TAG, "Opening notification settings from the firewall health banner")
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "App notification settings unavailable, falling back to app details: ${e.message}")
+            openAppSettings(packageName)
         }
     }
 

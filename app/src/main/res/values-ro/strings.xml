@@ -372,6 +372,8 @@
     <string name="firewall_switched_title">Backend schimbat</string>
     <string name="firewall_switched_message_auto">Backendul %1$s a eșuat. De1984 a trecut pe VPN și te protejează în continuare.</string>
     <string name="firewall_switched_message_manual">Backendul %1$s a eșuat. De1984 a trecut în modul AUTO și folosește VPN.</string>
+    <string name="firewall_down_notifications_off">Notificările sunt oprite, așa că acest avertisment nu te poate ajunge când De1984 este închis.</string>
+    <string name="firewall_down_action_enable_notifications">Activează alertele</string>
     <string name="firewall_status_down">PICAT</string>
 
     <!-- VPN Conflict Notification -->
@@ -733,8 +735,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">Firewall De1984 Activ</string>
     <string name="privileged_firewall_notification_text">Folosește backend-ul %s</string>
-    <string name="privileged_firewall_failure_notification_title">Backend Firewall eșuat</string>
-    <string name="privileged_firewall_failure_notification_text">Backend-ul %s a încetat să funcționeze. Apasă pentru a reporni.</string>
     <string name="vpn_firewall_notification_title">Firewall De1984 activ</string>
     <string name="vpn_firewall_notification_text">Îți protejează confidențialitatea</string>
     <string name="vpn_failure_notification_title">VPN Firewall eșuat</string>

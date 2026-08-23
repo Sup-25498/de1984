@@ -2107,7 +2107,44 @@ finding below was re-verified by hand before acting on it.
   position is unchanged; insets untouched; no test or module boundary broken.
 - Lint: 7 errors app-wide, **0** in any file this change touched, no baseline hiding anything.
 
-**Open — confirmed but out of scope, needs a decision**
+### Follow-up round 2 — 2026-08-23, acting on the audit's open list
+
+**FIXED**
+
+- **One notification per failure, not two.** `PrivilegedFirewallService.handleBackendFailure` no
+  longer raises its own "Firewall Backend Failed"; `showFailureNotification` deleted (35 lines) along
+  with its two orphaned strings in all 7 locales. `handleBackendFailureFromService` always reaches
+  `reportFirewallDown`, which notifies whenever the firewall stays down. This also removes a **false
+  alarm**: the service notified unconditionally, so a successful fallback a second later still left
+  "Firewall Backend Failed" on screen, and nothing dismissed id 1003.
+- **Both notification id collisions gone.** Root cause was `NOTIFICATION_ID + 1` arithmetic in two
+  services landing on ids `Constants.kt` had already given to other components. `FirewallVpnService`
+  now uses `Constants.VpnFailure.NOTIFICATION_ID = 1008`. No id arithmetic remains anywhere.
+
+  | id | owner | was |
+  |---|---|---|
+  | 1001 | FirewallVpnService foreground | ok |
+  | 1002 | PrivilegedFirewallService foreground | also VPN failure — **fixed** |
+  | 1003 | BackendMonitoring foreground | also privileged failure — **fixed** |
+  | 1004 | VpnFallback / VpnConflict | ok |
+  | 1005 | BootFailure | ok |
+  | 1006 | BackendFailure — the one firewall-down notification | ok |
+  | 1007 | VpnConflict switch | ok |
+  | 1008 | VpnFailure | new |
+
+- **A denied notification permission no longer means silence.** `reportFirewallDown` checks
+  `NotificationManagerCompat.areNotificationsEnabled()` and logs honestly instead of implying the
+  user was warned. The banner adds a line explaining the warning cannot reach them when the app is
+  closed, plus a "Turn on alerts" button that opens the app's notification settings. `onResume`
+  re-renders, so the line clears as soon as permission is granted.
+  Verified end to end on the emulator with `pm revoke POST_NOTIFICATIONS`: banner line and button
+  appear (`.artifacts/banner_notifications_blocked.png`), and both disappear after granting while
+  backgrounded.
+
+  Note: `NewAppNotificationManager.areNotificationsEnabled()` is **not** an OS check - it reads the
+  `KEY_NEW_APP_NOTIFICATIONS` user preference. There was no existing OS-level gate to reuse.
+
+**Open — still needs a decision**
 - **Two contradictory notifications for one failure.** `PrivilegedFirewallService` raises id 1003
   ("Firewall Backend Failed") *and* calls `handleBackendFailureFromService` → id 1006 ("Firewall down
   — your apps are unblocked"). Before the retitle both read the same. Also: id 1003 collides with

@@ -11,6 +11,7 @@ import android.net.VpnService
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import io.github.dorumrr.de1984.R
 import io.github.dorumrr.de1984.data.common.ErrorHandler
 import io.github.dorumrr.de1984.data.common.RootManager
@@ -1122,6 +1123,12 @@ class FirewallManager(
 
         // Preserve user intent so handlePrivilegeChange() can attempt recovery later
         _isFirewallDown.value = true
+
+        // Android 13+ drops notify() silently when POST_NOTIFICATIONS is denied. Say so, rather than
+        // logging a success the user never saw. The in-app banner also reacts to this.
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            AppLogger.w(TAG, "Notifications are disabled - this warning only reaches the user if they open the app")
+        }
 
         when (reason) {
             // These two already have their own actionable notifications, with buttons that drive

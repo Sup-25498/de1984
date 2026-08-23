@@ -373,6 +373,8 @@
     <string name="firewall_switched_title">Бэкенд изменён</string>
     <string name="firewall_switched_message_auto">Бэкенд %1$s отказал. De1984 перешёл на VPN и продолжает вас защищать.</string>
     <string name="firewall_switched_message_manual">Бэкенд %1$s отказал. De1984 перешёл в режим AUTO и использует VPN.</string>
+    <string name="firewall_down_notifications_off">Уведомления отключены, поэтому это предупреждение не дойдёт до вас, когда De1984 закрыт.</string>
+    <string name="firewall_down_action_enable_notifications">Включить уведомления</string>
     <string name="firewall_status_down">СБОЙ</string>
 
     <!-- VPN Conflict Notification -->
@@ -738,8 +740,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">Файрволл De1984 активен</string>
     <string name="privileged_firewall_notification_text">Используется бэкенд %s</string>
-    <string name="privileged_firewall_failure_notification_title">Сбой бэкенда файрволла</string>
-    <string name="privileged_firewall_failure_notification_text">Бэкенд %s перестал работать. Нажмите для перезапуска.</string>
     <string name="vpn_firewall_notification_title">Файрволл De1984 активен</string>
     <string name="vpn_firewall_notification_text">Защита вашей приватности</string>
     <string name="vpn_failure_notification_title">Сбой VPN файрволла</string>

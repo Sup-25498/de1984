@@ -491,8 +491,13 @@ class PrivilegedFirewallService : Service() {
     private fun handleBackendFailure(backendType: FirewallBackendType) {
         AppLogger.e(TAG, "⚠️  BACKEND FAILURE DETECTED IN SERVICE | Backend: $backendType | Action: Notifying FirewallManager and stopping service")
 
-        // Show notification to user
-        showFailureNotification(backendType)
+        // Deliberately no notification here. FirewallManager.reportFirewallDown() is the single
+        // place that tells the user protection was lost, and handleBackendFailureFromService below
+        // always reaches it when the firewall stays down.
+        //
+        // This used to raise its own "Firewall Backend Failed" as well, which was wrong twice over:
+        // two notifications with different wording for one event, and a false alarm that stayed on
+        // screen even when FirewallManager recovered onto another backend a second later.
 
         // Notify FirewallManager immediately instead of waiting for health check
         // This makes VPN fallback instant instead of waiting up to 15 seconds
@@ -517,41 +522,6 @@ class PrivilegedFirewallService : Service() {
         stopFirewall()
 
         AppLogger.e(TAG, "Service stopped. FirewallManager should handle VPN fallback immediately.")
-    }
-
-    private fun showFailureNotification(backendType: FirewallBackendType) {
-        val backendName = when (backendType) {
-            FirewallBackendType.IPTABLES -> "iptables"
-            FirewallBackendType.CONNECTIVITY_MANAGER -> "ConnectivityManager"
-            FirewallBackendType.NETWORK_POLICY_MANAGER -> "NetworkPolicyManager"
-            else -> "Unknown"
-        }
-
-        // Open the main UI when the user taps the notification so they can see
-        // the current firewall state and manually restart if needed.
-        // We intentionally do NOT try to start any backend directly from here;
-        // FirewallManager's planner remains the single source of truth.
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.privileged_firewall_failure_notification_title))
-            .setContentText(getString(R.string.privileged_firewall_failure_notification_text, backendName))
-            .setSmallIcon(R.drawable.ic_notification_de1984)
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .build()
-
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID + 1, notification)
     }
 
     private var ruleApplicationStartTime: Long = 0L

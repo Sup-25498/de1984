@@ -370,6 +370,8 @@
     <string name="firewall_switched_title">Moteur changé</string>
     <string name="firewall_switched_message_auto">Le moteur %1$s a échoué. De1984 est passé au VPN et vous protège toujours.</string>
     <string name="firewall_switched_message_manual">Le moteur %1$s a échoué. De1984 est passé en mode AUTO et utilise le VPN.</string>
+    <string name="firewall_down_notifications_off">Les notifications sont désactivées : cet avertissement ne peut pas vous atteindre quand De1984 est fermé.</string>
+    <string name="firewall_down_action_enable_notifications">Activer les alertes</string>
     <string name="firewall_status_down">PANNE</string>
 
     <!-- VPN Conflict Notification -->
@@ -731,8 +733,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">Pare-feu De1984 actif</string>
     <string name="privileged_firewall_notification_text">Utilise le backend %s</string>
-    <string name="privileged_firewall_failure_notification_title">Échec du backend du pare-feu</string>
-    <string name="privileged_firewall_failure_notification_text">Le backend %s a cessé de fonctionner. Appuyez pour redémarrer.</string>
     <string name="vpn_firewall_notification_title">Pare-feu De1984 actif</string>
     <string name="vpn_firewall_notification_text">Protection de votre vie privée</string>
     <string name="vpn_failure_notification_title">Échec du VPN du pare-feu</string>

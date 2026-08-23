@@ -371,6 +371,8 @@
     <string name="firewall_switched_title">Backend switched</string>
     <string name="firewall_switched_message_auto">The %1$s backend failed. De1984 switched to VPN and is still protecting you.</string>
     <string name="firewall_switched_message_manual">The %1$s backend failed. De1984 switched to AUTO mode and is using VPN.</string>
+    <string name="firewall_down_notifications_off">Notifications are off, so this warning cannot reach you when De1984 is closed.</string>
+    <string name="firewall_down_action_enable_notifications">Turn on alerts</string>
     <string name="firewall_status_down">DOWN</string>
 
     <!-- VPN Conflict Notification -->
@@ -738,8 +740,6 @@
     <!-- Firewall Service Notifications -->
     <string name="privileged_firewall_notification_title">De1984 Firewall Active</string>
     <string name="privileged_firewall_notification_text">Using %s backend</string>
-    <string name="privileged_firewall_failure_notification_title">Firewall Backend Failed</string>
-    <string name="privileged_firewall_failure_notification_text">%s backend stopped working. Tap to restart.</string>
     <string name="vpn_firewall_notification_title">De1984 Firewall Active</string>
     <string name="vpn_firewall_notification_text">Protecting your privacy</string>
     <string name="vpn_failure_notification_title">Firewall VPN Failed</string>
