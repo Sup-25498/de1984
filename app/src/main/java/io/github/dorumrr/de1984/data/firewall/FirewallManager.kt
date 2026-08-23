@@ -1335,6 +1335,21 @@ class FirewallManager(
      * stopFirewallInternal may still be sweeping, and blocking there would serialise the two halves
      * of a stop against each other. It only publishes state.
      */
+    /**
+     * A cold-start sweep found a backend still enforcing. Raise the same warning a failed stop does.
+     *
+     * De1984Application sweeps on every cold start where the firewall is supposed to be OFF, using
+     * its own backend instances. It is the only retry that happens after a stop failed and the
+     * process then died - and [FirewallHealth] is in-memory, so without this the app came back up
+     * reporting Healthy while apps were still blocked, with no badge, no banner and no "Stop again".
+     *
+     * Public because the Application owns that sweep, not this class.
+     */
+    suspend fun reportStopFailedFromSweep(backendType: FirewallBackendType, error: Throwable) {
+        AppLogger.e(TAG, "Cold-start sweep could not clear $backendType - raising the stuck warning")
+        reportStopFailed(backendType, error)
+    }
+
     suspend fun handleStopFailureFromService(backendType: FirewallBackendType, error: Throwable) {
         AppLogger.e(TAG, "Service reported a failed teardown for $backendType")
         reportStopFailed(backendType, error)

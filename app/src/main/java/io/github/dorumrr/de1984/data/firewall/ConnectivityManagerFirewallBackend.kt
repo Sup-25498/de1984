@@ -137,6 +137,10 @@ class ConnectivityManagerFirewallBackend(
             // Stop the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_STOP
+                // Name the backend. The service holds ONE currentBackend, so an unqualified stop
+                // tears down whatever it happens to be running - which during a switch is the
+                // backend that was just STARTED, not this one.
+                putExtra(PrivilegedFirewallService.EXTRA_BACKEND_TYPE, "CONNECTIVITY_MANAGER")
             }
             context.startService(intent)
 
@@ -162,9 +166,15 @@ class ConnectivityManagerFirewallBackend(
 
             // Disable the firewall chain using shell command
             val (exitCode, output) = shizukuManager.executeShellCommand("cmd connectivity set-chain3-enabled false")
+            var chainStillEnabled = false
             if (exitCode != 0) {
-                AppLogger.w(TAG, "Failed to disable firewall chain: $output")
-                // Don't fail on stop - just log the warning
+                AppLogger.e(TAG, "Failed to disable firewall chain: $output")
+                // This used to say "Don't fail on stop - just log the warning" and swallow it. That
+                // is the same hole the iptables backend had: the command that switches enforcement
+                // off can fail and the teardown still reports success. OEM_DENY_3 stays enabled
+                // system-wide, ready to re-arm any denial still recorded in the system, while the
+                // app shows the firewall as off.
+                chainStillEnabled = chain3EnabledByUs()
             } else {
                 setChain3EnabledByUs(false)
             }
@@ -179,6 +189,17 @@ class ConnectivityManagerFirewallBackend(
                     errorHandler.handleError(
                         Exception("${notRestored.size} packages could not have networking restored"),
                         "restore ConnectivityManager package networking"
+                    )
+                )
+            }
+
+            // Only OUR chain counts. If we never turned OEM_DENY_3 on, a failed disable leaves it
+            // exactly as we found it and is not ours to report.
+            if (chainStillEnabled) {
+                return Result.failure(
+                    errorHandler.handleError(
+                        Exception("the OEM_DENY_3 firewall chain we enabled could not be disabled"),
+                        "disable ConnectivityManager firewall chain"
                     )
                 )
             }
@@ -514,16 +535,30 @@ class ConnectivityManagerFirewallBackend(
 
         // A non-empty package record is equally good evidence that this backend ran, and covers an
         // upgrade from a build that never wrote the flag.
+        var chainStillEnabled = false
         if (weEnabledChain3 || blocked.isNotEmpty()) {
             val (exitCode, output) = shizukuManager.executeShellCommand("cmd connectivity set-chain3-enabled false")
             if (exitCode == 0) {
                 setChain3EnabledByUs(false)
             } else {
-                AppLogger.w(TAG, "Failed to disable firewall chain during cleanup: $output")
+                AppLogger.e(TAG, "Failed to disable firewall chain during cleanup: $output")
+                // Reported, not just logged - same reasoning as stopInternal. Read the flag back
+                // rather than reusing weEnabledChain3: it stays true on a failed disable, and that
+                // is exactly the state that means the chain is still ours and still on.
+                chainStillEnabled = chain3EnabledByUs()
             }
         }
 
         appliedPolicies.clear()
+
+        if (notRestored.isEmpty() && chainStillEnabled) {
+            return Result.failure(
+                errorHandler.handleError(
+                    Exception("the OEM_DENY_3 firewall chain we enabled could not be disabled"),
+                    "disable ConnectivityManager firewall chain"
+                )
+            )
+        }
 
         return if (notRestored.isEmpty()) {
             AppLogger.d(TAG, "✅ Restored networking for ${blocked.size} packages")
@@ -594,7 +629,15 @@ class ConnectivityManagerFirewallBackend(
      */
     private fun isInstalled(packageName: String): Boolean {
         return try {
-            context.packageManager.getApplicationInfo(packageName, 0)
+            // MATCH_UNINSTALLED_PACKAGES covers "pm uninstall -k" - app removed, data kept - and
+            // MATCH_DISABLED_COMPONENTS covers an app the user or a device admin disabled. Plain
+            // getApplicationInfo(name, 0) throws NameNotFound for both, so a package that is only
+            // temporarily out of sight was counted as gone and erased from the record. Re-enable or
+            // reinstall it and it comes back with our denial still applied and nothing left able to
+            // undo it. Neither is "gone"; only a package with no trace at all is.
+            val flags = PackageManager.MATCH_UNINSTALLED_PACKAGES or
+                PackageManager.MATCH_DISABLED_COMPONENTS
+            context.packageManager.getApplicationInfo(packageName, flags)
             true
         } catch (e: PackageManager.NameNotFoundException) {
             false

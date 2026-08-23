@@ -10,6 +10,7 @@ import io.github.dorumrr.de1984.data.firewall.IptablesFirewallBackend
 import io.github.dorumrr.de1984.data.firewall.NetworkPolicyManagerFirewallBackend
 import io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
 import io.github.dorumrr.de1984.utils.AppLogger
+import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,24 @@ class De1984Application : Application() {
                 if (!wasFirewallEnabled) {
                     AppLogger.d(TAG, "Cleaning up orphaned firewall rules (firewall was not enabled)")
 
+                    // Wake Magisk and settle Shizuku BEFORE sweeping. libsu reports NOT_ROOTED until
+                    // the app makes its first request, so a sweep that runs ahead of that probes with
+                    // no privilege at all: it cannot see the chains, concludes there is nothing to
+                    // undo, and reports success over rules that are still dropping traffic. Measured
+                    // on hardware - the sweep finished a full second before the first root check.
+                    // BootReceiver already does exactly this, for exactly this reason.
+                    AppLogger.d(TAG, "Requesting privileges before the sweep so it can actually look")
+                    dependencies.rootManager.forceRecheckRootStatus()
+                    kotlinx.coroutines.delay(500)
+                    dependencies.shizukuManager.checkShizukuStatus()
+                    kotlinx.coroutines.delay(500)
+
+                    // Collected, not just logged. This sweep is the only retry that happens after a
+                    // stop failed and the process died, and the health state it would have restored
+                    // is in-memory only - so a device whose rules are still enforcing used to start
+                    // every process reporting Healthy, with no badge, no banner and nothing to press.
+                    val orphans = mutableListOf<Pair<FirewallBackendType, Throwable>>()
+
                     // Clean up iptables rules
                     try {
                         val iptablesBackend = IptablesFirewallBackend(
@@ -117,7 +136,7 @@ class De1984Application : Application() {
                         // report success over chains that are still in the kernel.
                         iptablesBackend.stopInternal()
                             .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned iptables rules") }
-                            .onFailure { AppLogger.w(TAG, "Orphaned iptables cleanup incomplete: ${it.message}") }
+                            .onFailure { orphans += FirewallBackendType.IPTABLES to it; AppLogger.w(TAG, "Orphaned iptables cleanup incomplete: ${it.message}") }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Failed to clean up orphaned iptables rules: ${e.message}")
                     }
@@ -136,7 +155,7 @@ class De1984Application : Application() {
                         // the firewall was off, and that old build's own stop disabled the chain.
                         cmBackend.clearOrphanedPolicies()
                             .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned ConnectivityManager rules") }
-                            .onFailure { AppLogger.w(TAG, "Orphaned ConnectivityManager denials remain: ${it.message}") }
+                            .onFailure { orphans += FirewallBackendType.CONNECTIVITY_MANAGER to it; AppLogger.w(TAG, "Orphaned ConnectivityManager denials remain: ${it.message}") }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Failed to clean up orphaned ConnectivityManager rules: ${e.message}")
                     }
@@ -154,9 +173,20 @@ class De1984Application : Application() {
                         )
                         npmBackend.clearOrphanedPolicies()
                             .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned NetworkPolicyManager policies") }
-                            .onFailure { AppLogger.w(TAG, "Orphaned NetworkPolicyManager policies remain: ${it.message}") }
+                            .onFailure { orphans += FirewallBackendType.NETWORK_POLICY_MANAGER to it; AppLogger.w(TAG, "Orphaned NetworkPolicyManager policies remain: ${it.message}") }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Failed to clean up orphaned NetworkPolicyManager policies: ${e.message}")
+                    }
+
+                    // Raise the warning for whatever is still enforcing. reportStopFailedFromSweep
+                    // publishes the same STUCK badge, banner and notification a failed stop does,
+                    // because it is the same situation: apps are blocked and no control in the app
+                    // touches the thing blocking them.
+                    orphans.firstOrNull()?.let { (backend, error) ->
+                        if (orphans.size > 1) {
+                            AppLogger.e(TAG, "Cold-start sweep left ${orphans.map { it.first }} enforcing - reporting $backend")
+                        }
+                        dependencies.firewallManager.reportStopFailedFromSweep(backend, error)
                     }
                 }
             } catch (e: Exception) {

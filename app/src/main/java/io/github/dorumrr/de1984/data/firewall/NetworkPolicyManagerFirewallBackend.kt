@@ -168,6 +168,10 @@ class NetworkPolicyManagerFirewallBackend(
             // Stop the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_STOP
+                // Name the backend. The service holds ONE currentBackend, so an unqualified stop
+                // tears down whatever it happens to be running - which during a switch is the
+                // backend that was just STARTED, not this one.
+                putExtra(PrivilegedFirewallService.EXTRA_BACKEND_TYPE, "NETWORK_POLICY_MANAGER")
             }
             context.startService(intent)
 

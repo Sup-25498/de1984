@@ -152,7 +152,21 @@ class PrivilegedFirewallService : Service() {
                 return START_STICKY
             }
             ACTION_STOP -> {
-                AppLogger.d(TAG, "ACTION_STOP received - stopping privileged firewall")
+                // A stop that names a backend must only stop THAT backend. This service holds one
+                // currentBackend, and an atomic switch starts the new backend before stopping the
+                // old one - so an unqualified stop arriving second would tear down the backend that
+                // was just started, and then report the failure under the new backend's name. The
+                // user would be told the wrong thing about a firewall that had just been killed.
+                //
+                // An intent with no extra is an older caller; honour it as before.
+                val requested = intent.getStringExtra(EXTRA_BACKEND_TYPE)
+                val running = currentBackendType
+                if (requested != null && running != null && requested != running.name) {
+                    AppLogger.w(TAG, "Ignoring ACTION_STOP for $requested - this service is running $running")
+                    return START_STICKY
+                }
+
+                AppLogger.d(TAG, "ACTION_STOP received - stopping privileged firewall (requested=${requested ?: "any"}, running=$running)")
                 wasExplicitlyStopped = true
                 stopFirewall()
                 return START_NOT_STICKY

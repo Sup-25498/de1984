@@ -159,10 +159,6 @@ object Constants {
          */
         const val SELF_HEAL_TIMEOUT_SECONDS = 120
 
-        /** Device-encrypted data dirs, readable before the user unlocks. Used by the boot script to
-         *  detect that De1984 has been uninstalled and delete itself. */
-        const val DE_DATA_DIR_RELEASE = "/data/user_de/0/${App.PACKAGE_NAME}"
-        const val DE_DATA_DIR_DEBUG = "/data/user_de/0/${App.PACKAGE_NAME_DEBUG}"
     }
 
     object CaptivePortal {
