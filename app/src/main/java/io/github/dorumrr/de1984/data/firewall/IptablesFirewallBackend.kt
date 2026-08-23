@@ -239,10 +239,39 @@ class IptablesFirewallBackend(
     private suspend fun probeChains(): TeardownProof {
         val v4 = probeChain(IPTABLES)
         val v6 = probeChain(IP6TABLES)
+
+        // A family that will not answer while the OTHER family answered is not a privilege problem.
+        // Privilege belongs to the shell, not to an address family: the same root or Shizuku-root
+        // shell runs both binaries. So if iptables answered and ip6tables did not, ip6tables is
+        // unusable on this device - no ip6_tables module, no binary, no IPv6 filter table - and an
+        // unusable family cannot be holding our chains either. That is CLEAN for it, not "could not
+        // look".
+        //
+        // Reading it as "could not look" was a real defect: checkAvailability only ever tests
+        // "iptables --version" and createCustomChains inspects no exit codes, so a v4-only device
+        // starts fine and sets the chains-installed flag. Every stop then collapsed a proven-clean
+        // v4 into UNVERIFIABLE, which with the flag set is a hard failure - and the flag is cleared
+        // only on the CLEAN path, so the STUCK badge, banner and notification latched forever on a
+        // firewall that was genuinely off, with no way out inside the app.
+        val v4Answered = v4 != TeardownProof.UNVERIFIABLE
+        val v6Answered = v6 != TeardownProof.UNVERIFIABLE
+
         return when {
+            // One confirmed live chain is a failed teardown, whatever the other family says.
             v4 == TeardownProof.RESIDUE || v6 == TeardownProof.RESIDUE -> TeardownProof.RESIDUE
-            v4 == TeardownProof.UNVERIFIABLE || v6 == TeardownProof.UNVERIFIABLE -> TeardownProof.UNVERIFIABLE
-            else -> TeardownProof.CLEAN
+
+            // Neither family answered: the shell itself could not look. Genuinely unverifiable.
+            !v4Answered && !v6Answered -> TeardownProof.UNVERIFIABLE
+
+            // At least one answered and nothing was found. Any silent family is unusable, so it
+            // holds nothing.
+            else -> {
+                if (!v4Answered || !v6Answered) {
+                    val silent = if (v4Answered) IP6TABLES else IPTABLES
+                    AppLogger.d(TAG, "$silent is unusable on this device - treating it as holding no chains")
+                }
+                TeardownProof.CLEAN
+            }
         }
     }
 

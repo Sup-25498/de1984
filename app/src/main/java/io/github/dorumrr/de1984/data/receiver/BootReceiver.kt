@@ -58,6 +58,14 @@ class BootReceiver : BroadcastReceiver() {
                 }
                 AppLogger.d(TAG, "📱 Device boot completed - $bootType")
 
+                // iptables rules live in the kernel, so a reboot wipes them - but the
+                // "chains are installed" record is on disk and survives. Left stale, it makes the
+                // first stop after a boot report "the firewall would not stop" on a device with no
+                // chains at all, whenever the probe cannot run yet (Shizuku takes a while to
+                // connect after boot). Clearing it here is safe: boot protection uses its own
+                // de1984_boot chain, never de1984_output, so nothing can have recreated it yet.
+                clearIptablesChainRecord(context)
+
                 // Android 12+ (API 31+): Use WorkManager to avoid foreground service restrictions
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     AppLogger.d(TAG, "Android 12+ detected - scheduling WorkManager job for firewall restoration")
@@ -325,5 +333,22 @@ class BootReceiver : BroadcastReceiver() {
             AppLogger.e(TAG, "Failed to show boot failure notification", e)
         }
     }
+
+    /**
+     * Forget that iptables chains were ever installed. See the call site for why a reboot means
+     * they cannot exist. Uses commit(), not apply(): the process may be torn down at any moment
+     * during boot, and a lost write puts the stale record straight back.
+     */
+    private fun clearIptablesChainRecord(context: Context) {
+        try {
+            context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(Constants.Settings.KEY_IPTABLES_CHAINS_INSTALLED, false)
+                .commit()
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Could not clear the iptables chain record on boot: ${e.message}")
+        }
+    }
+
 }
 

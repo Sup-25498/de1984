@@ -575,13 +575,13 @@ class FirewallManager(
 
             AppLogger.d(TAG, "New backend ($newBackendType) is active, now stopping old backend ($oldBackendType)...")
 
-            // Now it's safe to stop the old backend
+            // Now it's safe to stop the old backend.
+            // The failure is CAPTURED, not swallowed. It used to be logged with "continue anyway",
+            // which left the old backend enforcing underneath the new one with nothing on screen.
+            var switchOrphan: Throwable? = null
             if (oldBackend != null) {
                 stopMonitoring() // Stop monitoring for old backend
-                oldBackend.stop().getOrElse { error ->
-                    AppLogger.w(TAG, "Failed to stop old backend ($oldBackendType): ${error.message}")
-                    // Continue anyway - new backend is already running
-                }
+                switchOrphan = tearDownSwitchedAwayBackend(oldBackend, oldBackendType)
             }
 
             // Update current backend reference
@@ -592,6 +592,10 @@ class FirewallManager(
 
             // Clear firewall down flag and any stale warning - firewall is now running successfully
             reportFirewallHealthy()
+
+            // AFTER reportFirewallHealthy, never before: it clears the health state, so an orphan
+            // reported earlier would be wiped by the very switch that created it.
+            if (switchOrphan != null) reportOrphanedBackend(oldBackendType, switchOrphan)
 
             // No monitoring is started here, for any backend:
             // - VPN monitors internally via VpnService
@@ -671,30 +675,44 @@ class FirewallManager(
             // Per user request: when firewall is OFF, there should be NO rules from ANY backend
             val sweepFailure = cleanupAllBackends(reportFailureFor = stoppedBackendType)
 
-            // For VPN only, the sweep's verdict replaces stop()'s. Both do the same teardown, but
-            // the sweep runs later and is better evidenced: stop() gives up after a 2s timeout,
-            // while the sweep then re-checks isActive() and tries again if the tunnel is still up.
-            // A tunnel that simply needed longer than 2s would otherwise leave a STUCK badge on a
-            // firewall that is genuinely off - a false alarm is still the app lying to the user.
+            // For VPN only, ASK whether the tunnel is down rather than trusting stop()'s verdict.
+            // stop() gives up after a 2s timeout, and a tunnel that simply needed a little longer
+            // would otherwise leave a STUCK badge on a firewall that is genuinely off - a false
+            // alarm is the app lying to the user just as much as a missed one.
+            //
+            // This checks isActive() directly instead of reading sweepFailure == null, because that
+            // is ambiguous: the sweep returns no VPN failure both when it proved the tunnel down
+            // AND when it never looked. Only a direct check is evidence.
+            //
             // The privileged backends do NOT get this: they tear down inside PrivilegedFirewallService
-            // and report asynchronously via stopTeardownFailed, which the sweep cannot re-prove.
-            if (stoppedBackendType == FirewallBackendType.VPN && sweepFailure == null) {
-                if (stopFailure != null) {
-                    AppLogger.d(TAG, "VPN stop() timed out but the sweep found the tunnel down - treating the stop as successful")
+            // and report asynchronously via stopTeardownFailed, which cannot be re-proven here.
+            if (stoppedBackendType == FirewallBackendType.VPN && stopFailure != null) {
+                if (!VpnFirewallBackend(context).isActive()) {
+                    AppLogger.d(TAG, "VPN stop() timed out but the tunnel is down now - treating the stop as successful")
+                    stopFailure = null
                 }
-                stopFailure = null
             }
 
             val teardownError = stopFailure
-                ?: sweepFailure
+                ?: sweepFailure?.error
                 ?: if (stopTeardownFailed) Exception("Backend teardown reported a failure") else null
+
+            // Name the backend the failure actually belongs to. The sweep can prove an orphan on a
+            // backend the user was NOT running - old iptables chains under a VPN session, say - and
+            // blaming the running backend for that sends the user to the wrong control.
+            val blamedBackend = when {
+                stopFailure != null -> stoppedBackendType
+                sweepFailure != null -> sweepFailure.backend
+                else -> stoppedBackendType
+            }
+
             if (teardownError != null) {
                 // currentBackend and _activeBackendType are deliberately KEPT here. The backend may
                 // well still be enforcing, and the banner's "Stop again" button calls straight back
                 // into this function - with them nulled, `currentBackend?.stop()` short-circuited,
                 // no failure was captured, and the retry fell through to success and erased the
                 // warning without removing a single rule.
-                reportStopFailed(stoppedBackendType, teardownError)
+                reportStopFailed(blamedBackend, teardownError)
                 return Result.failure(
                     errorHandler.handleError(teardownError, "stop firewall")
                 )
@@ -742,9 +760,59 @@ class FirewallManager(
      *
      * @return the failure for [reportFailureFor], or null.
      */
-    private suspend fun cleanupAllBackends(reportFailureFor: FirewallBackendType? = null): Throwable? {
+    /**
+     * Tear down the backend we are switching AWAY from, and prove it actually went.
+     *
+     * A switch is not a stop: the firewall stays up on the new backend, so a failure here is not
+     * "the firewall would not stop" - it is an ORPHAN. The old backend is still enforcing its own
+     * rules underneath the new one, invisibly, and the user has no control that touches it.
+     *
+     * Every switch site used to call backend.stop() and either ignore the Result or log it and
+     * "continue anyway". That was survivable while stop() could not report a real failure. Now that
+     * it can - VpnFirewallBackend proves a live tunnel, IptablesFirewallBackend probes the kernel -
+     * throwing the proof away is the app choosing not to know.
+     *
+     * So: stop, and if that fails, run the sweep for that backend, which does the real teardown and
+     * re-checks. Only a failure that survives BOTH is reported, which keeps a slow VPN tunnel or an
+     * intent-only privileged stop from raising a false alarm on every backend change.
+     *
+     * @return the surviving failure, or null when the old backend is provably gone.
+     */
+    private suspend fun tearDownSwitchedAwayBackend(
+        oldBackend: FirewallBackend?,
+        oldBackendType: FirewallBackendType?
+    ): Throwable? {
+        if (oldBackend == null) return null
+
+        var failure: Throwable? = null
+        oldBackend.stop().onFailure { failure = it }
+        if (failure == null) return null
+
+        AppLogger.w(TAG, "Old backend ($oldBackendType) did not stop cleanly - sweeping to confirm: ${failure?.message}")
+        val sweep = cleanupAllBackends(reportFailureFor = oldBackendType)
+        val surviving = sweep?.takeIf { it.backend == oldBackendType }?.error
+        if (surviving == null) {
+            AppLogger.d(TAG, "Sweep confirmed $oldBackendType is gone - the switch is clean")
+            return null
+        }
+
+        AppLogger.e(TAG, "ORPHANED BACKEND: $oldBackendType is still enforcing after a switch - ${surviving.message}")
+        return surviving
+    }
+
+    private suspend fun cleanupAllBackends(reportFailureFor: FirewallBackendType? = null): SweepFailure? {
         AppLogger.d(TAG, "Cleaning up all backend types to ensure no orphaned rules...")
-        var reportable: Throwable? = null
+
+        // Every failure is kept, not just the running backend's. Each branch below can only fail
+        // when it has EVIDENCE - iptables saw its chain, or created chains it can no longer see;
+        // the VPN branch ran only because our tunnel is up; and the two Shizuku backends return
+        // early with success when their record is empty. None of them can fail merely because the
+        // user has no privilege, which is the only reason the old code silenced them.
+        //
+        // Silencing them was a real hole: an orphan proven live on a backend that was NOT the
+        // running one was dropped on the floor, and stopFirewall then reported success with the OFF
+        // badge over rules that were still enforcing.
+        val failures = mutableMapOf<FirewallBackendType, Throwable>()
 
         // Clean up iptables rules (if any exist)
         // This is the most important cleanup because iptables rules persist in the kernel
@@ -766,11 +834,11 @@ class FirewallManager(
                 .onSuccess { AppLogger.d(TAG, "Iptables cleanup completed") }
                 .onFailure {
                     AppLogger.w(TAG, "Iptables cleanup incomplete: ${it.message}")
-                    if (reportFailureFor == FirewallBackendType.IPTABLES) reportable = it
+                    failures[FirewallBackendType.IPTABLES] = it
                 }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up iptables: ${e.message}")
-            if (reportFailureFor == FirewallBackendType.IPTABLES) reportable = e
+            failures[FirewallBackendType.IPTABLES] = e
             // Ignore errors - best effort cleanup
             // User may not have root/Shizuku, which is fine
         }
@@ -792,11 +860,11 @@ class FirewallManager(
                 .onSuccess { AppLogger.d(TAG, "NetworkPolicyManager cleanup completed") }
                 .onFailure {
                     AppLogger.w(TAG, "NetworkPolicyManager cleanup incomplete: ${it.message}")
-                    if (reportFailureFor == FirewallBackendType.NETWORK_POLICY_MANAGER) reportable = it
+                    failures[FirewallBackendType.NETWORK_POLICY_MANAGER] = it
                 }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up NetworkPolicyManager policies: ${e.message}")
-            if (reportFailureFor == FirewallBackendType.NETWORK_POLICY_MANAGER) reportable = e
+            failures[FirewallBackendType.NETWORK_POLICY_MANAGER] = e
             // Ignore errors - best effort cleanup
             // User may not have Shizuku, which is fine
         }
@@ -818,11 +886,11 @@ class FirewallManager(
                 .onSuccess { AppLogger.d(TAG, "ConnectivityManager cleanup completed") }
                 .onFailure {
                     AppLogger.w(TAG, "ConnectivityManager cleanup incomplete: ${it.message}")
-                    if (reportFailureFor == FirewallBackendType.CONNECTIVITY_MANAGER) reportable = it
+                    failures[FirewallBackendType.CONNECTIVITY_MANAGER] = it
                 }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up ConnectivityManager policies: ${e.message}")
-            if (reportFailureFor == FirewallBackendType.CONNECTIVITY_MANAGER) reportable = e
+            failures[FirewallBackendType.CONNECTIVITY_MANAGER] = e
             // Ignore errors - best effort cleanup
             // User may not have Shizuku, which is fine
         }
@@ -847,18 +915,29 @@ class FirewallManager(
                     .onSuccess { AppLogger.d(TAG, "VPN cleanup completed") }
                     .onFailure {
                         AppLogger.w(TAG, "VPN cleanup incomplete: ${it.message}")
-                        if (reportFailureFor == FirewallBackendType.VPN) reportable = it
+                        failures[FirewallBackendType.VPN] = it
                     }
             } else {
                 AppLogger.d(TAG, "VPN cleanup: no tunnel up")
             }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to clean up VPN: ${e.message}")
-            if (reportFailureFor == FirewallBackendType.VPN) reportable = e
+            failures[FirewallBackendType.VPN] = e
         }
 
-        return reportable
+        if (failures.isEmpty()) return null
+
+        // Name the backend the user was actually running when it is one of the failures - that is
+        // the one the banner should talk about. Otherwise report the orphan we found.
+        val blamed = reportFailureFor?.takeIf { failures.containsKey(it) } ?: failures.keys.first()
+        if (failures.size > 1) {
+            AppLogger.e(TAG, "Cleanup failed for ${failures.keys.joinToString()} - reporting $blamed")
+        }
+        return SweepFailure(blamed, failures.getValue(blamed))
     }
+
+    /** A backend the sweep could not clean, and the proof of it. */
+    private data class SweepFailure(val backend: FirewallBackendType, val error: Throwable)
 
     /**
      * Check if firewall is currently active.
@@ -1160,7 +1239,7 @@ class FirewallManager(
 
                                     // Stop current VPN backend (don't call stopMonitoring() - we're inside the health job!)
                                     // The startFirewall() will start new monitoring for the new backend
-                                    currentBackend?.stop()
+                                    val orphan = tearDownSwitchedAwayBackend(currentBackend, FirewallBackendType.VPN)
                                     currentBackend = null
                                     _activeBackendType.value = null
 
@@ -1168,6 +1247,10 @@ class FirewallManager(
                                     val result = startFirewall(FirewallMode.AUTO)
                                     result.onSuccess { newBackend ->
                                         AppLogger.d(TAG, "✅ Successfully switched to $newBackend backend via privilege gain detection")
+                                        // The tunnel that would not close is still dropping traffic
+                                        // under its old allowlist. Report it once the new backend is
+                                        // up, so the start's reportFirewallHealthy cannot erase it.
+                                        if (orphan != null) reportOrphanedBackend(FirewallBackendType.VPN, orphan)
                                         // Show notification about the automatic switch
                                         showPrivilegeGainSwitchNotification(newBackend)
                                     }.onFailure { error ->
@@ -1336,6 +1419,22 @@ class FirewallManager(
      * failure notifications go too - whatever was wrong before, "will not stop" is the live problem
      * now, and the banner carries it.
      */
+    /**
+     * Tell the user a backend we switched away from is still enforcing.
+     *
+     * Same warning surface as a failed stop - the user's problem is identical: apps are blocked and
+     * no control in the app touches the thing blocking them. But [_firewallState] is deliberately
+     * left alone, because the firewall IS running, on the new backend. Writing Error here would put
+     * the widget and the tile into a failed state for a firewall that is up and working.
+     */
+    private fun reportOrphanedBackend(backend: FirewallBackendType?, error: Throwable) {
+        AppLogger.e(TAG, "⚠️ ORPHANED BACKEND ($backend): its rules may still be enforced", error)
+
+        stopTeardownFailed = true
+        _firewallHealth.value = FirewallHealth.StopFailed(backend)
+        showStopFailedNotification(backend)
+    }
+
     private fun reportStopFailed(backend: FirewallBackendType?, error: Throwable) {
         AppLogger.e(TAG, "⚠️ FIREWALL WOULD NOT STOP (backend=$backend): rules may still be enforced", error)
 
@@ -1464,6 +1563,16 @@ class FirewallManager(
             AppLogger.d(TAG, "Health check passed but no active backend - keeping the current warning")
             return
         }
+        // A healthy backend is NOT evidence that a different backend's rules are gone. StopFailed
+        // means something is still enforcing that no control in the app can touch, and the running
+        // backend passing its own health check says nothing about it. Without this guard the next
+        // health check, 15 seconds later, silently erased every orphan warning a backend switch
+        // raised. Only a proven teardown clears it, in reportFirewallHealthy.
+        if (_firewallHealth.value is FirewallHealth.StopFailed) {
+            AppLogger.d(TAG, "Health check passed but a backend is still stuck - keeping the warning")
+            return
+        }
+
         _firewallHealth.value = FirewallHealth.Healthy
         dismissBackendFailedNotification()
     }
@@ -2343,12 +2452,11 @@ class FirewallManager(
             AppLogger.i(TAG, "🔐 Switching to ${plan.selectedBackendType} backend due to VPN conflict")
 
             // Stop the current (dead) VPN backend first
+            var vpnConflictOrphan: Throwable? = null
             if (currentBackend != null) {
                 AppLogger.d(TAG, "🔐 Stopping current VPN backend before switching...")
                 stopMonitoring()
-                currentBackend?.stop()?.onFailure { error ->
-                    AppLogger.w(TAG, "🔐 Failed to stop old VPN backend: ${error.message}")
-                }
+                vpnConflictOrphan = tearDownSwitchedAwayBackend(currentBackend, FirewallBackendType.VPN)
                 currentBackend = null
                 _activeBackendType.value = null
             }
@@ -2359,6 +2467,8 @@ class FirewallManager(
             if (restartResult.isSuccess) {
                 val newBackend = restartResult.getOrThrow()
                 AppLogger.i(TAG, "🔐 ✅ Successfully switched to $newBackend due to VPN conflict")
+                // Reported after the start, whose reportFirewallHealthy would otherwise erase it.
+                vpnConflictOrphan?.let { reportOrphanedBackend(FirewallBackendType.VPN, it) }
                 // Show persistent notification informing user
                 showVpnConflictSwitchNotification(newBackend)
             } else {
@@ -2592,13 +2702,11 @@ class FirewallManager(
             // an atomic switch. This creates a brief security gap (~1-2s) where apps are
             // unprotected. A future improvement could refactor this to use atomic switching
             // (start new backend first, then stop old) as documented in FIREWALL.md.
+            var privilegeChangeOrphan: Throwable? = null
             if (currentBackend != null) {
                 AppLogger.d(TAG, "Stopping current backend ($currentBackendType) before switching to $plannedBackendType...")
                 stopMonitoring() // Stop health monitoring
-                currentBackend?.stop()?.onFailure { error ->
-                    AppLogger.w(TAG, "Failed to stop old backend ($currentBackendType): ${error.message}")
-                    // Continue anyway - we need to switch backends
-                }
+                privilegeChangeOrphan = tearDownSwitchedAwayBackend(currentBackend, currentBackendType)
                 currentBackend = null
                 _activeBackendType.value = null
             }
@@ -2606,6 +2714,8 @@ class FirewallManager(
             val result = startFirewall(FirewallMode.AUTO)
             result.onSuccess { newBackend ->
                 AppLogger.d(TAG, "✅ Firewall automatically switched to $newBackend backend (AUTO mode)")
+                // Reported after the start, whose reportFirewallHealthy would otherwise erase it.
+                privilegeChangeOrphan?.let { reportOrphanedBackend(currentBackendType, it) }
             }.onFailure { error ->
                 AppLogger.e(TAG, "❌ Failed to automatically switch backend in AUTO mode: ${error.message}")
             }
