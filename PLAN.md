@@ -2229,10 +2229,43 @@ Verified: build clean; lint total errors unchanged at 7, all pre-existing, **0**
 no `MissingTranslation` or `StringFormatMatches` on any new string; no dangling reference to the four
 removed. Not exercised at runtime - these notifications need a live backend switch.
 
+### Second hardware run — 2026-08-23 19:32-19:35
+
+One Shizuku stop, three questions answered.
+
+**1. The re-alert fix works.** `setOnlyAlertOnce(true)` confirmed live: the posted notification now
+carries `flags=0x18` (`FLAG_ONLY_ALERT_ONCE 0x8` | `FLAG_AUTO_CANCEL 0x10`), where it was `0x10`
+before. The notification is still *posted* three times - three detectors legitimately find the same
+failure - but only the first one alerts.
+
+**2. Recovery works with the app closed.** De1984 was backgrounded with HOME and never reopened;
+`topResumedActivity` was Shizuku's own MainActivity throughout. On Shizuku restarting:
+```
+19:34:54  ✅ Manual backend NETWORK_POLICY_MANAGER restarted after privilege recovery
+19:34:54  Dismissing backend failed notification
+```
+Notification 1006 gone from dumpsys. This is `privilegeMonitoringJob`, which collects root and
+Shizuku status for the whole process lifetime and is independent of the UI. Opening the app
+afterwards showed the banner already gone and the badge already ACTIVE.
+
+**3. Scroll reset - the banner is NOT the cause. Reviewer finding refuted.**
+On device the list *did* jump to the top during the failure, which looked like confirmation. Two
+controlled emulator tests say otherwise:
+
+| Test | Before | After | Result |
+|---|---|---|---|
+| Banner appears on a timer, nothing else changes | `com.android.remoteprovisioner` | same | **no reset** |
+| Firewall toggled on, no banner involved | `com.android.remoteprovisioner` | same | **no reset** |
+
+So neither the banner's resize nor a firewall state change resets scroll; commit 8e7cfb0's fix for
+issue #61 holds. The device reset had some other trigger, present only there - that run also lost
+Shizuku, which breaks the work-profile package queries (`No Shizuku permission - cannot use Shizuku
+shell for user 10`, repeatedly). **Cause not identified.** Chasing it further needs another
+device-side failure, so it is left open rather than guessed at.
+
 ### Open
-- **Device test.** On the phone: pick NetworkPolicyManager or ConnectivityManager manually in
-  Settings, start the firewall, then press Stop in the Shizuku app. Within one health-check interval
-  the banner, DOWN badge and notification should appear; restarting Shizuku should clear all three.
+- **Scroll jump during a real backend failure on device.** Not the banner, not a state change.
+  Suspect the work-profile package query failing while Shizuku is down. Needs a device repro.
 - **A silent unblocked state this fix does not cover.** `SettingsViewModel.restartFirewallIfRunning`
   calls `stopFirewall()` then `startFirewall(newMode)`. A failure there returns through
   `startFirewallInternal`, which sets `FirewallState.Error` but never publishes `FirewallHealth.Down`
@@ -2242,9 +2275,8 @@ removed. Not exercised at runtime - these notifications need a live backend swit
 - **P0-8 honesty gap** still open. On a ROM without `POLICY_REJECT_ALL` the UI says an app is Blocked
   while only metered background data is blocked. `FirewallHealth` is now the obvious place to carry a
   "degraded" state for it.
-- Pre-existing duplication: `FirewallBackendType` is mapped to a display name by hand in five other
-  places (`FirewallManager` x2, `PrivilegedFirewallService` x2, `BackendMonitoringService`). Only the
-  new code uses `displayName(context)`. Left alone as out of scope.
+- Dead English constants in `Constants.BackendMonitoring` (`NOTIFICATION_TEXT_SUCCESS_*`,
+  `TOAST_SUCCESS_*`, `NOTIFICATION_TITLE_SUCCESS`) - 0 usages, dead before this work. Not removed.
 
 ---
 
