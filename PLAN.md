@@ -3168,3 +3168,63 @@ identical version 4.8.4 was restored from a backup APK.
 ## Verification
 
 `:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, all pre-existing, none in a touched file.
+
+---
+
+# STATUS LEDGER — THE FIREWALL TELLS THE TRUTH ABOUT STOPPING
+
+Covers four adversarial audits (26, 25, 20 and 10 agents) and the fixes that came out of them.
+Commits `0cb2eb0` → `502f287`, all on top of released v2.6.2.
+
+## Closed and hardware-proven
+
+Proven on a TrebleDroid GSI, Android 14, Magisk root, Shizuku as root, work profile at user 10.
+
+| What was wrong | Where it is fixed |
+| --- | --- |
+| A stop reported success over live iptables chains. `stopInternal()` could not fail: every command ends `\|\| true` and no exit code was read | `IptablesFirewallBackend.stopInternal` now probes the kernel and maps the answer to CLEAN / RESIDUE / UNVERIFIABLE |
+| The probe read iptables' error text, which the root shell never captures (libsu has no `FLAG_REDIRECT_STDERR`). Every clean stop on a rooted device would have shown STUCK | The probe echoes its own tokens. No message parsing, no locale dependency |
+| "No privilege" and "this device has no ip6tables" were indistinguishable, and the flag cleared only on CLEAN — a permanent STUCK badge with no way out | Privilege belongs to the shell, not the address family. One family answering proves privilege; a silent family is unusable and holds nothing |
+| The sweep called `stop()` for iptables, which only fires an intent. A retry did no kernel work yet its success cleared the warning | The sweep calls `stopInternal()` |
+| VPN `stop()` logged "Continuing anyway" and returned success over a live tunnel. The sweep had no VPN branch at all | `stop()` reports the failure; the sweep has a VPN branch guarded by `isActive()`, which only ever sees our own service |
+| The sweep proved an orphan on a backend that was not the running one, then discarded it | Every proven failure is kept; the banner names the backend the failure belongs to |
+| Every backend-switch path discarded the teardown result and then called `reportFirewallHealthy()`, erasing its own warning | `tearDownSwitchedAwayBackend` confirms via the sweep; a surviving orphan is reported after the new backend is up |
+| The next health check erased that orphan warning 15 seconds later | A healthy new backend is not evidence about a different backend. `clearHealthWarningIfEnforcing` keeps StopFailed |
+| The privileged service holds one backend, so an unqualified stop during a switch tore down the backend just started | `ACTION_STOP` names its backend; the service ignores a stop meant for something else |
+| ConnectivityManager's chain disable failed silently — "Don't fail on stop - just log the warning" | Reported, and only when we are the ones who enabled `OEM_DENY_3` |
+| A UID was dropped from the NetworkPolicyManager record on any restore failure, erasing the record for still-blocked apps | Dropped only when a read-back proves nothing is left |
+| The ConnectivityManager record could never drain, so every stop failed forever | Conservative `isInstalled()`, which now also counts disabled and keep-data packages as present |
+| The cold-start sweep ran before Magisk was awake, so it looked with no privilege and reported "all clear" over live chains | Privileges are requested before the sweep |
+| **The cold-start sweep deleted the chains of a firewall that was starting up.** One widget or tile tap both cold-starts the process and starts the firewall. Measured window: 5.9 s | The sweep re-reads the gate and the active backend immediately before tearing down, and skips if either says the firewall is up |
+| The stop-failed notification auto-cancelled on tap, destroying the only record that survives process death | `setAutoCancel(false)` |
+| The cold-start sweep only logged its result — the one retry after a failed stop said nothing | It raises the warning through `reportStopFailedFromSweep` |
+| A failed backend switch in Settings started the new backend anyway: two backends enforcing, one visible | The switch aborts and leaves the banner up |
+| `VpnPermissionActivity` re-read the mode and discarded the AUTO fallback the toggle receiver had just computed | The resolved mode is handed over in `EXTRA_RESOLVED_MODE` |
+| One enumeration failure wiped the package baseline, making every installed app look new | `null` means "could not look"; a `hasBaseline` flag covers the same bug at startup |
+| The "notifications are off" warning never appeared for STUCK, the one state whose notification is the durable record | `FirewallHealthPresenter.reliesOnNotification` |
+| The chains-installed record survived a reboot that wipes kernel state | `BootReceiver` clears it. Boot protection uses `de1984_boot`, never `de1984_output` |
+| `DE_DATA_DIR_RELEASE` / `DE_DATA_DIR_DEBUG` orphaned by the boot script's per-user glob | Removed |
+
+## Open — decided, with reasons
+
+| Item | Decision |
+| --- | --- |
+| **The same chain-deletion race through the service.** `startFirewall` and `stopFirewall` are independent `serviceScope` coroutines using different backend instances, so their per-instance mutexes do not serialise them. An off-then-on can let the old teardown delete the new chains. Nothing detects it: health checks only run `iptables --version` and read a preference | **Open.** The cold-start half is closed; this half needs ordering, not just mutual exclusion — a companion mutex alone does not fix it |
+| Chains-installed flag write ordering between instances | **Leave.** Audited at 20 agents and confirmed low: needs a v6-unusable device, an inversion inside one exec, later privilege loss, and a later stop. Worst case is the pre-flag behaviour |
+| ConnectivityManager record keyed by package name across profiles | **Leave.** The command only acts in the current user context, so cross-profile entries are phantoms and unblocking them is a no-op. Changing the on-disk format needs a migration that is riskier than the bug |
+| The stop-failed notification is swipe-dismissible | **Leave.** An undismissable notification is user-hostile, and it errs toward over-warning |
+| Sweep can race an in-flight `applyRules` for iptables and NPM — no `-w` on any command | **Open, pre-existing.** Same root cause as the row above |
+| `FirewallUiState.error` is written but never rendered | **Open, cosmetic.** `SettingsUiState.error` does render |
+| Down vs StopFailed can overwrite each other racily | **Open, pre-existing** |
+| No test files anywhere in the repo | **Open.** Product decision, not yet made |
+
+## Not reproducible here
+
+- `cmd connectivity set-chain3-enabled` is absent on this ROM, so the ConnectivityManager backend cannot be exercised on this device.
+- `PackageAddedReceiver` never receives `PACKAGE_ADDED` on this ROM. Root cause unknown; worked around through `PackageChangedReceiver`.
+
+## Verification
+
+`:app:assembleDebug` clean. `:app:lintDebug` — 7 errors, all pre-existing, none in a touched file.
+Two new warnings, both `ApplySharedPref`, both deliberate `commit()` calls on records that mirror
+live kernel or system state.
