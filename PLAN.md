@@ -3209,7 +3209,7 @@ Proven on a TrebleDroid GSI, Android 14, Magisk root, Shizuku as root, work prof
 
 | Item | Decision |
 | --- | --- |
-| **The same chain-deletion race through the service.** `startFirewall` and `stopFirewall` are independent `serviceScope` coroutines using different backend instances, so their per-instance mutexes do not serialise them. An off-then-on can let the old teardown delete the new chains. Nothing detects it: health checks only run `iptables --version` and read a preference | **Open.** The cold-start half is closed; this half needs ordering, not just mutual exclusion — a companion mutex alone does not fix it |
+| **The same chain-deletion race through the service.** `startFirewall` and `stopFirewall` are independent `serviceScope` coroutines using different backend instances, so their per-instance mutexes do not serialise them. In principle an off-then-on lets the old teardown delete the new chains, and nothing would detect it — health checks only run `iptables --version` and read a preference | **Leave, measured.** See *The warm race and why it does not fire* below |
 | Chains-installed flag write ordering between instances | **Leave.** Audited at 20 agents and confirmed low: needs a v6-unusable device, an inversion inside one exec, later privilege loss, and a later stop. Worst case is the pre-flag behaviour |
 | ConnectivityManager record keyed by package name across profiles | **Leave.** The command only acts in the current user context, so cross-profile entries are phantoms and unblocking them is a no-op. Changing the on-disk format needs a migration that is riskier than the bug |
 | The stop-failed notification is swipe-dismissible | **Leave.** An undismissable notification is user-hostile, and it errs toward over-warning |
@@ -3228,3 +3228,37 @@ Proven on a TrebleDroid GSI, Android 14, Magisk root, Shizuku as root, work prof
 `:app:assembleDebug` clean. `:app:lintDebug` — 7 errors, all pre-existing, none in a touched file.
 Two new warnings, both `ApplySharedPref`, both deliberate `commit()` calls on records that mirror
 live kernel or system state.
+
+## The warm race and why it does not fire
+
+The cold-start half of this race was real and wide open, so it was fixed. The warm half - stop, then
+immediately start - is the same missing lock, but it does not fire, and the reason is worth writing
+down because it is a margin rather than a guarantee.
+
+Measured on device, one ordinary stop on NetworkPolicyManager:
+
+```
+00:24:58.671  FirewallManager   sweep starts
+00:24:58.704  PrivilegedFirewallService  receives ACTION_STOP
+00:24:58.727  service           stopInternal begins
+00:24:58.788  service           teardown COMPLETE
+00:24:59.246  FirewallManager   iptables cleanup done
+00:24:59.283  FirewallManager   NetworkPolicyManager cleanup done
+00:24:59.374  FirewallManager   "Firewall stopped successfully"  <- the UI frees up here
+```
+
+The service finishes its teardown **586 ms before the stop returns to the UI**. The user cannot tap
+start until then, so the window is not merely small - it is negative.
+
+This is structural, not luck. `stopFirewallInternal` does not return until `cleanupAllBackends` has
+covered **all four** backends; the service only tears down **one**. The manager therefore does strictly
+more work than the service, on the same shell, started at the same moment. For comparison the
+cold-start window measured **+5.9 s**, because the privilege warm-up runs before that sweep.
+
+**Tripwire.** This margin is not enforced by any lock. It reopens if `cleanupAllBackends` is made
+faster - fewer backends, parallel branches, an early return - or if `stopInternal` is made slower.
+Anyone changing either should re-measure the two timestamps above before assuming this is still safe.
+
+The correct fix, if it ever becomes necessary, is a generation marker rather than a shared mutex: a
+mutex gives mutual exclusion but not ordering, so it would still allow a teardown to run after the
+start it should have preceded.
