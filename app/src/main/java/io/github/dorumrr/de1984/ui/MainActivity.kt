@@ -702,7 +702,8 @@ class MainActivity : AppCompatActivity() {
         // A firewall usually fails while the app is closed, so the notification is the part that
         // actually reaches the user. If the OS is dropping it, say so here and offer the fix -
         // otherwise the one case the notification exists for is the one case nobody is told about.
-        val alertsBlocked = isCritical && !NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val alertsBlocked = FirewallHealthPresenter.reliesOnNotification(health) &&
+            !NotificationManagerCompat.from(this).areNotificationsEnabled()
 
         banner.healthBannerTitle.text = title
         banner.healthBannerTitle.setTextColor(accent)

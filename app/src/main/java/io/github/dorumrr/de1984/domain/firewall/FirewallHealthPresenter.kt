@@ -118,4 +118,17 @@ object FirewallHealthPresenter {
      * critical: protection is still on, just not on the backend the user had.
      */
     fun isCritical(health: FirewallHealth): Boolean = health is FirewallHealth.Down
+
+    /**
+     * True when this state's warning is carried by a notification as well as by the banner.
+     *
+     * Both of these usually happen while the app is closed, so the notification is the half that
+     * actually reaches the user. If the OS is dropping notifications, the banner has to say so.
+     *
+     * Deliberately not [isCritical]: that means "nothing is being blocked", which is false for
+     * [FirewallHealth.StopFailed] - and gating the warning on it left the one state whose
+     * notification is the durable record as the one state that never mentioned notifications.
+     */
+    fun reliesOnNotification(health: FirewallHealth): Boolean =
+        health is FirewallHealth.Down || health is FirewallHealth.StopFailed
 }

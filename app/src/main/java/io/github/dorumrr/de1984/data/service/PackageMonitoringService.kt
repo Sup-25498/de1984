@@ -26,6 +26,15 @@ class PackageMonitoringService : Service() {
     private var monitoringJob: Job? = null
     // Track packages by (packageName, userId) for multi-user support
     private var lastKnownPackages: Set<Pair<String, Int>> = emptySet()
+
+    /**
+     * False until an enumeration has actually succeeded once.
+     *
+     * Without it, an empty [lastKnownPackages] is ambiguous: it means either "this device has no
+     * user apps" or "we have never managed to look". Treating the second as the first makes every
+     * installed app look newly installed on the first successful pass.
+     */
+    private var hasBaseline = false
     
     companion object {
         private const val TAG = "PackageMonitoringService"
@@ -79,7 +88,10 @@ class PackageMonitoringService : Service() {
             return
         }
         
-        lastKnownPackages = getCurrentInstalledPackages()
+        getCurrentInstalledPackages()?.let {
+            lastKnownPackages = it
+            hasBaseline = true
+        }
         monitoringJob = serviceScope.launch {
             while (isActive) {
                 try {
@@ -102,7 +114,26 @@ class PackageMonitoringService : Service() {
         // installs in other user profiles - a manifest PACKAGE_ADDED receiver in user 0 never does -
         // so with notifications off a work-profile app got no rule at all, and a reinstalled one
         // kept a uid that matches nothing. Only the notification is optional; the rule is not.
+        // null means the enumeration itself failed, which is NOT the same as "no packages". It used
+        // to return an empty set on any exception, and the baseline was then overwritten with it -
+        // so one Shizuku or binder hiccup made every installed app look new on the very next tick,
+        // firing a rule write and a "new app" notification for each of them. Keep the old baseline
+        // and try again in 15 seconds.
         val currentPackages = getCurrentInstalledPackages()
+        if (currentPackages == null) {
+            AppLogger.w(TAG, "Package enumeration failed - keeping the previous baseline")
+            return
+        }
+
+        if (!hasBaseline) {
+            // First enumeration that worked. Everything on the device right now is the starting
+            // point, not a burst of installs - the startup enumeration must have failed.
+            AppLogger.d(TAG, "Baseline established from the first successful enumeration")
+            lastKnownPackages = currentPackages
+            hasBaseline = true
+            return
+        }
+
         val newPackages = currentPackages - lastKnownPackages
 
         if (newPackages.isNotEmpty()) {
@@ -120,9 +151,11 @@ class PackageMonitoringService : Service() {
 
     /**
      * Get all installed packages across all user profiles.
-     * Returns Set of (packageName, userId) pairs.
+     *
+     * @return the (packageName, userId) pairs, or null when the enumeration failed. Null and empty
+     * mean different things to the caller, so they must not be collapsed into one value.
      */
-    private fun getCurrentInstalledPackages(): Set<Pair<String, Int>> {
+    private fun getCurrentInstalledPackages(): Set<Pair<String, Int>>? {
         return try {
             val result = mutableSetOf<Pair<String, Int>>()
             val userProfiles = HiddenApiHelper.getUsers(this)
@@ -148,7 +181,7 @@ class PackageMonitoringService : Service() {
             result
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get installed packages: ${e.message}", e)
-            emptySet()
+            null
         }
     }
 
