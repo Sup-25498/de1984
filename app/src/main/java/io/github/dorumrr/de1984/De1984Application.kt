@@ -112,8 +112,12 @@ class De1984Application : Application() {
                             dependencies.shizukuManager,
                             dependencies.errorHandler
                         )
+                        // stopInternal() can now genuinely fail - it verifies the chains are gone
+                        // instead of assuming it. The old unconditional "Cleaned up" line would
+                        // report success over chains that are still in the kernel.
                         iptablesBackend.stopInternal()
-                        AppLogger.d(TAG, "Cleaned up orphaned iptables rules")
+                            .onSuccess { AppLogger.d(TAG, "Cleaned up orphaned iptables rules") }
+                            .onFailure { AppLogger.w(TAG, "Orphaned iptables cleanup incomplete: ${it.message}") }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Failed to clean up orphaned iptables rules: ${e.message}")
                     }

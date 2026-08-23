@@ -24,6 +24,15 @@ class VpnPermissionActivity : Activity() {
     companion object {
         private const val TAG = "VpnPermissionActivity"
         private const val REQUEST_VPN_PERMISSION = 100
+
+        /**
+         * The mode the caller already resolved, as a FirewallMode name.
+         *
+         * FirewallToggleReceiver falls back to AUTO when the persisted mode names a backend the
+         * device can no longer run. Re-reading the preference here threw that away and started the
+         * unavailable mode again - failing for exactly the case the fallback exists for.
+         */
+        const val EXTRA_RESOLVED_MODE = "io.github.dorumrr.de1984.extra.RESOLVED_MODE"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -75,8 +84,10 @@ class VpnPermissionActivity : Activity() {
             // Every widget and tile start on a device without root lands here, so this is the path
             // that matters most. It used to hard-code AUTO, throwing away the mode the user picked,
             // and to record "firewall enabled" whether or not the start worked.
-            val mode = firewallManager.getCurrentMode()
-            AppLogger.d(TAG, "Starting firewall in persisted mode: $mode")
+            val resolved = intent?.getStringExtra(EXTRA_RESOLVED_MODE)
+                ?.let { name -> FirewallMode.entries.firstOrNull { it.name == name } }
+            val mode = resolved ?: firewallManager.getCurrentMode()
+            AppLogger.d(TAG, "Starting firewall in mode: $mode (from caller: ${resolved != null})")
             val result = firewallManager.startFirewall(mode)
             AppLogger.d(TAG, "startFirewall result: $result")
 

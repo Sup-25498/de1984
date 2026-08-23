@@ -100,6 +100,13 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                         // Using NEW_TASK + MULTIPLE_TASK + NO_ANIMATION to avoid bringing main app to focus
                         val activityIntent = Intent(context, io.github.dorumrr.de1984.ui.VpnPermissionActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+                            // Hand over the mode already resolved above. Without this the activity
+                            // re-read the preference and started the unavailable backend again,
+                            // undoing the AUTO fallback for the case it was written for.
+                            putExtra(
+                                io.github.dorumrr.de1984.ui.VpnPermissionActivity.EXTRA_RESOLVED_MODE,
+                                mode.name
+                            )
                         }
                         context.startActivity(activityIntent)
                         AppLogger.d(TAG, "VpnPermissionActivity launched")

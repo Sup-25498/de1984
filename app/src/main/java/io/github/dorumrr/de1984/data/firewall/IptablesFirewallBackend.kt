@@ -50,6 +50,11 @@ class IptablesFirewallBackend(
         // Commands
         private const val IPTABLES = "iptables"
         private const val IP6TABLES = "ip6tables"
+
+        // Tokens the teardown probe echoes. See probeChain for why the probe reports this way.
+        private const val PROBE_PRESENT = "DE1984_CHAIN_PRESENT"
+        private const val PROBE_ABSENT = "DE1984_CHAIN_ABSENT"
+        private const val PROBE_NOPRIV = "DE1984_CHAIN_NOPRIV"
     }
     
     private val mutex = Mutex()
@@ -102,6 +107,13 @@ class IptablesFirewallBackend(
                 return Result.failure(error)
             }
 
+            // iptables rules live in the kernel, not in this process, so they outlive a crash, a
+            // force-stop and the app itself. This flag is the only thing that tells a later, fresh
+            // instance that there is something out there to undo - and therefore whether an
+            // unverifiable teardown is "nothing to do" or "we just failed to remove live rules".
+            // commit(), not apply(): the chains exist now, so the record must exist now too.
+            setChainsInstalled(true)
+
             AppLogger.d(TAG, "✅ iptables chains created")
             Result.success(Unit)
         } catch (e: Exception) {
@@ -142,6 +154,8 @@ class IptablesFirewallBackend(
         return try {
             AppLogger.d(TAG, "stopInternal: Deleting iptables chains")
 
+            val chainsWereInstalled = wereChainsInstalled()
+
             // Remove all rules
             clearAllRules().getOrElse { error ->
                 AppLogger.w(TAG, "Failed to clear rules during stop: ${error.message}")
@@ -154,13 +168,129 @@ class IptablesFirewallBackend(
 
             blockedUids.clear()
             blockedLanUids.clear()
-            AppLogger.d(TAG, "iptables chains deleted")
-            Result.success(Unit)
+
+            // Ask the kernel instead of trusting the commands we just ran. Every teardown command
+            // ends in "|| true" and none of them has its exit code inspected, which is deliberate -
+            // deleting a chain that is already gone is not an error. The cost of that is that the
+            // commands can ALL fail (revoked root, xtables lock, permission denied) and still look
+            // fine, so this method used to return success over chains that were still dropping
+            // traffic. FirewallManager turns that success into "firewall stopped", clears the
+            // warning banner and shows OFF. The only honest way to end a teardown is to look.
+            when (probeChains()) {
+                TeardownProof.CLEAN -> {
+                    setChainsInstalled(false)
+                    AppLogger.d(TAG, "iptables chains deleted and verified gone")
+                    Result.success(Unit)
+                }
+                TeardownProof.RESIDUE -> {
+                    AppLogger.e(TAG, "iptables teardown FAILED - chain $CHAIN_OUTPUT is still installed")
+                    Result.failure(
+                        errorHandler.handleError(
+                            IllegalStateException("iptables chain $CHAIN_OUTPUT is still installed"),
+                            "delete iptables chains"
+                        )
+                    )
+                }
+                TeardownProof.UNVERIFIABLE -> {
+                    // We could not run the probe at all - no root, no Shizuku. That is only a
+                    // failure if there was something to remove. A device that never created the
+                    // chains has nothing to lose, and reporting a failed stop there would fire the
+                    // warning on every stop of every other backend, because the sweep runs this
+                    // cleanup unconditionally.
+                    if (chainsWereInstalled) {
+                        AppLogger.e(TAG, "iptables teardown UNVERIFIED and chains were installed - assuming rules are still live")
+                        Result.failure(
+                            errorHandler.handleError(
+                                IllegalStateException("cannot verify iptables teardown - no root or Shizuku access"),
+                                "delete iptables chains"
+                            )
+                        )
+                    } else {
+                        AppLogger.d(TAG, "iptables teardown unverified, but no chains were ever installed - nothing to undo")
+                        Result.success(Unit)
+                    }
+                }
+            }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to delete iptables chains", e)
             val error = errorHandler.handleError(e, "delete iptables chains")
             Result.failure(error)
         }
+    }
+
+    /** What we can actually prove about the de1984 chains after a teardown. */
+    private enum class TeardownProof {
+        /** Both probes ran and neither chain exists. */
+        CLEAN,
+
+        /** A probe ran and found a chain still installed. Rules may still be dropping traffic. */
+        RESIDUE,
+
+        /** The probe itself could not run, so nothing is proven either way. */
+        UNVERIFIABLE
+    }
+
+    /**
+     * Ask iptables and ip6tables whether the de1984 chain still exists.
+     *
+     * RESIDUE beats UNVERIFIABLE: one confirmed live chain is a failed teardown regardless of what
+     * the other family reports.
+     */
+    private suspend fun probeChains(): TeardownProof {
+        val v4 = probeChain(IPTABLES)
+        val v6 = probeChain(IP6TABLES)
+        return when {
+            v4 == TeardownProof.RESIDUE || v6 == TeardownProof.RESIDUE -> TeardownProof.RESIDUE
+            v4 == TeardownProof.UNVERIFIABLE || v6 == TeardownProof.UNVERIFIABLE -> TeardownProof.UNVERIFIABLE
+            else -> TeardownProof.CLEAN
+        }
+    }
+
+    /**
+     * Probe one address family.
+     *
+     * The probe echoes its own token rather than letting the caller read an exit code or an error
+     * message, because neither survives the trip reliably. RootManager returns libsu's result.out,
+     * which is stdout only - the shell is built without FLAG_REDIRECT_STDERR - so iptables' "No
+     * chain/target/match by that name" never arrives on the root path, while ShizukuManager does
+     * return stderr. Matching on that text would have read every clean teardown on a rooted device
+     * as unverifiable, and with chains installed that is a "firewall would not stop" warning on
+     * every single successful stop. Tokens are the same on both paths and in every locale.
+     *
+     * The outer "-S" with no chain name is the privilege test: listing the whole filter table needs
+     * exactly the access that listing one chain needs, so a failure there means we could not look,
+     * not that the chain is gone. Without it, a permission-denied probe is indistinguishable from a
+     * clean one - which is the false "all clear" this whole method exists to prevent.
+     */
+    private suspend fun probeChain(binary: String): TeardownProof {
+        val probe = "if $binary -S >/dev/null 2>&1; then " +
+            "if $binary -S $CHAIN_OUTPUT >/dev/null 2>&1; then echo $PROBE_PRESENT; else echo $PROBE_ABSENT; fi; " +
+            "else echo $PROBE_NOPRIV; fi"
+
+        val (exitCode, output) = executeCommand(probe)
+        return when {
+            output.contains(PROBE_PRESENT) -> TeardownProof.RESIDUE
+            output.contains(PROBE_ABSENT) -> TeardownProof.CLEAN
+            else -> {
+                // PROBE_NOPRIV, or no token at all: no root and no Shizuku, so executeCommand
+                // returned Pair(-1, ...) without running anything.
+                AppLogger.w(TAG, "Chain probe could not answer for $binary (exit=$exitCode): $output")
+                TeardownProof.UNVERIFIABLE
+            }
+        }
+    }
+
+    /** Reads the "there are chains in the kernel" record. See KEY_IPTABLES_CHAINS_INSTALLED. */
+    private fun wereChainsInstalled(): Boolean =
+        context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(Constants.Settings.KEY_IPTABLES_CHAINS_INSTALLED, false)
+
+    /** Writes the record synchronously - the kernel state it mirrors is already live. */
+    private fun setChainsInstalled(installed: Boolean) {
+        context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(Constants.Settings.KEY_IPTABLES_CHAINS_INSTALLED, installed)
+            .commit()
     }
     
     override suspend fun applyRules(

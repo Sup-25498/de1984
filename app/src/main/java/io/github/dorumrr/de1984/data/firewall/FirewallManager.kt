@@ -671,6 +671,20 @@ class FirewallManager(
             // Per user request: when firewall is OFF, there should be NO rules from ANY backend
             val sweepFailure = cleanupAllBackends(reportFailureFor = stoppedBackendType)
 
+            // For VPN only, the sweep's verdict replaces stop()'s. Both do the same teardown, but
+            // the sweep runs later and is better evidenced: stop() gives up after a 2s timeout,
+            // while the sweep then re-checks isActive() and tries again if the tunnel is still up.
+            // A tunnel that simply needed longer than 2s would otherwise leave a STUCK badge on a
+            // firewall that is genuinely off - a false alarm is still the app lying to the user.
+            // The privileged backends do NOT get this: they tear down inside PrivilegedFirewallService
+            // and report asynchronously via stopTeardownFailed, which the sweep cannot re-prove.
+            if (stoppedBackendType == FirewallBackendType.VPN && sweepFailure == null) {
+                if (stopFailure != null) {
+                    AppLogger.d(TAG, "VPN stop() timed out but the sweep found the tunnel down - treating the stop as successful")
+                }
+                stopFailure = null
+            }
+
             val teardownError = stopFailure
                 ?: sweepFailure
                 ?: if (stopTeardownFailed) Exception("Backend teardown reported a failure") else null
@@ -742,7 +756,13 @@ class FirewallManager(
                 shizukuManager,
                 errorHandler
             )
-            iptablesBackend.stop()
+            // stopInternal(), NOT stop(). stop() only fires ACTION_STOP at PrivilegedFirewallService
+            // and returns success immediately - and on a retry that service has already stopped
+            // itself, so the intent goes nowhere. The sweep would then "succeed" without touching a
+            // single chain, and its success cleared the "firewall did not stop" warning over rules
+            // that were still live. stopInternal() is what actually tears the chains down, and it is
+            // what De1984Application's cold-start sweep already calls.
+            iptablesBackend.stopInternal()
                 .onSuccess { AppLogger.d(TAG, "Iptables cleanup completed") }
                 .onFailure {
                     AppLogger.w(TAG, "Iptables cleanup incomplete: ${it.message}")
@@ -807,8 +827,35 @@ class FirewallManager(
             // User may not have Shizuku, which is fine
         }
 
-        // VPN leaves no orphaned state: the service stops cleanly and Android removes the
-        // VPN interface automatically.
+        // Clean up the VPN tunnel (if it is still up).
+        //
+        // The comment that used to sit here said VPN leaves no orphaned state because the service
+        // stops cleanly and Android removes the interface. That is only true when the service
+        // actually stops. VpnFirewallBackend.stop() waits 2 seconds and then gives up, so a wedged
+        // service or a ParcelFileDescriptor that will not close leaves the tunnel up - and with no
+        // branch here, nothing looked. The user was told the firewall stopped while it was still
+        // dropping traffic, which is the same lie the privileged backends used to tell.
+        //
+        // Guarded by isActive() so the normal case costs one check and starts nothing. isActive()
+        // reads our own service flags and looks for our own service class, and the stop intent is
+        // explicit to FirewallVpnService, so this can never touch another app's VPN.
+        try {
+            val vpnBackend = VpnFirewallBackend(context)
+            if (vpnBackend.isActive()) {
+                AppLogger.w(TAG, "VPN tunnel still up during cleanup - stopping it")
+                vpnBackend.stop()
+                    .onSuccess { AppLogger.d(TAG, "VPN cleanup completed") }
+                    .onFailure {
+                        AppLogger.w(TAG, "VPN cleanup incomplete: ${it.message}")
+                        if (reportFailureFor == FirewallBackendType.VPN) reportable = it
+                    }
+            } else {
+                AppLogger.d(TAG, "VPN cleanup: no tunnel up")
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to clean up VPN: ${e.message}")
+            if (reportFailureFor == FirewallBackendType.VPN) reportable = e
+        }
 
         return reportable
     }
@@ -1353,7 +1400,14 @@ class FirewallManager(
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOnlyAlertOnce(true)
-            .setAutoCancel(true)
+            // NOT autoCancel. FirewallHealth.StopFailed lives only in memory and resets to Healthy on
+            // process death, so this notification is the only record that survives - which is the
+            // whole reason it is posted. With autoCancel, the ordinary "tap to open the app" gesture
+            // destroyed it, and if the process had already died the app would open showing Healthy
+            // with the rules still enforced. It is dismissed deliberately instead, by
+            // dismissStopFailedNotification, once a stop or a start has genuinely succeeded.
+            .setAutoCancel(false)
+            .setOngoing(false)
             .setContentIntent(pendingIntent)
             .build()
 

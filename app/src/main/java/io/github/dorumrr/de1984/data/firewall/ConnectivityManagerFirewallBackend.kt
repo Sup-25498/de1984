@@ -560,6 +560,14 @@ class ConnectivityManagerFirewallBackend(
                     restored.add(packageName)
                     appliedPolicies.remove(packageName)
                     AppLogger.d(TAG, "Restored networking for $packageName")
+                } else if (!isInstalled(packageName)) {
+                    // Proof that there is nothing left to undo: the package is gone, so the system
+                    // has no denial to hold against it. Without this a package uninstalled while
+                    // denied stayed in the record forever, and every stop from then on reported a
+                    // teardown failure that could never be cleared.
+                    restored.add(packageName)
+                    appliedPolicies.remove(packageName)
+                    AppLogger.w(TAG, "$packageName is no longer installed - dropping it from the record")
                 } else {
                     failed.add(packageName)
                     AppLogger.e(TAG, "Failed to restore networking for $packageName: $output")
@@ -576,6 +584,23 @@ class ConnectivityManagerFirewallBackend(
         // snapshot would erase whatever it recorded in the meantime.
         saveBlockedPackages(loadBlockedPackages() - restored, durable = true)
         return failed
+    }
+
+    /**
+     * Is this package still installed for any user?
+     *
+     * Deliberately conservative: any failure to answer returns true, so an unreadable package is
+     * kept in the record rather than dropped. Dropping is only ever allowed on a definite "gone".
+     */
+    private fun isInstalled(packageName: String): Boolean {
+        return try {
+            context.packageManager.getApplicationInfo(packageName, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        } catch (e: Exception) {
+            true
+        }
     }
 
     /** Packages this backend has denied networking, as last written to disk. */

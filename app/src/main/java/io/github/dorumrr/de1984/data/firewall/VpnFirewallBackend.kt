@@ -92,11 +92,13 @@ class VpnFirewallBackend(
             val startTime = System.currentTimeMillis()
             val timeout = 2000L
             var attempts = 0
+            var timedOut = false
 
             while (isActive()) {
                 val elapsed = System.currentTimeMillis() - startTime
                 if (elapsed >= timeout) {
-                    AppLogger.w(TAG, "VPN service still active after ${elapsed}ms (timeout). Continuing anyway.")
+                    AppLogger.w(TAG, "VPN service still active after ${elapsed}ms (timeout)")
+                    timedOut = true
                     break
                 }
                 attempts++
@@ -113,6 +115,18 @@ class VpnFirewallBackend(
             // Additional small delay to ensure VPN interface is fully closed
             // ParcelFileDescriptor.close() might take 100-500ms even after service stops
             kotlinx.coroutines.delay(200)
+
+            // The old code logged "Continuing anyway" here and returned success. It should not: the
+            // tunnel is what blocks traffic, so a tunnel that refused to close means apps are still
+            // being blocked while every control in the app reads OFF. isActive() is not a guess - it
+            // reads the service flags AND checks our own service in the running list - so a true
+            // after the settle delay is real. Report it, and let FirewallManager raise StopFailed.
+            if (timedOut && isActive()) {
+                AppLogger.e(TAG, "❌ VPN firewall did not stop - the tunnel is still up")
+                return Result.failure(
+                    IllegalStateException("VPN service did not stop after ${timeout}ms - traffic may still be blocked")
+                )
+            }
 
             AppLogger.i(TAG, "✅ VPN firewall stopped")
             Result.success(Unit)

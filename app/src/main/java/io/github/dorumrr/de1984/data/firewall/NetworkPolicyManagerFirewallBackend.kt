@@ -263,17 +263,33 @@ class NetworkPolicyManagerFirewallBackend(
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "Failed to restore policy for UID $uid", e)
 
-                    // A recorded original of POLICY_NONE means there was nothing there to put back,
-                    // so this write was only ever a no-op. Android rejects setUidPolicy outright for
-                    // some UIDs - system ones, and the system UIDs inside a work profile - and
-                    // keeping those in the record made it permanently un-clearable: every stop from
-                    // then on reported a teardown failure over a device with no policies set at all.
-                    // Measured on hardware 2026-08-23: 1001, 2000, 1001001, 1001002, 1001027,
-                    // 1002000 stuck this way while /data/system/netpolicy.xml held no uid policies.
-                    if (original == POLICY_NONE) {
-                        AppLogger.w(TAG, "UID $uid had no policy to restore and rejects writes - dropping it from the record")
+                    // Drop this UID from the record ONLY when we can PROVE there is nothing left to
+                    // undo - it currently holds no policy at all.
+                    //
+                    // An earlier version dropped on `original == POLICY_NONE` alone. That was wrong
+                    // and could lose data: originals are recorded BEFORE the blocking write (see the
+                    // durable saveOriginalPolicies above), so POLICY_NONE is the normal recorded
+                    // original for every ordinary app we then successfully block. A transient
+                    // failure - Shizuku's binder dying mid-loop, permission revoked - would have
+                    // erased the record for apps that were still blocked, stranding them offline
+                    // with nothing left that knew about it.
+                    //
+                    // Reading it back settles both cases without guessing at exception types. If the
+                    // read fails, readUidPolicy returns null and we keep the record, which is also
+                    // what a dead binder produces. Only a clean "no policy here" lets it go.
+                    //
+                    // What this still fixes: UIDs Android refuses to write - system ones, and the
+                    // system UIDs inside a work profile - which have no policy to begin with, so
+                    // they read back POLICY_NONE and drain. Measured on hardware 2026-08-23:
+                    // 1001, 2000, 1001001, 1001002, 1001027, 1002000 stuck this way while
+                    // /data/system/netpolicy.xml held no uid policies at all.
+                    val stillSet = readUidPolicy(networkPolicyManager, uid)
+                    if (original == POLICY_NONE && stillSet == POLICY_NONE) {
+                        AppLogger.w(TAG, "UID $uid rejects writes and holds no policy - dropping it from the record")
                         remaining.remove(uid)
                         appliedPolicies.remove(uid)
+                    } else {
+                        AppLogger.w(TAG, "UID $uid kept in the record (original=$original, current=$stillSet)")
                     }
                 }
             }
