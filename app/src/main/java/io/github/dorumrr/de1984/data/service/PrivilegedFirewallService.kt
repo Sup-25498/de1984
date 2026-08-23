@@ -204,12 +204,10 @@ class PrivilegedFirewallService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
-        val backendName = when (currentBackendType) {
-            FirewallBackendType.IPTABLES -> "iptables"
-            FirewallBackendType.CONNECTIVITY_MANAGER -> "ConnectivityManager"
-            FirewallBackendType.NETWORK_POLICY_MANAGER -> "NetworkPolicyManager"
-            else -> "Unknown"
-        }
+        // The old hand-written map had no VPN branch, so a VPN backend fell into else and this
+        // notification said "Unknown".
+        val backendName = currentBackendType?.displayName(this)
+            ?: getString(R.string.backend_unknown_name)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.privileged_firewall_notification_title))

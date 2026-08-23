@@ -341,14 +341,19 @@
     <string name="backend_notification_text_shizuku_not_running">Ожидание запуска Shizuku. Нажмите для повтора.</string>
     <string name="backend_notification_text_shizuku_no_permission">Ожидание разрешения Shizuku. Нажмите для повтора.</string>
     <string name="backend_notification_text_switching">Shizuku теперь доступен. Переключение на предпочтительный бэкенд…</string>
-    <string name="backend_notification_text_success_connectivity_manager">Файрволл De1984 теперь использует бэкенд ConnectivityManager</string>
-    <string name="backend_notification_text_success_iptables">Файрволл De1984 теперь использует бэкенд iptables</string>
     <string name="backend_notification_text_failed">Не удалось переключить бэкенд файрволла De1984. Используется VPN.</string>
 
     <string name="backend_action_button_retry">Повторить</string>
 
-    <string name="backend_toast_success_connectivity_manager">Файрволл De1984 переключён на ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">Файрволл De1984 переключён на iptables</string>
+    <string name="backend_switched_notification_title">Бэкенд брандмауэра изменён</string>
+    <string name="backend_switched_notification_text">Переключено на %1$s — активен другой VPN</string>
+    <string name="backend_switched_notification_big">Подключилось другое VPN-приложение. De1984 автоматически переключился на %1$s, чтобы продолжать вас защищать. Нажмите, чтобы открыть настройки.</string>
+    <string name="backend_upgraded_notification_title">Брандмауэр улучшен</string>
+    <string name="backend_upgraded_notification_text">Переключено с VPN на %1$s</string>
+    <string name="backend_upgraded_notification_big">Обнаружен root-доступ. De1984 автоматически переключился с VPN на %1$s для лучшей защиты. Режим установлен на AUTO.</string>
+    <string name="backend_toast_success">De1984 переключился на %1$s</string>
+    <string name="backend_notification_text_success">De1984 теперь использует бэкенд %1$s</string>
+    <string name="backend_unknown_name">Неизвестно</string>
     <string name="backend_toast_failed">Не удалось переключить бэкенд файрволла De1984</string>
 
     <!-- VPN Fallback -->

@@ -1451,6 +1451,10 @@ class FirewallManager(
             .setContentText(notificationText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // Three detectors find the same failure within seconds - FirewallManager's health check,
+            // PrivilegedFirewallService's, then the next pass. Measured on device: 3 heads-up alerts
+            // in 17s for one event. Re-posting now updates the notification silently instead.
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(
@@ -1529,6 +1533,10 @@ class FirewallManager(
             .setContentText(notificationText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // Three detectors find the same failure within seconds - FirewallManager's health check,
+            // PrivilegedFirewallService's, then the next pass. Measured on device: 3 heads-up alerts
+            // in 17s for one event. Re-posting now updates the notification silently instead.
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(
@@ -1599,6 +1607,10 @@ class FirewallManager(
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // Three detectors find the same failure within seconds - FirewallManager's health check,
+            // PrivilegedFirewallService's, then the next pass. Measured on device: 3 heads-up alerts
+            // in 17s for one event. Re-posting now updates the notification silently instead.
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -2114,19 +2126,16 @@ class FirewallManager(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             
-            val backendName = when (newBackend) {
-                FirewallBackendType.IPTABLES -> "iptables (root)"
-                FirewallBackendType.CONNECTIVITY_MANAGER -> "ConnectivityManager (Shizuku)"
-                FirewallBackendType.NETWORK_POLICY_MANAGER -> "NetworkPolicyManager (Shizuku)"
-                FirewallBackendType.VPN -> "VPN"
-            }
+            // Same name the Settings picker shows. "(root)" / "(Shizuku)" are requirements, not
+            // names, and Settings already states those separately.
+            val backendName = newBackend.displayName(context)
             
             val notification = NotificationCompat.Builder(context, Constants.VpnConflict.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Firewall Backend Switched")
-                .setContentText("Switched to $backendName - another VPN is active")
+                .setContentTitle(context.getString(R.string.backend_switched_notification_title))
+                .setContentText(context.getString(R.string.backend_switched_notification_text, backendName))
                 .setStyle(NotificationCompat.BigTextStyle()
-                    .bigText("Another VPN app connected. Firewall automatically switched to $backendName to maintain protection. Tap to open settings."))
+                    .bigText(context.getString(R.string.backend_switched_notification_big, backendName)))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)  // Persistent notification - user must dismiss
@@ -2181,19 +2190,16 @@ class FirewallManager(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             
-            val backendName = when (newBackend) {
-                FirewallBackendType.IPTABLES -> "iptables (root)"
-                FirewallBackendType.CONNECTIVITY_MANAGER -> "ConnectivityManager (Shizuku)"
-                FirewallBackendType.NETWORK_POLICY_MANAGER -> "NetworkPolicyManager (Shizuku)"
-                FirewallBackendType.VPN -> "VPN"
-            }
+            // Same name the Settings picker shows. "(root)" / "(Shizuku)" are requirements, not
+            // names, and Settings already states those separately.
+            val backendName = newBackend.displayName(context)
             
             val notification = NotificationCompat.Builder(context, Constants.VpnConflict.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Firewall Upgraded")
-                .setContentText("Switched from VPN to $backendName")
+                .setContentTitle(context.getString(R.string.backend_upgraded_notification_title))
+                .setContentText(context.getString(R.string.backend_upgraded_notification_text, backendName))
                 .setStyle(NotificationCompat.BigTextStyle()
-                    .bigText("Root access detected! Firewall automatically upgraded from VPN to $backendName for better protection. Mode set to AUTO."))
+                    .bigText(context.getString(R.string.backend_upgraded_notification_big, backendName)))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)

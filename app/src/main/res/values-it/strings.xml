@@ -338,14 +338,19 @@
     <string name="backend_notification_text_shizuku_not_running">In attesa che Shizuku venga avviato. Tocca per riprovare.</string>
     <string name="backend_notification_text_shizuku_no_permission">In attesa del permesso Shizuku. Tocca per riprovare.</string>
     <string name="backend_notification_text_switching">Shizuku disponibile. Cambio backend…</string>
-    <string name="backend_notification_text_success_connectivity_manager">Ora in uso: backend ConnectivityManager</string>
-    <string name="backend_notification_text_success_iptables">Ora in uso: backend iptables</string>
     <string name="backend_notification_text_failed">Cambio backend fallito. Rimanendo in modalità VPN.</string>
 
     <string name="backend_action_button_retry">Riprova</string>
 
-    <string name="backend_toast_success_connectivity_manager">Firewall passato a ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">Firewall passato a iptables</string>
+    <string name="backend_switched_notification_title">Backend del firewall cambiato</string>
+    <string name="backend_switched_notification_text">Passato a %1$s — un\'altra VPN è attiva</string>
+    <string name="backend_switched_notification_big">Un\'altra app VPN si è connessa. De1984 è passato automaticamente a %1$s per continuare a proteggerti. Tocca per aprire le impostazioni.</string>
+    <string name="backend_upgraded_notification_title">Firewall migliorato</string>
+    <string name="backend_upgraded_notification_text">Passato da VPN a %1$s</string>
+    <string name="backend_upgraded_notification_big">Accesso root rilevato. De1984 è passato automaticamente da VPN a %1$s per una protezione migliore. Modalità impostata su AUTO.</string>
+    <string name="backend_toast_success">De1984 è passato a %1$s</string>
+    <string name="backend_notification_text_success">De1984 ora usa il backend %1$s</string>
+    <string name="backend_unknown_name">Sconosciuto</string>
     <string name="backend_toast_failed">Cambio backend fallito</string>
 
     <!-- VPN Fallback -->

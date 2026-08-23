@@ -245,21 +245,11 @@ class BackendMonitoringService : Service() {
     }
 
     private suspend fun handleSwitchSuccess(backendType: FirewallBackendType) {
-        val toastMessage = when (backendType) {
-            FirewallBackendType.CONNECTIVITY_MANAGER ->
-                getString(R.string.backend_toast_success_connectivity_manager)
-            FirewallBackendType.IPTABLES ->
-                getString(R.string.backend_toast_success_iptables)
-            else -> "Firewall switched to $backendType"
-        }
-
-        val notificationText = when (backendType) {
-            FirewallBackendType.CONNECTIVITY_MANAGER ->
-                getString(R.string.backend_notification_text_success_connectivity_manager)
-            FirewallBackendType.IPTABLES ->
-                getString(R.string.backend_notification_text_success_iptables)
-            else -> "Now using $backendType backend"
-        }
+        // One string per message instead of one per backend. The old else branches printed the raw
+        // enum name (NETWORK_POLICY_MANAGER) and were never translated.
+        val backendName = backendType.displayName(this)
+        val toastMessage = getString(R.string.backend_toast_success, backendName)
+        val notificationText = getString(R.string.backend_notification_text_success, backendName)
 
         AppLogger.d(TAG, "Backend switch successful: $backendType")
 

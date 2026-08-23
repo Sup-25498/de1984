@@ -340,14 +340,19 @@
     <string name="backend_notification_text_shizuku_not_running">Se așteaptă pornirea Shizuku. Apasă pentru a reîncerca.</string>
     <string name="backend_notification_text_shizuku_no_permission">Se așteaptă permisiunea Shizuku. Apasă pentru a reîncerca.</string>
     <string name="backend_notification_text_switching">Shizuku este acum disponibil. Se schimbă la backend-ul preferat...</string>
-    <string name="backend_notification_text_success_connectivity_manager">De1984 Firewall folosește acum backend-ul ConnectivityManager</string>
-    <string name="backend_notification_text_success_iptables">De1984 Firewall folosește acum backend-ul iptables</string>
     <string name="backend_notification_text_failed">De1984 Firewall nu a reușit să schimbe backend-ul. Încă folosește VPN.</string>
 
     <string name="backend_action_button_retry">Reîncearcă</string>
 
-    <string name="backend_toast_success_connectivity_manager">De1984 Firewall a trecut la ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">De1984 Firewall a trecut la iptables</string>
+    <string name="backend_switched_notification_title">Backend de firewall schimbat</string>
+    <string name="backend_switched_notification_text">S-a trecut la %1$s — alt VPN este activ</string>
+    <string name="backend_switched_notification_big">O altă aplicație VPN s-a conectat. De1984 a trecut automat la %1$s ca să te protejeze în continuare. Atinge pentru a deschide setările.</string>
+    <string name="backend_upgraded_notification_title">Firewall îmbunătățit</string>
+    <string name="backend_upgraded_notification_text">S-a trecut de la VPN la %1$s</string>
+    <string name="backend_upgraded_notification_big">Acces root detectat. De1984 a trecut automat de la VPN la %1$s pentru protecție mai bună. Modul a fost setat pe AUTO.</string>
+    <string name="backend_toast_success">De1984 a trecut la %1$s</string>
+    <string name="backend_notification_text_success">De1984 folosește acum backendul %1$s</string>
+    <string name="backend_unknown_name">Necunoscut</string>
     <string name="backend_toast_failed">De1984 Firewall nu a reușit să schimbe backend-ul</string>
 
     <!-- VPN Fallback -->

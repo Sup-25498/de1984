@@ -338,14 +338,19 @@
     <string name="backend_notification_text_shizuku_not_running">En attente du démarrage de Shizuku. Appuyez pour réessayer.</string>
     <string name="backend_notification_text_shizuku_no_permission">En attente de la permission Shizuku. Appuyez pour réessayer.</string>
     <string name="backend_notification_text_switching">Shizuku est maintenant disponible. Passage au backend préféré…</string>
-    <string name="backend_notification_text_success_connectivity_manager">Le pare-feu De1984 utilise maintenant le backend ConnectivityManager</string>
-    <string name="backend_notification_text_success_iptables">Le pare-feu De1984 utilise maintenant le backend iptables</string>
     <string name="backend_notification_text_failed">Le pare-feu De1984 n\'a pas pu changer de backend. Utilisation du VPN en cours.</string>
 
     <string name="backend_action_button_retry">Réessayer</string>
 
-    <string name="backend_toast_success_connectivity_manager">Le pare-feu De1984 est passé à ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">Le pare-feu De1984 est passé à iptables</string>
+    <string name="backend_switched_notification_title">Moteur de pare-feu changé</string>
+    <string name="backend_switched_notification_text">Passé à %1$s — un autre VPN est actif</string>
+    <string name="backend_switched_notification_big">Une autre application VPN s\'est connectée. De1984 est passé automatiquement à %1$s pour continuer à vous protéger. Touchez pour ouvrir les réglages.</string>
+    <string name="backend_upgraded_notification_title">Pare-feu amélioré</string>
+    <string name="backend_upgraded_notification_text">Passé du VPN à %1$s</string>
+    <string name="backend_upgraded_notification_big">Accès root détecté. De1984 est passé automatiquement du VPN à %1$s pour une meilleure protection. Mode réglé sur AUTO.</string>
+    <string name="backend_toast_success">De1984 est passé à %1$s</string>
+    <string name="backend_notification_text_success">De1984 utilise maintenant le moteur %1$s</string>
+    <string name="backend_unknown_name">Inconnu</string>
     <string name="backend_toast_failed">Le pare-feu De1984 n\'a pas pu changer de backend</string>
 
     <!-- VPN Fallback -->

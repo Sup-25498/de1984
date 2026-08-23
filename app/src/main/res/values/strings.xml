@@ -339,14 +339,19 @@
     <string name="backend_notification_text_shizuku_not_running">Waiting for Shizuku to start. Tap to retry.</string>
     <string name="backend_notification_text_shizuku_no_permission">Waiting for Shizuku permission. Tap to retry.</string>
     <string name="backend_notification_text_switching">Shizuku is now available. Switching to preferred backend…</string>
-    <string name="backend_notification_text_success_connectivity_manager">De1984 Firewall is now using ConnectivityManager backend</string>
-    <string name="backend_notification_text_success_iptables">De1984 Firewall is now using iptables backend</string>
     <string name="backend_notification_text_failed">De1984 Firewall failed to switch backend. Still using VPN.</string>
 
     <string name="backend_action_button_retry">Retry</string>
 
-    <string name="backend_toast_success_connectivity_manager">De1984 Firewall switched to ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">De1984 Firewall switched to iptables</string>
+    <string name="backend_switched_notification_title">Firewall Backend Switched</string>
+    <string name="backend_switched_notification_text">Switched to %1$s — another VPN is active</string>
+    <string name="backend_switched_notification_big">Another VPN app connected. De1984 switched to %1$s automatically to keep protecting you. Tap to open settings.</string>
+    <string name="backend_upgraded_notification_title">Firewall Upgraded</string>
+    <string name="backend_upgraded_notification_text">Switched from VPN to %1$s</string>
+    <string name="backend_upgraded_notification_big">Root access detected. De1984 upgraded from VPN to %1$s automatically for better protection. Mode set to AUTO.</string>
+    <string name="backend_toast_success">De1984 Firewall switched to %1$s</string>
+    <string name="backend_notification_text_success">De1984 Firewall is now using the %1$s backend</string>
+    <string name="backend_unknown_name">Unknown</string>
     <string name="backend_toast_failed">De1984 Firewall failed to switch backend</string>
 
     <!-- VPN Fallback -->

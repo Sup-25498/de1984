@@ -348,14 +348,19 @@
     <string name="backend_notification_text_shizuku_not_running">等待 Shizuku 启动。点击重试。</string>
     <string name="backend_notification_text_shizuku_no_permission">等待 Shizuku 权限。点击重试。</string>
     <string name="backend_notification_text_switching">Shizuku 现已可用。正在切换到首选后端…</string>
-    <string name="backend_notification_text_success_connectivity_manager">De1984 防火墙现在使用 ConnectivityManager 后端</string>
-    <string name="backend_notification_text_success_iptables">De1984 防火墙现在使用 iptables 后端</string>
     <string name="backend_notification_text_failed">De1984 防火墙切换后端失败。仍在使用 VPN。</string>
 
     <string name="backend_action_button_retry">重试</string>
 
-    <string name="backend_toast_success_connectivity_manager">De1984 防火墙已切换到 ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">De1984 防火墙已切换到 iptables</string>
+    <string name="backend_switched_notification_title">防火墙后端已切换</string>
+    <string name="backend_switched_notification_text">已切换到 %1$s — 另一个 VPN 正在使用</string>
+    <string name="backend_switched_notification_big">另一个 VPN 应用已连接。De1984 已自动切换到 %1$s 以继续保护你。点按可打开设置。</string>
+    <string name="backend_upgraded_notification_title">防火墙已升级</string>
+    <string name="backend_upgraded_notification_text">已从 VPN 切换到 %1$s</string>
+    <string name="backend_upgraded_notification_big">检测到 root 权限。De1984 已自动从 VPN 切换到 %1$s 以获得更好的保护。模式已设为 AUTO。</string>
+    <string name="backend_toast_success">De1984 已切换到 %1$s</string>
+    <string name="backend_notification_text_success">De1984 现在使用 %1$s 后端</string>
+    <string name="backend_unknown_name">未知</string>
     <string name="backend_toast_failed">De1984 防火墙切换后端失败</string>
 
     <!-- VPN Fallback -->

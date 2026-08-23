@@ -2144,22 +2144,90 @@ finding below was re-verified by hand before acting on it.
   Note: `NewAppNotificationManager.areNotificationsEnabled()` is **not** an OS check - it reads the
   `KEY_NEW_APP_NOTIFICATIONS` user preference. There was no existing OS-level gate to reuse.
 
+### HARDWARE TEST PASSED — 2026-08-23, 01:12-01:15, LineageOS 21 / Android 14
+
+The gap is closed. Device was already in the exact state needed: `firewall_enabled=true`,
+`firewall_mode=network_policy_manager` (manually selected), PrivilegedFirewallService running,
+Shizuku 13.5 running as root. Shizuku reported "Authorized 1 application", so stopping it affected
+nothing but De1984.
+
+Method: install current debug build (prefs preserved), `kill -9` the `shizuku_server` process,
+observe, then restart Shizuku from its own "Start (for rooted devices)" button.
+
+**Down path — every stage fired, in order:**
+```
+01:12:31  === BACKEND FAILURE DETECTED: NETWORK_POLICY_MANAGER ===
+01:12:31  🚨 FIREWALL DOWN (MANUAL_BACKEND_FAILED, backend=NETWORK_POLICY_MANAGER): apps are UNBLOCKED
+01:12:31  Showing firewall down notification (MANUAL_BACKEND_FAILED, ...)
+01:12:31  Firewall health banner shown: Down(reason=MANUAL_BACKEND_FAILED, backend=NETWORK_POLICY_MANAGER)
+```
+Notification posted as `id=1006 channel=backend_failure_channel` - the new id, no collision.
+Banner rendered in dark mode with the red DOWN badge, naming the backend correctly
+("NetworkPolicyManager (Legacy)"), with a readable "Choose backend" button, which Doru tapped and
+which navigated. No "Turn on alerts" line, correctly, since notifications are enabled on this device.
+`.artifacts/device_down.png`
+
+**Recovery — clean:**
+```
+01:15:14  ✅ Health check passed: NETWORK_POLICY_MANAGER backend is healthy
+01:15:14  Dismissing backend failed notification
+```
+Banner gone, badge back to ACTIVE, notification 1006 absent from dumpsys, firewall enforcing on NPM
+again, Shizuku running. `.artifacts/device_recovered.png`
+
+**Defect the test exposed, now fixed:** the notification re-alerted **3 times in 17 seconds**
+(01:12:31, 01:12:45, 01:12:48). Three independent detectors find the same failure - FirewallManager's
+health check, PrivilegedFirewallService's health check via `handleBackendFailureFromService`, then
+the next FirewallManager pass. Each re-post produced a fresh heads-up alert and sound. Fixed with
+`setOnlyAlertOnce(true)` on all three notifications reachable from `reportFirewallDown`, so a re-post
+updates the existing notification silently. **Fix not yet re-tested on hardware.**
+
+This was the audit's finding "no debounce and no setOnlyAlertOnce" - speculative then, measured now.
+
 **Open — still needs a decision**
 - **Two contradictory notifications for one failure.** `PrivilegedFirewallService` raises id 1003
   ("Firewall Backend Failed") *and* calls `handleBackendFailureFromService` → id 1006 ("Firewall down
   — your apps are unblocked"). Before the retitle both read the same. Also: id 1003 collides with
   `BackendMonitoringService`'s foreground notification, and 1002 with `PrivilegedFirewallService`'s.
   Both collisions pre-date this change.
-- **One backend, four names.** `displayName()` says "iptables"; `FirewallManager:2085` says
-  "iptables (root)"; `PrivilegedFirewallService` says "Unknown" for VPN; `BackendMonitoringService`
-  prints the raw enum. Five hand-written maps remain.
-- **Sibling notifications are still hardcoded English** (`FirewallManager:2091`, `:2158`,
-  `BackendMonitoringService:253`) - a French user gets a localized banner and an English notification.
+- ~~One backend, four names~~ — **FIXED, see below.**
+- ~~Sibling notifications hardcoded English~~ — **FIXED, see below.**
 - **POST_NOTIFICATIONS denied → no warning at all.** `FirewallManager` has no `areNotificationsEnabled()`
   gate (unlike `NewAppNotificationManager`), and the banner only renders while MainActivity is resumed.
 - **`startFirewallInternal` failures still never publish `Down`** - the gap already recorded below.
 - **Possible scroll reset** when the banner appears mid-session; commit 8e7cfb0 fixed #61 for this.
   Unverified on device.
+
+### One backend name everywhere — 2026-08-23
+
+Decision: use `FirewallBackendType.displayName(context)` everywhere, which resolves the same
+`backend_*_name` strings the Settings picker shows. The user should see the backend called what they
+picked it as. `(root)` / `(Shizuku)` are *requirements*, not names, and Settings already states those
+separately via `backend_*_requirement`.
+
+Four hand-written maps replaced. `grep 'FirewallBackendType.IPTABLES -> "'` now returns nothing:
+
+| Site | Was | Now |
+|---|---|---|
+| `FirewallManager` VPN-conflict switch | "iptables (root)" | `displayName()` |
+| `FirewallManager` privilege-gain switch | "iptables (root)" | `displayName()` |
+| `PrivilegedFirewallService` foreground | **"Unknown" for VPN** (no VPN branch, fell into `else`) | `displayName()` |
+| `BackendMonitoringService` toast + notification | raw enum `NETWORK_POLICY_MANAGER` in the `else` | `displayName()` |
+
+Because three of those wrapped the name in a hardcoded English sentence, the sentences were localized
+at the same time - otherwise a French user got a localized name inside an English sentence. Six
+literals in `FirewallManager` became resources.
+
+Strings: **+9, -4** in all 7 locales (651 each, 652 in `values/`). The four removed
+(`backend_toast_success_iptables`, `backend_toast_success_connectivity_manager` and the two matching
+`backend_notification_text_success_*`) were one-string-per-backend; they are replaced by
+`backend_toast_success` / `backend_notification_text_success`, which take the name as `%1$s`. Their
+dead English twins still sit unused in `Constants.BackendMonitoring` (`NOTIFICATION_TEXT_SUCCESS_*`,
+`TOAST_SUCCESS_*`, `NOTIFICATION_TITLE_SUCCESS` — all 0 usages); left alone, flagged here.
+
+Verified: build clean; lint total errors unchanged at 7, all pre-existing, **0** in any touched file;
+no `MissingTranslation` or `StringFormatMatches` on any new string; no dangling reference to the four
+removed. Not exercised at runtime - these notifications need a live backend switch.
 
 ### Open
 - **Device test.** On the phone: pick NetworkPolicyManager or ConnectivityManager manually in

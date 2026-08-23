@@ -338,14 +338,19 @@
     <string name="backend_notification_text_shizuku_not_running">Aguardando Shizuku iniciar. Toque para tentar novamente.</string>
     <string name="backend_notification_text_shizuku_no_permission">Aguardando permissão Shizuku. Toque para tentar novamente.</string>
     <string name="backend_notification_text_switching">Shizuku está agora disponível. Mudando para backend preferido…</string>
-    <string name="backend_notification_text_success_connectivity_manager">De1984 Firewall está agora usando backend ConnectivityManager</string>
-    <string name="backend_notification_text_success_iptables">De1984 Firewall está agora usando backend iptables</string>
     <string name="backend_notification_text_failed">De1984 Firewall falhou ao mudar backend. Ainda usando VPN.</string>
 
     <string name="backend_action_button_retry">Tentar Novamente</string>
 
-    <string name="backend_toast_success_connectivity_manager">De1984 Firewall mudou para ConnectivityManager</string>
-    <string name="backend_toast_success_iptables">De1984 Firewall mudou para iptables</string>
+    <string name="backend_switched_notification_title">Backend da firewall alterado</string>
+    <string name="backend_switched_notification_text">Mudou para %1$s — outra VPN está ativa</string>
+    <string name="backend_switched_notification_big">Outra app VPN ligou-se. O De1984 mudou automaticamente para %1$s para continuar a proteger-te. Toca para abrir as definições.</string>
+    <string name="backend_upgraded_notification_title">Firewall melhorada</string>
+    <string name="backend_upgraded_notification_text">Mudou de VPN para %1$s</string>
+    <string name="backend_upgraded_notification_big">Acesso root detetado. O De1984 mudou automaticamente de VPN para %1$s para melhor proteção. Modo definido como AUTO.</string>
+    <string name="backend_toast_success">O De1984 mudou para %1$s</string>
+    <string name="backend_notification_text_success">O De1984 está agora a usar o backend %1$s</string>
+    <string name="backend_unknown_name">Desconhecido</string>
     <string name="backend_toast_failed">De1984 Firewall falhou ao mudar backend</string>
 
     <!-- VPN Fallback -->
