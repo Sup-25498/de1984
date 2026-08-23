@@ -399,9 +399,10 @@ class FirewallManager(
 
                     // Don't start the firewall - we would need VPN backend but another VPN is active
                     val error = Exception("Another VPN is active and no privileged access")
-                    _firewallState.value = FirewallState.Error(
-                        message = "Another VPN is active",
-                        lastBackend = activeBackendType.value
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.VPN_CONFLICT,
+                        backend = activeBackendType.value,
+                        stateMessage = "Another VPN is active"
                     )
                     return Result.failure(error)
                 } else {
@@ -414,9 +415,10 @@ class FirewallManager(
             if (planResult.isFailure) {
                 val error = planResult.exceptionOrNull()
                 AppLogger.e(TAG, "startFirewall: Failed to compute start plan", error)
-                _firewallState.value = FirewallState.Error(
-                    message = "Failed to compute start plan: ${error?.message}",
-                    lastBackend = activeBackendType.value
+                reportStartFailure(
+                    reason = FirewallHealth.Down.Reason.NO_FALLBACK_PLAN,
+                    backend = activeBackendType.value,
+                    stateMessage = "Failed to compute start plan: ${error?.message}"
                 )
                 return Result.failure(error ?: Exception("Failed to compute start plan"))
             }
@@ -438,6 +440,9 @@ class FirewallManager(
             // checkBackendShouldSwitch) all trigger startFirewall() during startup.
             if (oldBackend != null && oldBackendType == plan.selectedBackendType && oldBackend.isActive()) {
                 AppLogger.d(TAG, "startFirewall: Backend $oldBackendType is already running and active - skipping redundant start")
+                // Still clear any stale warning. Reaching here means a backend IS enforcing, and
+                // without this a banner raised earlier would never be taken down.
+                reportFirewallHealthy()
                 return Result.success(oldBackendType)
             }
 
@@ -450,11 +455,11 @@ class FirewallManager(
                 // This should normally succeed because computeStartPlan already called selectBackend,
                 // but we keep this defensive to avoid crashes if something changes.
                 AppLogger.e(TAG, "Failed to select backend during start: ${error.message}")
-                _firewallState.value = FirewallState.Error(
-                    message = "Failed to select backend: ${error.message}",
-                    lastBackend = oldBackendType
+                reportStartFailure(
+                    reason = FirewallHealth.Down.Reason.START_FAILED,
+                    backend = oldBackendType,
+                    stateMessage = "Failed to select backend: ${error.message}"
                 )
-                emitStateChangeBroadcast(_firewallState.value)
                 return Result.failure(error)
             }
 
@@ -464,11 +469,11 @@ class FirewallManager(
                 if (!oldBackend.isActive()) {
                     oldBackend.start().getOrElse { error ->
                         AppLogger.e(TAG, "Failed to restart backend: ${error.message}")
-                        _firewallState.value = FirewallState.Error(
-                            message = "Failed to restart backend: ${error.message}",
-                            lastBackend = oldBackendType
+                        reportStartFailure(
+                            reason = FirewallHealth.Down.Reason.START_FAILED,
+                            backend = oldBackendType,
+                            stateMessage = "Failed to restart backend: ${error.message}"
                         )
-                        emitStateChangeBroadcast(_firewallState.value)
                         return Result.failure(error)
                     }
                 }
@@ -476,6 +481,8 @@ class FirewallManager(
                 // Same backend, successfully (re)started
                 _firewallState.value = FirewallState.Running(newBackendType)
                 emitStateChangeBroadcast(_firewallState.value)
+                _activeBackendType.value = newBackendType
+                reportFirewallHealthy()
                 return Result.success(oldBackendType)
             }
 
@@ -507,11 +514,11 @@ class FirewallManager(
                     _firewallState.value = FirewallState.Running(oldBackend.getType())
                     emitStateChangeBroadcast(_firewallState.value)
                 } else {
-                    _firewallState.value = FirewallState.Error(
-                        message = "Failed to start new backend: ${error.message}",
-                        lastBackend = oldBackendType
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.START_FAILED,
+                        backend = oldBackendType,
+                        stateMessage = "Failed to start new backend: ${error.message}"
                     )
-                    emitStateChangeBroadcast(_firewallState.value)
                 }
                 return Result.failure(error)
             }
@@ -528,11 +535,11 @@ class FirewallManager(
                     _firewallState.value = FirewallState.Running(oldBackend.getType())
                     emitStateChangeBroadcast(_firewallState.value)
                 } else {
-                    _firewallState.value = FirewallState.Error(
-                        message = "Failed to apply rules to new backend: ${error.message}",
-                        lastBackend = oldBackendType
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.START_FAILED,
+                        backend = oldBackendType,
+                        stateMessage = "Failed to apply rules to new backend: ${error.message}"
                     )
-                    emitStateChangeBroadcast(_firewallState.value)
                 }
                 return Result.failure(error)
             }
@@ -549,11 +556,11 @@ class FirewallManager(
                     _firewallState.value = FirewallState.Running(oldBackend.getType())
                     emitStateChangeBroadcast(_firewallState.value)
                 } else {
-                    _firewallState.value = FirewallState.Error(
-                        message = "New backend failed to become active",
-                        lastBackend = oldBackendType
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.START_FAILED,
+                        backend = oldBackendType,
+                        stateMessage = "New backend failed to become active"
                     )
-                    emitStateChangeBroadcast(_firewallState.value)
                 }
                 return Result.failure(Exception("New backend failed to become active"))
             }
@@ -599,11 +606,11 @@ class FirewallManager(
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start firewall", e)
             val error = errorHandler.handleError(e, "start firewall")
-            _firewallState.value = FirewallState.Error(
-                message = "Failed to start firewall: ${error.message}",
-                lastBackend = _activeBackendType.value
+            reportStartFailure(
+                reason = FirewallHealth.Down.Reason.START_FAILED,
+                backend = _activeBackendType.value,
+                stateMessage = "Failed to start firewall: ${error.message}"
             )
-            emitStateChangeBroadcast(_firewallState.value)
             Result.failure(error)
         }
     }
@@ -1121,8 +1128,16 @@ class FirewallManager(
         _firewallState.value = FirewallState.Error(message = stateMessage, lastBackend = backend)
         emitStateChangeBroadcast(_firewallState.value)
 
-        // Preserve user intent so handlePrivilegeChange() can attempt recovery later
-        _isFirewallDown.value = true
+        // This flag means "the user wants the firewall on and it is not". Recovery keys off it, so
+        // setting it when the user's own intent flag is false turns a failed toggle into a restart
+        // attempt on every resume: FirewallViewModel writes KEY_FIREWALL_ENABLED=false on a failed
+        // start, and handlePrivilegeChange's `!enabled && !down` guard then stops short-circuiting.
+        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        val userWantsFirewallOn = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, false)
+        _isFirewallDown.value = userWantsFirewallOn
+        if (!userWantsFirewallOn) {
+            AppLogger.d(TAG, "User intent is off - reporting the failure but not arming recovery")
+        }
 
         // Android 13+ drops notify() silently when POST_NOTIFICATIONS is denied. Say so, rather than
         // logging a success the user never saw. The in-app banner also reacts to this.
@@ -1155,6 +1170,34 @@ class FirewallManager(
         _isFirewallDown.value = false
         dismissBackendFailedNotification()
         dismissVpnFallbackNotification()
+    }
+
+    /**
+     * A start attempt failed. Report it as "firewall down" only if nothing is actually enforcing.
+     *
+     * Several start paths deliberately keep the previous backend running when the new one fails, and
+     * on those the firewall is still protecting the user - saying "your apps are unblocked" there
+     * would be a lie, and would set [_isFirewallDown] on a firewall that is up.
+     *
+     * When nothing is enforcing, this clears the backend refs first so the invariant every other
+     * down-path holds - [_activeBackendType] is null whenever health is Down - stays true. Without
+     * it, [clearHealthWarningIfEnforcing] would wipe the warning on the next tick.
+     */
+    private fun reportStartFailure(
+        reason: FirewallHealth.Down.Reason,
+        backend: FirewallBackendType?,
+        stateMessage: String
+    ) {
+        if (currentBackend?.isActive() == true) {
+            AppLogger.w(TAG, "Start failed but ${currentBackend?.getType()} is still enforcing - not reporting down")
+            _firewallState.value = FirewallState.Error(message = stateMessage, lastBackend = backend)
+            emitStateChangeBroadcast(_firewallState.value)
+            return
+        }
+
+        currentBackend = null
+        _activeBackendType.value = null
+        reportFirewallDown(reason, backend, stateMessage)
     }
 
     /**

@@ -367,6 +367,7 @@
     <string name="firewall_down_reason_no_plan">Não há nenhum backend de firewall utilizável neste dispositivo.</string>
     <string name="firewall_down_reason_fallback_failed">O backend de reserva não arrancou. Nada está a bloquear o acesso à rede.</string>
     <string name="firewall_down_reason_vpn_conflict">Outra app VPN está a ocupar o slot de VPN. O De1984 tem de a substituir para o proteger.</string>
+    <string name="firewall_down_reason_start_failed">O De1984 não conseguiu iniciar a firewall. Nada está a bloquear o acesso à rede.</string>
     <string name="firewall_down_reason_vpn_permission">O De1984 precisa da permissão de VPN para restaurar a proteção.</string>
     <string name="firewall_down_action_choose_backend">Escolher backend</string>
     <string name="firewall_down_action_retry">Tentar de novo</string>

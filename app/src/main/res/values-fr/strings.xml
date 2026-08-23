@@ -367,6 +367,7 @@
     <string name="firewall_down_reason_no_plan">Aucun moteur de pare-feu utilisable n\'est disponible sur cet appareil.</string>
     <string name="firewall_down_reason_fallback_failed">Le moteur de secours n\'a pas démarré. Rien ne bloque l\'accès au réseau.</string>
     <string name="firewall_down_reason_vpn_conflict">Une autre application VPN occupe l\'emplacement VPN. De1984 doit la remplacer pour vous protéger.</string>
+    <string name="firewall_down_reason_start_failed">De1984 n\'a pas pu démarrer le pare-feu. Rien ne bloque l\'accès au réseau.</string>
     <string name="firewall_down_reason_vpn_permission">De1984 a besoin de l\'autorisation VPN pour rétablir la protection.</string>
     <string name="firewall_down_action_choose_backend">Choisir un moteur</string>
     <string name="firewall_down_action_retry">Réessayer</string>

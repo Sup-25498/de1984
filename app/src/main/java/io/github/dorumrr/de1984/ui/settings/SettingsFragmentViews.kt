@@ -779,7 +779,12 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
         val activeBackend = viewModel.activeBackendType.value
 
         val statusText = if (activeBackend != null) {
-            getString(io.github.dorumrr.de1984.R.string.settings_backend_active, activeBackend.name)
+            // displayName(), not .name - .name printed the raw enum, e.g. "NETWORK_POLICY_MANAGER",
+            // right under a picker that calls the same backend "NetworkPolicyManager (Legacy)".
+            getString(
+                io.github.dorumrr.de1984.R.string.settings_backend_active,
+                activeBackend.displayName(requireContext())
+            )
         } else {
             getString(io.github.dorumrr.de1984.R.string.settings_backend_not_running)
         }

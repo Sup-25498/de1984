@@ -41,6 +41,13 @@ sealed interface FirewallHealth {
 
             /** VPN fallback is possible but the user has not granted VPN permission. */
             VPN_PERMISSION_REQUIRED,
+
+            /**
+             * A start attempt failed outright, so protection was never obtained.
+             *
+             * Covers boot restore, a backend switch from Settings, and the toggle itself.
+             */
+            START_FAILED,
         }
     }
 

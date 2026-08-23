@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -251,6 +252,9 @@ class SettingsViewModel(
         }
 
         if (durable) {
+            // Synchronous on purpose: setBootProtection reboots the device a few lines after calling
+            // this, and an async write could simply not land. Callers are responsible for being off
+            // the main thread - see the withContext wrappers at the boot-protection call sites.
             @Suppress("ApplySharedPref")
             editor.commit()
         } else {
@@ -351,14 +355,14 @@ class SettingsViewModel(
             try {
                 AppLogger.d(TAG, "setBootProtection: enabled=$enabled")
 
-                val result = bootProtectionManager.setBootProtection(enabled)
+                val result = bootProtectionLock.withLock { bootProtectionManager.setBootProtection(enabled) }
 
                 if (result.isSuccess) {
                     _uiState.value = _uiState.value.copy(bootProtection = enabled)
                     // Durable, not apply(): the device is rebooted a few lines below. Losing this
                     // write would leave the preference disagreeing with the boot script actually on
                     // disk - the exact mismatch this feature exists to prevent.
-                    saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, enabled, durable = true)
+                    withContext(Dispatchers.IO) { saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, enabled, durable = true) }
 
                     AppLogger.d(TAG, "✅ Boot protection ${if (enabled) "enabled" else "disabled"} successfully")
 
@@ -390,6 +394,16 @@ class SettingsViewModel(
         }
     }
 
+    /**
+     * Serialises boot-protection reads and writes.
+     *
+     * Both the toggle and the disk reconciliation suspend on IO, so without this they interleave: the
+     * reconciliation reads the disk, the user confirms the toggle, the toggle writes script and
+     * preference, then the reconciliation resumes with its stale reading and commits the opposite -
+     * leaving a script installed with the preference saying it is not.
+     */
+    private val bootProtectionLock = kotlinx.coroutines.sync.Mutex()
+
     fun checkBootProtectionAvailability() {
         AppLogger.d(TAG, "checkBootProtectionAvailability() called")
         viewModelScope.launch {
@@ -397,7 +411,12 @@ class SettingsViewModel(
                 AppLogger.d(TAG, "Checking boot protection availability...")
 
                 // Check if root/Shizuku is available
-                val hasPrivileges = rootManager.hasRootPermission || shizukuManager.hasShizukuPermission
+                // Must match BootProtectionManager.hasBootProtectionPrivilege(). ADB-mode Shizuku runs
+                // as uid 2000 and can touch neither iptables nor /data/adb, so counting it here made
+                // the reconciliation below run with a check that always fails - writing "not
+                // installed" over a device that is blocked at every boot.
+                val hasPrivileges = rootManager.hasRootPermission ||
+                    (shizukuManager.hasShizukuPermission && shizukuManager.isShizukuRootMode())
                 AppLogger.d(TAG, "hasPrivileges: $hasPrivileges (root=${rootManager.hasRootPermission}, shizuku=${shizukuManager.hasShizukuPermission})")
 
                 // Check if boot script support is available (Magisk/KernelSU/APatch)
@@ -415,6 +434,26 @@ class SettingsViewModel(
 
                 _uiState.value = _uiState.value.copy(bootProtectionAvailable = available)
                 AppLogger.d(TAG, "Updated UI state with bootProtectionAvailable=$available")
+
+                // The switch used to read only the preference. Clearing app data resets that
+                // preference to false while leaving the script on disk, so the switch said OFF for a
+                // device that is still blocked at every boot - and the user had no way to see it.
+                // Disk is the truth: if a script is installed, boot protection IS on.
+                if (available) bootProtectionLock.withLock {
+                    // null = could not determine. Never write that over the preference: a dropped
+                    // Shizuku call or an expired su grant would otherwise erase the only record that
+                    // boot protection is on.
+                    val installedOnDisk = bootProtectionManager.isBootProtectionInstalled()
+                    if (installedOnDisk != null && installedOnDisk != _uiState.value.bootProtection) {
+                        AppLogger.w(
+                            TAG,
+                            "Boot protection preference (${_uiState.value.bootProtection}) disagreed with " +
+                                "the script on disk ($installedOnDisk) - trusting disk"
+                        )
+                        _uiState.value = _uiState.value.copy(bootProtection = installedOnDisk)
+                        withContext(Dispatchers.IO) { saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, installedOnDisk, durable = true) }
+                    }
+                }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to check boot protection availability", e)
                 _uiState.value = _uiState.value.copy(bootProtectionAvailable = false)

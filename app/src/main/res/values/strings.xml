@@ -368,6 +368,7 @@
     <string name="firewall_down_reason_no_plan">No usable firewall backend is available on this device.</string>
     <string name="firewall_down_reason_fallback_failed">The backup backend did not start. Nothing is blocking network access.</string>
     <string name="firewall_down_reason_vpn_conflict">Another VPN app is using the VPN slot. De1984 must replace it to protect you.</string>
+    <string name="firewall_down_reason_start_failed">De1984 could not start the firewall. Nothing is blocking network access.</string>
     <string name="firewall_down_reason_vpn_permission">De1984 needs VPN permission to restore protection.</string>
     <string name="firewall_down_action_choose_backend">Choose backend</string>
     <string name="firewall_down_action_retry">Try again</string>

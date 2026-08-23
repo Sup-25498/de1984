@@ -104,6 +104,226 @@ done
 reboot
 ```
 
+## BOOT SCRIPT VERIFIED ON HARDWARE + BOOT-LIFT POLICY SETTLED — 2026-08-23 20:37-20:45
+
+### Device test of the audited script — PASSED
+Enabled boot protection from the app on LineageOS 21 / Android 14; it wrote the script (4990 bytes)
+and rebooted itself. After the reboot De1984 lifted the block within ~9 seconds, before the chain
+could be photographed, which is the correct outcome. The new teardown is visible working:
+```
+20:38:43  iptables: removed 1 de1984_boot jump(s) from OUTPUT
+20:38:43  ip6tables: removed 1 de1984_boot jump(s) from OUTPUT
+20:38:43  ✅ Boot protection iptables rules removed and verified gone
+20:38:56  iptables: removed 0 ...   ✅ ... verified gone      (idempotent second run)
+```
+"removed 1 jump" per table proves `link_if_sane` **did** link the chain, so the allow-list landed and
+the fail-open guard correctly stayed out of the way - no "refusing to link" line in kmsg.
+
+The script as written to the device was read back and checked in full: 19 `-w 5` lock-waits, uid list
+`0 1000 1001 1010 1016 1029 1051 1073 2000`, `link_if_sane` present, `de1984_present` multi-user
+guard present, `sleep 120`, and `--uid-owner $uid` expanded as a literal rather than an empty value.
+
+Boot protection then switched back off (the Settings switch correctly showed ON first, proving the
+disk reconciliation). Device left with 0 boot scripts, 0 chain jumps, 0% packet loss.
+
+**Not covered:** the chain's contents while live. It is torn down too fast to sample, which is the
+behaviour we want but means the on-hardware evidence for the 9 uids is the on-disk script plus the
+mock-iptables simulation, not a live `iptables -S`.
+
+### Boot-lift policy — settled
+The two boot paths disagreed, and the modern one silently defeated the feature:
+
+| Path | Android | Lifted the block |
+|---|---|---|
+| `BootReceiver` | ≤ 11 | after the start attempt, on success **and** failure |
+| `BootWorker` | 12+ | **before anything**, then again via a redundant preference-gated call |
+
+On 12+ - which is every current device, including the test phone - the block was gone for the whole
+restore window: root wake, 500ms, Shizuku wake, 500ms, then `startFirewall()`. That is precisely the
+gap boot protection exists to close, so the feature did nothing on modern Android.
+
+Settled in `BootReceiver`'s favour: **lift once the outcome is known, never before.** `BootWorker` now
+lifts in the not-enabled branch, on success, on failure, and in the catch-all. The only exit that
+cannot lift is `app == null`, where there is no manager to call - the script's 120-second timer is the
+backstop there, and it is now proven to fire.
+
+The preference-gated `resetIptablesPolicies()` block was deleted: it asked the same question as
+`clearBootBlockIfInstalled()` but through `KEY_BOOT_PROTECTION`, which clearing app data resets while
+the script stays on disk. One source of truth, and it is the disk.
+
+**VERIFIED ON HARDWARE 2026-08-23 20:46**, Android 14 / API 34, i.e. the `BootWorker` path. Rebooted
+with boot protection OFF, so no chain could ever be created and there was no lockout risk:
+```
+20:46:35.626  Firewall was enabled before boot: true      <- the lift used to happen HERE
+20:46:36.128  Requesting root permission to wake up Magisk...
+20:46:40.834  Checking Shizuku status before starting firewall...
+20:46:42.667  🚀 Starting firewall after boot...
+20:46:52.436  ✅ FIREWALL RESTORED SUCCESSFULLY | Backend: NETWORK_POLICY_MANAGER
+20:46:52.451  Firewall is up - lifting any boot protection block     <- it happens HERE now
+20:46:52.495  No boot protection script installed - nothing to lift
+20:46:52.510  ✅ Boot protection block lifted (or none present)
+```
+No lift appears before the start any more, and `clearBootBlockIfInstalled` correctly reports the
+disk-keyed "nothing to lift".
+
+**The gap this closes is ~16.8 seconds** (20:46:35.6 → 20:46:52.5) - most of it the Magisk root wake
+(4.7s) and the backend start (9.8s). On every Android 12+ device, boot protection was being switched
+off roughly seventeen seconds before the firewall actually took over. That is the entire window the
+feature exists to cover, and it was empty.
+
+## ADVERSARIAL AUDIT OF PART A — 2026-08-23. 14 FIXES, INCLUDING A P0 I CREATED.
+
+Five reviewers. The audit opened more than it closed; most of what remains is in `BootReceiver` /
+`BootWorker`, untouched today.
+
+### P0 — a partial install was a total blackout, and my loop concentrated the risk
+The script has no `set -e` and the catch-all `-j DROP` was appended unconditionally. If the uid
+ACCEPTs failed - no `xt_owner` in the kernel, a lost xtables lock, EPERM - the chain became nothing
+but `[lo ACCEPT, DROP]` and was still linked at the head of OUTPUT. That drops **root, netd and
+system_server too**: no network at all, and De1984 itself unable to reach anything to undo it.
+Turning five independent rule statements into one loop made it worse - one failing match now takes
+out all nine uids identically.
+
+Fixed with `link_if_sane()`: the chain is linked only if `-C de1984_boot -m owner --uid-owner 0`
+confirms the allow-list landed. Otherwise the chain is torn down and OUTPUT is left alone. Failing
+open beats bricking the network; the app's firewall takes over moments later anyway.
+
+Verified by simulation against a mock iptables, both directions:
+
+| kernel | DROP appended | chain linked | outcome |
+|---|---|---|---|
+| healthy | 2 | 2 | protection works |
+| no `xt_owner` | 2 | **0** | chain torn down, device not blacked out |
+
+### The other 13
+- **Teardown regression I introduced.** My rewrite only issued `-D` when a `-C` probe returned 0, so
+  any probe failure meant *zero* teardown attempts - the old `|| true` code at least tried. `-D` is
+  unconditional again, looping until it reports nothing left.
+- **`-w 5` on every iptables call**, Kotlin and script. netd rewrites the tables constantly around
+  boot, and the expiry timer fires at T+120s when it is busiest. A lost lock made teardown fail
+  silently.
+- **Exit codes read properly.** `-C` returns 0 linked, 1 rule absent, 2 chain absent, other for lock
+  or denial. Treating every non-zero as "gone" is how a teardown that never ran reported success.
+  Anything outside 0/1/2 is now "unverified" and returns failure.
+- **ADB-mode Shizuku no longer passes as privilege.** It runs as uid 2000 and can touch neither
+  iptables nor `/data/adb`. `isShizukuRootMode()` already existed and was used by
+  `IptablesFirewallBackend`; boot protection ignored it. New `hasBootProtectionPrivilege()`.
+- **Tri-state disk check.** `isBootProtectionEnabled()` returned false for both "absent" and "could
+  not determine". New `isBootProtectionInstalled(): Boolean?`; three call sites now treat `null` as
+  "act anyway" rather than "nothing to do".
+- **`SettingsViewModel` used the old, looser privilege test** while the manager used the strict one -
+  an asymmetry that made the reconciliation run a check that always failed, writing "not installed"
+  over a blocked device. Aligned.
+- **Reconciliation ignores an inconclusive answer** instead of committing it.
+- **Mutex** so the reconciliation and the toggle cannot interleave and commit opposite values.
+- **Durable writes off the UI thread** - but still `commit()`, not `apply()`. A first attempt made it
+  async, which would have let the reboot beat the write and lose the preference entirely; reverted.
+- **Self-delete guard globbed across users.** It was pinned to `/data/user_de/0/`, so an install for a
+  secondary user or work profile deleted a script that should still run.
+- **uid 1029 (clat)** added - on IPv6-only carriers all IPv4 traffic egresses as this uid.
+- **`_isFirewallDown` now means "the user wants it on and it is not".** Setting it unconditionally on
+  all 8 start-failure exits created a restart loop: `FirewallViewModel` writes
+  `KEY_FIREWALL_ENABLED=false` on a failed start, which stopped `handlePrivilegeChange`'s
+  `!enabled && !down` guard short-circuiting, so every resume retried and re-notified.
+- **Both early-return success paths now clear a stale warning**, so RETRY on the banner cannot leave a
+  banner nothing re-evaluates.
+
+**Refuted:** the script's Kotlin→shell text is byte-exact (a reviewer verified the `echo '...'`
+round-trip and `sh -n`/`dash -n`); rule order is correct on a fresh boot; ip6tables parity is
+complete; the AID numbers are right. One reviewer speculated netd wipes the chain - **tonight's
+hardware test already disproved that.**
+
+### STILL OPEN — mostly in boot code untouched today
+- **Lockout scenarios 4 and 5 are still live**, now bounded to ~120s by the timer rather than
+  permanent. Scenario 5's switch is still hard-disabled and its help text tells the user to run `su`,
+  which is exactly what they lost.
+- `BootWorker` lifts the block **before** starting the firewall; `BootReceiver` only **after**. On
+  Android 12+ the device is unprotected for the whole restore window - the gap the feature exists to
+  close. The two paths need one policy.
+- `deleteBootScript` discards the teardown Result and returns success regardless.
+- `LOCKED_BOOT_COMPLETED` does nothing in release: the receiver is `directBootAware` but
+  `<application>` is not, and `AppLogger.init` touches CE storage.
+- `BootReceiver`'s boot coroutine has `try/finally` and **no catch**, so a throw from `startFirewall`
+  skips the block clear entirely.
+- `clearBootBlockIfInstalled` calls `forceRecheckRootStatus()` unconditionally; libsu is configured
+  with a 30s timeout, inside a BroadcastReceiver's ~10s budget.
+- Two expiry timers stack on a re-run and the earliest wins, silently shortening protection.
+- `handleBackendFailure` now reports twice for one failure (inner `START_FAILED`, then outer
+  `FALLBACK_FAILED`). `setOnlyAlertOnce` means one alert and the final text is correct, so cosmetic.
+- Clear-app-data with no root still shows "unavailable" rather than "stuck" - unfixable without root,
+  since `/data/adb` cannot be read.
+
+**None of these 14 fixes is verified on hardware.** The script changes especially deserve a device
+test before this is trusted.
+
+## P0-1 PART A — COMPLETE, 2026-08-23
+
+Six of the ten items were already built in earlier sessions; the list below was the plan, not the
+state. Today closed the remaining four and proved the one runtime assumption.
+
+| # | Item | State |
+|---|---|---|
+| 1 | Self-expiring script | built earlier — **runtime assumption now PROVEN, see below** |
+| 2 | Self-delete when the APK is gone | built earlier (guard verified in a dry run) |
+| 3 | Reset moved out of `startFirewall().onSuccess` | built earlier as `clearBootBlockIfInstalled()`, wired into 4 boot call sites |
+| 4 | Read the disk, not the pref | **FIXED TODAY** |
+| 5 | `resetIptablesPolicies()` on the disable path | built earlier |
+| 6 | In-app recovery when the switch is greyed out | deliberate non-action, see below |
+| 7 | Verify the write | built earlier (readback + compare, orphan removed on chmod failure) |
+| 8 | Fix the allow-list | **FIXED TODAY** |
+| 9 | Idempotent chain linking | built earlier (`-C || -I`, teardown loops) |
+| 10 | Stop returning success when nothing ran | **FIXED TODAY** |
+
+### Item 1 — the safety net is real (hardware, 2026-08-23 20:20)
+The whole expiry mechanism rests on `( sleep N ; remove_boot_chain ) &` outliving the parent script
+under Magisk `post-fs-data`. Nobody had ever confirmed it. Tested with a probe that touches no network
+state at all - it only writes timestamps:
+```
+probe_start  1787512841
+probe_fired  1787512901     delta = 60s, exactly what the script asked for
+```
+**A backgrounded subshell does survive `post-fs-data`.** No need to move the timer to `service.d` or an
+init trigger. Probe removed afterwards; `post-fs-data.d` left empty.
+
+### Item 4 — the switch now reads the disk
+`checkBootProtectionAvailability()` compares `isBootProtectionEnabled()` (disk) against the
+`boot_protection` preference and, when they disagree, trusts the disk and rewrites the preference.
+This is the "clear app data" trap: the preference resets to false while the script stays installed, so
+the switch said OFF for a device still blocked at every boot, with nothing to show the user.
+
+### Item 8 — allow-list corrected, and the comments were wrong
+Two of the five entries were mislabelled: `1016` was commented "media" (media is 1013 - 1016 is
+**AID_VPN**) and `1051` was commented "gps" (gps is 1021 - 1051 is **AID_DNS**). Added `1001`
+(AID_RADIO, without which mobile data cannot come up), `1073` (AID_NETWORK_STACK, the connectivity and
+captive-portal probes) and `2000` (AID_SHELL) - Doru's call on 2000.
+
+`2000` matters beyond adb: **Shizuku in ADB mode runs as uid 2000.** Blocked, a Shizuku-only user
+cannot start Shizuku at boot, so the firewall never starts, so nothing lifts the block - only the
+120-second timer saves them. It also keeps wireless adb alive as a recovery route. USB adb is
+unaffected either way, being no network traffic.
+
+The five repeated rule pairs became one documented loop, so adding a uid later is a one-word change.
+
+**The generated script was verified before it could ever run.** `${'$'}uid` in a Kotlin raw string is
+the dangerous kind of escape: had it produced an empty value, the ACCEPT rules would fail and only the
+catch-all DROP would apply - a permanent block on every boot. Generated the exact script text,
+`sh -n`'d it, then ran it on device with `iptables`/`ip6tables` stubbed to `echo`. All eight uids
+expand, every ACCEPT precedes the DROP, and the `-C` guard is in place. No real rule was touched.
+
+### Item 10 — teardown now proves itself
+`resetIptablesPolicies()` used `|| true` on every command and always returned success, including the
+no-privilege `(-1, ...)` case - so a caller could reboot, or conclude the device was safe, on the
+strength of a teardown that never ran. It now refuses outright without privilege, loops the unlink so
+a stacked jump cannot survive, and **verifies the outcome** (`-C OUTPUT -j de1984_boot` must fail in
+both tables) rather than trusting exit codes, which iptables returns non-zero for both "already gone"
+and real failure.
+
+### Item 6 — deliberately not an action
+When privilege is lost the switch is greyed out and the UI says so honestly. A "Remove" button there
+would be a button that cannot work: `/data/adb` is root-only, so without root the app can neither read
+nor delete the script. The honest recovery is the ADB route the dialog already prints, plus the
+120-second timer, which is now proven to fire.
+
 ## P0-1 Boot protection — DECIDED FIX DIRECTION (Doru, 2026-08-22)
 
 **Chosen: self-healing script AND forced reboot on both toggles.**
@@ -2266,6 +2486,64 @@ device-side failure, so it is left open rather than guessed at.
 ### Open
 - **Scroll jump during a real backend failure on device.** Not the banner, not a state change.
   Suspect the work-profile package query failing while Shizuku is down. Needs a device repro.
+- **FIXED AND PROVEN ON HARDWARE 2026-08-23 20:06.** All 8 failure exits in `startFirewallInternal`
+  now route through a new `reportStartFailure()`, which publishes `FirewallHealth.Down` (new reason
+  `START_FAILED`) and therefore sets `_isFirewallDown`.
+
+  **`reportStartFailure` refuses to cry wolf.** Three of those exits deliberately keep the previous
+  backend running when the new one fails; on those the firewall is still enforcing. The helper checks
+  `currentBackend?.isActive()` first and, if something is still protecting the user, records the error
+  without claiming "your apps are unblocked". Only when nothing is enforcing does it null the backend
+  refs - preserving the invariant `_activeBackendType == null` whenever health is `Down`, which is what
+  `clearHealthWarningIfEnforcing` relies on - and report down.
+
+  Same device, same trigger, before and after:
+  ```
+  BEFORE 19:57:19  Firewall enabled=true, firewall down=false - proceeding
+                   Manual mode NETWORK_POLICY_MANAGER but no active backend and
+                   firewall disabled by user - nothing to do        <- stayed off forever
+
+  AFTER  20:06:30  Firewall enabled=true, firewall down=true - proceeding
+                   Manual mode NETWORK_POLICY_MANAGER with firewall down -
+                   attempting automatic recovery
+         20:06:48  ✅ Manual backend NETWORK_POLICY_MANAGER restarted after privilege recovery
+  ```
+  De1984 was not touched between stopping and restarting Shizuku; it recovered on its own. The new
+  exit was seen firing directly: `Showing firewall down notification (NO_FALLBACK_PLAN, backend=null)`.
+  Badge went DOWN then back to ACTIVE, banner appeared then cleared, notification 1006 posted then
+  dismissed.
+
+  Also fixed: `SettingsFragmentViews` printed `activeBackend.name`, so the status line read
+  `Active: NETWORK_POLICY_MANAGER` directly under a picker calling it "NetworkPolicyManager (Legacy)".
+  Now uses `displayName()`; verified on device as `Active: NetworkPolicyManager (Legacy)`.
+
+  Original finding, kept for the record:
+
+  Observed end to end after a reboot:
+  ```
+  19:56:14  🚀 Starting firewall after boot...
+  19:56:15  ❌ FAILED TO RESTORE FIREWALL | Error: Shizuku or root access required for
+            NetworkPolicyManager firewall
+  19:56:15  WM-WorkerWrapper: Worker result FAILURE for BootWorker
+  ...user opens the app, Shizuku now RUNNING_WITH_PERMISSION...
+  19:57:19  Firewall enabled=true, currently active=false
+  19:57:19  Manual mode NETWORK_POLICY_MANAGER but no active backend and
+            firewall disabled by user - nothing to do
+  ```
+  The chain: `BootWorker` calls `startFirewall`, which fails inside `startFirewallInternal`. That path
+  sets `FirewallState.Error` but never `FirewallHealth.Down` and never `_isFirewallDown`. So when
+  `handlePrivilegeChange` later runs with Shizuku back, it reads `_isFirewallDown == false` and takes
+  the "nothing to do" branch - whose log line, *"firewall disabled by user"*, is simply false. The user
+  enabled it and `firewall_enabled` is still `true`.
+
+  Result: firewall off, every app unblocked, **forever**, until the user notices and toggles by hand.
+  The toolbar shows **OFF**, not DOWN - indistinguishable from a deliberate stop - and there is no
+  banner and no notification, because none of that machinery was ever told.
+
+  Fix: route `startFirewallInternal`'s failure returns through `reportFirewallDown()` like the other
+  ten sites. That restores the banner, the notification, the DOWN badge **and** `_isFirewallDown`,
+  which is what re-enables the recovery path.
+
 - **A silent unblocked state this fix does not cover.** `SettingsViewModel.restartFirewallIfRunning`
   calls `stopFirewall()` then `startFirewall(newMode)`. A failure there returns through
   `startFirewallInternal`, which sets `FirewallState.Error` but never publishes `FirewallHealth.Down`
@@ -2284,7 +2562,46 @@ device-side failure, so it is left open rather than guessed at.
 
 Doru will install on a real Android device, then we resume.
 
-## Test 1 (decides everything): does `netd` wipe the boot chain?
+## Test 1 — RUN ON HARDWARE 2026-08-23 19:48-19:54. ANSWER: **THE CHAIN SURVIVES `netd`.**
+
+**P0-1 Boot protection is REAL and SEVERE. Part A is now urgent.**
+
+LineageOS 21 / Android 14, MediaTek, USB attached throughout. Boot protection enabled from the app
+(which wrote `/data/adb/post-fs-data.d/de1984_boot_protection.sh`, 2948 bytes, mode 755) and the
+device rebooted itself - **Part B's forced reboot on toggle is already implemented.**
+
+After the reboot, with `netd` long since up:
+```
+# iptables -S OUTPUT | grep de1984_boot
+-A OUTPUT -j de1984_boot
+# iptables -S de1984_boot
+-N de1984_boot
+-A de1984_boot -o lo -j ACCEPT
+# ping -c 2 1.1.1.1
+2 packets transmitted, 0 received, 100% packet loss
+```
+The chain was live and **the device had no network**. `netd` does not wipe it. Every lockout scenario
+1-5 is reachable in practice, not just on paper.
+
+The good case still costs a real outage: the app removed the chain at 19:50:16, roughly **30 seconds
+after boot completed**, and networking returned only then. In scenarios 1-5 it is never removed at all.
+
+Cleanup ran as documented; chain and script gone, `ping` back to 0% loss.
+
+### Second finding, unrelated to the chain: boot restore fails twice at LOCKED_BOOT_COMPLETED
+```
+19:54:05.894 ❌ Failed to schedule BootWorker: WorkManager not initialized
+             java.lang.IllegalStateException: WorkManager is not initialized properly.
+19:54:05.908 ⚠️ Falling back to direct firewall restoration
+19:54:05.936 ❌ ERROR IN BOOT RECEIVER | Error: SharedPreferences in credential encrypted
+             storage are not available until after user (id 0) is unlocked
+```
+`BootReceiver` runs at `LOCKED_BOOT_COMPLETED`, before the user unlocks. Both its paths fail there:
+WorkManager is not initialised in direct-boot mode, and the fallback reads SharedPreferences, which
+credential-encrypted storage does not serve until unlock. So the firewall does not come back until the
+user unlocks the phone - a real window on every boot, worth measuring separately.
+
+## Test 1 (original plan, kept for reference): does `netd` wipe the boot chain?
 
 `post-fs-data` runs **before** `netd`. If `netd` rebuilds the filter table without `--noflush`, it
 destroys `de1984_boot` early — meaning **P0-1 Boot protection** barely protects anything AND the
@@ -2336,12 +2653,14 @@ apps have internet. Expected per code: they do not, on every boot, permanently.
 Pick NetworkPolicyManager in Settings, block an app, stop the firewall, uninstall De1984, reboot.
 Then: `adb shell su -c 'cat /data/system/netpolicy.xml'` — check whether the uid policy is still there.
 
-## Test 4: P0-4 exported widget receiver
+## Test 4: P0-4 exported widget receiver — RUN 2026-08-23, PASSED
 ```
 adb shell am broadcast -a io.github.dorumrr.de1984.FIREWALL_STATE_CHANGED --es firewall_state "Stopped"
-adb shell run-as io.github.dorumrr.de1984.debug cat shared_prefs/de1984_prefs.xml | grep firewall_enabled
 ```
-If the flag flipped to false, any installed app can permanently disable the firewall.
+`firewall_enabled` stayed `true`, and PrivilegedFirewallService kept running. The hardening in
+`FirewallWidget.onReceive` holds: the receiver treats the broadcast as display-only and never writes
+app state, so a spoofed payload can paint a wrong icon until the next real update and nothing more.
+No further work needed here.
 
 ## Then
 - Walk through the 117 medium findings not yet reviewed.

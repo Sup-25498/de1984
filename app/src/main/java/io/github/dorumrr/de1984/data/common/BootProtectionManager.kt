@@ -17,6 +17,18 @@ class BootProtectionManager(
 ) {
     companion object {
         private const val TAG = "BootProtectionManager"
+
+        /**
+         * Wait for the xtables lock instead of failing instantly.
+         *
+         * netd rewrites the tables constantly around boot, which is exactly when this code runs. A
+         * lock collision without this makes iptables exit non-zero, and a teardown that never
+         * happened then looks like one that did.
+         */
+        private const val XT_WAIT = "-w 5"
+
+        /** Bound on the unlink loop, so a jump that cannot be removed cannot spin forever. */
+        private const val MAX_JUMP_REMOVALS = 16
     }
 
     /**
@@ -43,18 +55,37 @@ class BootProtectionManager(
     /**
      * Check if boot protection is currently enabled by verifying the script file exists.
      */
-    suspend fun isBootProtectionEnabled(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun isBootProtectionEnabled(): Boolean = isBootProtectionInstalled() == true
+
+    /**
+     * Is the boot script on disk? `null` means we could not find out.
+     *
+     * The distinction matters more than it looks. A dropped Shizuku call, an expired su grant or a
+     * command timeout all fail the check, and reporting those as "not installed" is how a device that
+     * is blocked at every boot ends up looking perfectly fine - or worse, how the only record that
+     * boot protection is on gets overwritten with false.
+     */
+    suspend fun isBootProtectionInstalled(): Boolean? = withContext(Dispatchers.IO) {
         try {
+            if (!hasBootProtectionPrivilege()) {
+                AppLogger.d(TAG, "No privilege - cannot tell whether the boot script is installed")
+                return@withContext null
+            }
+
             val command = "test -f ${Constants.BootProtection.BOOT_SCRIPT_PATH} && echo 'exists' || echo 'not_found'"
-            val result = executeCommand(command)
-            
-            val enabled = result.first == 0 && result.second.trim() == "exists"
-            AppLogger.d(TAG, "Boot protection enabled: $enabled")
-            
-            enabled
+            val (exitCode, output) = executeCommand(command)
+
+            when {
+                exitCode == 0 && output.trim() == "exists" -> true
+                exitCode == 0 && output.trim() == "not_found" -> false
+                else -> {
+                    AppLogger.w(TAG, "Boot script check inconclusive (exit=$exitCode, output='${output.trim()}')")
+                    null
+                }
+            }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to check boot protection status", e)
-            false
+            null
         }
     }
 
@@ -93,60 +124,93 @@ class BootProtectionManager(
 # Blocks all network traffic until De1984 starts
 # Author: Doru Moraru
 
+# -w 5 on every call: this function also runs from the expiry timer 120s after boot, when netd is
+# very much alive and rewriting the tables. Without the lock wait a collision makes iptables fail,
+# and the block would simply stay up.
 remove_boot_chain() {
-    while iptables -D OUTPUT -j de1984_boot 2>/dev/null; do :; done
-    while ip6tables -D OUTPUT -j de1984_boot 2>/dev/null; do :; done
-    iptables -F de1984_boot 2>/dev/null
-    iptables -X de1984_boot 2>/dev/null
-    ip6tables -F de1984_boot 2>/dev/null
-    ip6tables -X de1984_boot 2>/dev/null
+    while iptables -w 5 -D OUTPUT -j de1984_boot 2>/dev/null; do :; done
+    while ip6tables -w 5 -D OUTPUT -j de1984_boot 2>/dev/null; do :; done
+    iptables -w 5 -F de1984_boot 2>/dev/null
+    iptables -w 5 -X de1984_boot 2>/dev/null
+    ip6tables -w 5 -F de1984_boot 2>/dev/null
+    ip6tables -w 5 -X de1984_boot 2>/dev/null
 }
 
 # If De1984 has been uninstalled this script is orphaned: no app will ever lift the
 # block. Delete ourselves and leave the device alone. These paths are device-encrypted
 # so the check works before the user unlocks.
-if [ ! -e ${Constants.BootProtection.DE_DATA_DIR_RELEASE} ] && [ ! -e ${Constants.BootProtection.DE_DATA_DIR_DEBUG} ]; then
+# Globbed across every user, not just user 0. Installed for a secondary user or a work profile
+# only, a user-0-shaped check finds nothing and deletes a script that should still run.
+# An unmatched glob stays literal in sh, and [ -e ] on a literal is false, so this is safe.
+de1984_present() {
+    for _d in /data/user_de/*/${Constants.App.PACKAGE_NAME} /data/user_de/*/${Constants.App.PACKAGE_NAME_DEBUG}; do
+        [ -e "${'$'}_d" ] && return 0
+    done
+    return 1
+}
+
+if ! de1984_present; then
     rm -f ${Constants.BootProtection.BOOT_SCRIPT_PATH}
     exit 0
 fi
 
 # Create custom chain for boot protection
-iptables -N de1984_boot 2>/dev/null || iptables -F de1984_boot
-ip6tables -N de1984_boot 2>/dev/null || ip6tables -F de1984_boot
+iptables -w 5 -N de1984_boot 2>/dev/null || iptables -w 5 -F de1984_boot
+ip6tables -w 5 -N de1984_boot 2>/dev/null || ip6tables -w 5 -F de1984_boot
 
 # Allow loopback traffic (required for system services)
-iptables -A de1984_boot -o lo -j ACCEPT
-ip6tables -A de1984_boot -o lo -j ACCEPT
+iptables -w 5 -A de1984_boot -o lo -j ACCEPT
+ip6tables -w 5 -A de1984_boot -o lo -j ACCEPT
 
-# Allow critical system UIDs needed for network connectivity
-# UID 0 (root) - netd and other critical network daemons
-iptables -A de1984_boot -m owner --uid-owner 0 -j ACCEPT
-ip6tables -A de1984_boot -m owner --uid-owner 0 -j ACCEPT
-
-# UID 1000 (system) - system_server and Android framework
-iptables -A de1984_boot -m owner --uid-owner 1000 -j ACCEPT
-ip6tables -A de1984_boot -m owner --uid-owner 1000 -j ACCEPT
-
-# UID 1010 (wifi) - WiFi services (wpa_supplicant, wificond)
-iptables -A de1984_boot -m owner --uid-owner 1010 -j ACCEPT
-ip6tables -A de1984_boot -m owner --uid-owner 1010 -j ACCEPT
-
-# UID 1016 (media) - May be needed for captive portal detection
-iptables -A de1984_boot -m owner --uid-owner 1016 -j ACCEPT
-ip6tables -A de1984_boot -m owner --uid-owner 1016 -j ACCEPT
-
-# UID 1051 (gps) - GPS/location services
-iptables -A de1984_boot -m owner --uid-owner 1051 -j ACCEPT
-ip6tables -A de1984_boot -m owner --uid-owner 1051 -j ACCEPT
+# Allow critical system UIDs needed for network connectivity.
+#
+#    0  root           netd and the other core network daemons
+# 1000  system         system_server and the Android framework
+# 1001  radio          telephony stack (RIL) - without it mobile data cannot come up
+# 1010  wifi           wpa_supplicant, wificond
+# 1016  vpn            VPN plumbing. Previously commented "media" here; media is 1013.
+# 1029  clat           464XLAT translator. On IPv6-only carriers all IPv4 traffic, system
+#                      traffic included, egresses as this uid.
+# 1051  dns            DNS resolver. Previously commented "gps" here; gps is 1021.
+# 1073  network_stack  connectivity and captive-portal probes. Without it Android can mark
+#                      the network unvalidated and keep showing "no internet" after the
+#                      block lifts, until the next probe succeeds.
+# 2000  shell          adb, and Shizuku when it runs in ADB mode rather than root mode.
+#                      Blocking it can lock a Shizuku-only user out for good: Shizuku cannot
+#                      start, so the firewall never starts, so nothing ever lifts the block.
+#                      It also keeps wireless adb alive as a recovery route. USB adb is
+#                      unaffected either way, since it is not network traffic.
+for uid in 0 1000 1001 1010 1016 1029 1051 1073 2000; do
+    iptables -w 5 -A de1984_boot -m owner --uid-owner ${'$'}uid -j ACCEPT
+    ip6tables -w 5 -A de1984_boot -m owner --uid-owner ${'$'}uid -j ACCEPT
+done
 
 # Block everything else (user apps)
-iptables -A de1984_boot -j DROP
-ip6tables -A de1984_boot -j DROP
+iptables -w 5 -A de1984_boot -j DROP
+ip6tables -w 5 -A de1984_boot -j DROP
 
-# Insert boot protection chain at the beginning of OUTPUT.
-# Guarded so a re-run cannot stack a second jump that a single -D would miss.
-iptables -C OUTPUT -j de1984_boot 2>/dev/null || iptables -I OUTPUT -j de1984_boot
-ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_boot
+# Link the chain into OUTPUT - but only if the allow-list actually landed.
+#
+# There is no "set -e" here and the DROP above is unconditional. If the uid rules fail - no xt_owner
+# module in the kernel, a lost xtables lock, EPERM - the chain becomes nothing but [lo ACCEPT, DROP].
+# Linking that blacks out the ENTIRE device: root, netd, system_server, adb, everything. De1984 could
+# not even reach the system to undo it. Failing open is strictly better than bricking the network:
+# the app's own firewall takes over moments later anyway.
+#
+# The -C guard also stops a re-run stacking a second jump that a single -D would miss.
+link_if_sane() {
+    _t="${'$'}1"
+    if ${'$'}_t -w 5 -C de1984_boot -m owner --uid-owner 0 -j ACCEPT 2>/dev/null; then
+        ${'$'}_t -w 5 -C OUTPUT -j de1984_boot 2>/dev/null || ${'$'}_t -w 5 -I OUTPUT -j de1984_boot
+    else
+        echo "de1984: ${'$'}_t allow-list missing, refusing to link a drop-all chain" > /dev/kmsg 2>/dev/null
+        ${'$'}_t -w 5 -F de1984_boot 2>/dev/null
+        ${'$'}_t -w 5 -X de1984_boot 2>/dev/null
+    fi
+}
+
+link_if_sane iptables
+link_if_sane ip6tables
 
 # Safety net. The block is only meant to cover the gap before De1984 takes over.
 # If that never happens - firewall left off, start failed, screen still locked, app
@@ -244,8 +308,8 @@ ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_
 
         // Confirm the file is actually gone. The caller reboots on success and would otherwise
         // reboot straight back into a device that is still blocked at every boot.
-        if (isBootProtectionEnabled()) {
-            val error = "Boot script still present after deletion"
+        if (isBootProtectionInstalled() != false) {
+            val error = "Boot script still present after deletion, or its removal could not be confirmed"
             AppLogger.e(TAG, error)
             return Result.failure(Exception(error))
         }
@@ -276,12 +340,12 @@ ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_
         // At boot the app has not yet asked Magisk for root, so hasRootPermission is still false and
         // every command here would silently no-op - isBootProtectionEnabled() would report "false"
         // for a script that is plainly on disk. Wake the privilege first.
-        if (!rootManager.hasRootPermission && !shizukuManager.hasShizukuPermission) {
+        if (!hasBootProtectionPrivilege()) {
             AppLogger.d(TAG, "No privilege yet - requesting root before checking boot protection")
             rootManager.forceRecheckRootStatus()
         }
 
-        if (!rootManager.hasRootPermission && !shizukuManager.hasShizukuPermission) {
+        if (!hasBootProtectionPrivilege()) {
             // Cannot check and cannot act. Say so rather than reporting "not enabled": the boot
             // script may well be installed and still blocking. The script's own expiry timer is
             // the remaining safety net.
@@ -289,7 +353,10 @@ ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_
             return Result.failure(Exception("No root or Shizuku access"))
         }
 
-        if (!isBootProtectionEnabled()) {
+        // Only skip on a definite "no". If the check was inconclusive we tear down regardless: doing
+        // it needlessly costs a few harmless iptables calls, skipping it wrongly leaves the device
+        // with no network.
+        if (isBootProtectionInstalled() == false) {
             AppLogger.d(TAG, "No boot protection script installed - nothing to lift")
             return Result.success(Unit)
         }
@@ -310,33 +377,54 @@ ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_
             try {
                 AppLogger.d(TAG, "Removing boot protection iptables rules...")
 
-                // IPv4: Remove boot protection chain
-                // 1. Unlink the chain from OUTPUT
-                var result = executeCommand("iptables -D OUTPUT -j de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv4: Unlinked de1984_boot chain (exit code: ${result.first})")
+                // Without privilege every command below is a silent no-op that still "succeeds".
+                // Callers reboot, or decide the device is safe, on the strength of this result.
+                if (!hasBootProtectionPrivilege()) {
+                    val error = "No root (or root-mode Shizuku) - boot protection block was NOT lifted"
+                    AppLogger.e(TAG, error)
+                    return@withContext Result.failure(Exception(error))
+                }
 
-                // 2. Flush the chain
-                result = executeCommand("iptables -F de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv4: Flushed de1984_boot chain (exit code: ${result.first})")
+                for (table in listOf("iptables", "ip6tables")) {
+                    // Always attempt the delete, never gate it on a probe. -D returns 0 when it
+                    // removed a jump and non-zero when there was nothing left, so the loop ends by
+                    // itself and a stacked jump cannot survive. An earlier version only ran -D when a
+                    // -C probe returned 0, which meant any probe failure - a held xtables lock, a
+                    // denial - produced zero teardown attempts.
+                    var removed = 0
+                    while (removed < MAX_JUMP_REMOVALS &&
+                        executeCommand("$table $XT_WAIT -D OUTPUT -j de1984_boot").first == 0
+                    ) {
+                        removed++
+                    }
+                    AppLogger.d(TAG, "$table: removed $removed de1984_boot jump(s) from OUTPUT")
 
-                // 3. Delete the chain
-                result = executeCommand("iptables -X de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv4: Deleted de1984_boot chain (exit code: ${result.first})")
+                    executeCommand("$table $XT_WAIT -F de1984_boot")
+                    executeCommand("$table $XT_WAIT -X de1984_boot")
+                }
 
-                // IPv6: Remove boot protection chain
-                // 1. Unlink the chain from OUTPUT
-                result = executeCommand("ip6tables -D OUTPUT -j de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv6: Unlinked de1984_boot chain (exit code: ${result.first})")
+                // Verify the outcome. Exit codes must be read carefully: -C returns 0 when the jump
+                // is still there, 1 when the rule is absent and 2 when the chain is absent - both of
+                // which mean gone - but it also returns other codes for a held lock or a denial.
+                // Treating "could not check" as "gone" is how this function used to report a verified
+                // teardown on a device that was still fully blocked.
+                val unresolved = mutableListOf<String>()
+                for (table in listOf("iptables", "ip6tables")) {
+                    val code = executeCommand("$table $XT_WAIT -C OUTPUT -j de1984_boot").first
+                    when (code) {
+                        0 -> unresolved += "$table (jump still linked)"
+                        1, 2 -> Unit // rule or chain absent - this is what success looks like
+                        else -> unresolved += "$table (could not verify, exit $code)"
+                    }
+                }
 
-                // 2. Flush the chain
-                result = executeCommand("ip6tables -F de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv6: Flushed de1984_boot chain (exit code: ${result.first})")
+                if (unresolved.isNotEmpty()) {
+                    val error = "Boot protection teardown unverified: ${unresolved.joinToString()}"
+                    AppLogger.e(TAG, error)
+                    return@withContext Result.failure(Exception(error))
+                }
 
-                // 3. Delete the chain
-                result = executeCommand("ip6tables -X de1984_boot 2>/dev/null || true")
-                AppLogger.d(TAG, "IPv6: Deleted de1984_boot chain (exit code: ${result.first})")
-
-                AppLogger.d(TAG, "✅ Boot protection iptables rules removed successfully")
+                AppLogger.d(TAG, "✅ Boot protection iptables rules removed and verified gone")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to remove boot protection iptables rules", e)
@@ -344,6 +432,17 @@ ip6tables -C OUTPUT -j de1984_boot 2>/dev/null || ip6tables -I OUTPUT -j de1984_
             }
         }
     }
+
+    /**
+     * Whether we can actually act on boot protection.
+     *
+     * Shizuku permission alone is not enough. In ADB mode Shizuku runs as uid 2000, which can touch
+     * neither iptables nor /data/adb, so every command would fail while the code believed it had
+     * privilege. Only root, or Shizuku running in root mode, can do this work.
+     */
+    private fun hasBootProtectionPrivilege(): Boolean =
+        rootManager.hasRootPermission ||
+            (shizukuManager.hasShizukuPermission && shizukuManager.isShizukuRootMode())
 
     /**
      * Execute command using root or Shizuku.

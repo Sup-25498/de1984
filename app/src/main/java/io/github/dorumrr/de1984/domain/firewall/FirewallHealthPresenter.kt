@@ -65,6 +65,8 @@ object FirewallHealthPresenter {
                 context.getString(R.string.firewall_down_reason_vpn_conflict)
             FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED ->
                 context.getString(R.string.firewall_down_reason_vpn_permission)
+            FirewallHealth.Down.Reason.START_FAILED ->
+                context.getString(R.string.firewall_down_reason_start_failed)
         }
 
         is FirewallHealth.SwitchedToVpn -> {
@@ -90,6 +92,7 @@ object FirewallHealthPresenter {
             FirewallHealth.Down.Reason.FALLBACK_FAILED -> FirewallHealthAction.RETRY
             FirewallHealth.Down.Reason.VPN_CONFLICT -> FirewallHealthAction.REPLACE_VPN
             FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED -> FirewallHealthAction.ENABLE_VPN
+            FirewallHealth.Down.Reason.START_FAILED -> FirewallHealthAction.RETRY
         }
     }
 

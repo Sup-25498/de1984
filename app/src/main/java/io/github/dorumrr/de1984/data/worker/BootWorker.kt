@@ -52,13 +52,17 @@ class BootWorker(
                 return Result.failure()
             }
 
-            // Lift any boot-protection block FIRST, before deciding anything about the firewall.
-            // This must not depend on the firewall being enabled or on it starting successfully:
-            // both of those used to gate it, which left the device blocked on every boot.
-            app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
-
+            // The boot block is lifted once the outcome is known, never before. Lifting it up front
+            // left the device unprotected for the whole restore window - root wake, Shizuku wake and
+            // the start itself - which is precisely the gap boot protection exists to close. This now
+            // matches BootReceiver, which is the ≤ API 30 path; the two used to disagree, and this
+            // one silently disabled the feature on every modern device.
+            //
+            // Every exit below still lifts it, so the block cannot outlive this worker. The script's
+            // own 120-second timer remains the backstop if this worker never runs at all.
             if (!wasEnabled) {
-                AppLogger.d(TAG, "ℹ️  FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot")
+                AppLogger.d(TAG, "ℹ️  FIREWALL WAS NOT ENABLED | Nothing will take over - lifting any boot block")
+                app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
                 return Result.success()
             }
 
@@ -90,26 +94,21 @@ class BootWorker(
             result.onSuccess { backendType ->
                 AppLogger.d(TAG, "✅ FIREWALL RESTORED SUCCESSFULLY | Trigger: BOOT_COMPLETED (WorkManager) | Backend: $backendType")
 
-                // Reset iptables policies if boot protection was enabled
-                val bootProtectionEnabled = prefs.getBoolean(
-                    Constants.Settings.KEY_BOOT_PROTECTION,
-                    Constants.Settings.DEFAULT_BOOT_PROTECTION
-                )
-                if (bootProtectionEnabled) {
-                    AppLogger.d(TAG, "Boot protection was enabled - resetting iptables policies to ACCEPT")
-                    try {
-                        val bootProtectionManager = app.dependencies.bootProtectionManager
-                        val resetResult = bootProtectionManager.resetIptablesPolicies()
-                        if (resetResult.isSuccess) {
-                            AppLogger.d(TAG, "✅ iptables policies reset successfully")
-                        } else {
-                            AppLogger.e(TAG, "❌ Failed to reset iptables policies: ${resetResult.exceptionOrNull()?.message}")
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "❌ Exception while resetting iptables policies", e)
+                // Protection has been handed over - lift the block.
+                //
+                // Keyed on the script being on disk, not on KEY_BOOT_PROTECTION. That preference is
+                // reset by clearing app data while the script stays installed, so gating on it was a
+                // second and less reliable source of truth for the same question.
+                AppLogger.d(TAG, "Firewall is up - lifting any boot protection block")
+                try {
+                    val resetResult = app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+                    if (resetResult.isSuccess) {
+                        AppLogger.d(TAG, "✅ Boot protection block lifted (or none present)")
+                    } else {
+                        AppLogger.e(TAG, "❌ Failed to lift boot protection block: ${resetResult.exceptionOrNull()?.message}")
                     }
-                } else {
-                    AppLogger.d(TAG, "Boot protection not enabled - skipping iptables policy reset")
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "❌ Exception while lifting boot protection block", e)
                 }
 
                 // Check if we fell back to VPN and should start monitoring service
@@ -144,6 +143,16 @@ class BootWorker(
                 }
             }.onFailure { error ->
                 AppLogger.e(TAG, "❌ FAILED TO RESTORE FIREWALL | Trigger: BOOT_COMPLETED (WorkManager) | Error: ${error.message}")
+
+                // A failed start must not leave the block standing. Protection is gone either way at
+                // this point; keeping it only takes the device offline until the script's own timer
+                // fires, with no in-app way out. Same rule as BootReceiver's failure path.
+                try {
+                    app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to lift boot protection block after a failed start", e)
+                }
+
                 return Result.failure()
             }
 
@@ -152,6 +161,16 @@ class BootWorker(
         } catch (e: Exception) {
             AppLogger.e(TAG, "❌ ERROR IN BOOT WORKER | Error: ${e.message}")
             AppLogger.e(TAG, "Stack trace:", e)
+
+            // Every exit lifts the block, this one included. A throw anywhere above would otherwise
+            // leave the device blocked until the script's own timer fires.
+            try {
+                (applicationContext as? De1984Application)
+                    ?.dependencies?.bootProtectionManager?.clearBootBlockIfInstalled()
+            } catch (inner: Exception) {
+                AppLogger.e(TAG, "Failed to lift boot protection block after a worker error", inner)
+            }
+
             return Result.failure()
         }
     }

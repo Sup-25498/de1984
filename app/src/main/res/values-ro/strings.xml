@@ -369,6 +369,7 @@
     <string name="firewall_down_reason_no_plan">Pe acest dispozitiv nu există niciun backend de firewall utilizabil.</string>
     <string name="firewall_down_reason_fallback_failed">Backendul de rezervă nu a pornit. Nimic nu blochează accesul la rețea.</string>
     <string name="firewall_down_reason_vpn_conflict">Altă aplicație VPN ocupă slotul VPN. De1984 trebuie să o înlocuiască pentru a te proteja.</string>
+    <string name="firewall_down_reason_start_failed">De1984 nu a putut porni firewallul. Nimic nu blochează accesul la rețea.</string>
     <string name="firewall_down_reason_vpn_permission">De1984 are nevoie de permisiunea VPN pentru a reface protecția.</string>
     <string name="firewall_down_action_choose_backend">Alege backend</string>
     <string name="firewall_down_action_retry">Încearcă din nou</string>

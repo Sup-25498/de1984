@@ -370,6 +370,7 @@
     <string name="firewall_down_reason_no_plan">На этом устройстве нет подходящего бэкенда брандмауэра.</string>
     <string name="firewall_down_reason_fallback_failed">Запасной бэкенд не запустился. Доступ к сети ничем не ограничен.</string>
     <string name="firewall_down_reason_vpn_conflict">Слот VPN занят другим VPN-приложением. De1984 должен заменить его, чтобы вас защитить.</string>
+    <string name="firewall_down_reason_start_failed">De1984 не смог запустить брандмауэр. Доступ к сети ничем не ограничен.</string>
     <string name="firewall_down_reason_vpn_permission">De1984 нужно разрешение VPN, чтобы восстановить защиту.</string>
     <string name="firewall_down_action_choose_backend">Выбрать бэкенд</string>
     <string name="firewall_down_action_retry">Повторить</string>
