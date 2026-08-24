@@ -455,8 +455,8 @@
     <string name="settings_show_icons_description">Pode acelerar o app quando desativado</string>
 
     <string name="settings_boot_protection_title">Proteção na Inicialização</string>
-    <string name="settings_boot_protection_description">Bloquear todo o tráfego de rede durante a inicialização do dispositivo até o firewall ativar (requer root)</string>
-    <string name="settings_boot_protection_unavailable">Requer acesso root</string>
+    <string name="settings_boot_protection_description">Bloquear todo o tráfego de rede durante a inicialização do dispositivo até o firewall ativar (requer root e Magisk)</string>
+    <string name="settings_boot_protection_unavailable">Requer root e scripts de inicialização do Magisk</string>
     <string name="settings_boot_protection_stuck">⚠️ A Proteção na Inicialização ainda está instalada, mas o De1984 perdeu o acesso root e não pode mais removê-la daqui. Ela bloqueará os apps por até 2 minutos após cada inicialização e depois se desativa sozinha. Para removê-la definitivamente:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">Notificações de Novos Apps</string>

@@ -455,8 +455,8 @@
     <string name="settings_show_icons_description">Peut accélérer l\'application si désactivé</string>
 
     <string name="settings_boot_protection_title">Protection au démarrage</string>
-    <string name="settings_boot_protection_description">Bloquer tout le trafic réseau pendant le démarrage de l\'appareil jusqu\'à l\'activation du pare-feu (requiert root)</string>
-    <string name="settings_boot_protection_unavailable">Requiert l\'accès root</string>
+    <string name="settings_boot_protection_description">Bloquer tout le trafic réseau pendant le démarrage de l\'appareil jusqu\'à l\'activation du pare-feu (requiert root et Magisk)</string>
+    <string name="settings_boot_protection_unavailable">Requiert root et les scripts de démarrage Magisk</string>
     <string name="settings_boot_protection_stuck">⚠️ La protection au démarrage est toujours installée, mais De1984 a perdu l\'accès root et ne peut plus la supprimer d\'ici. Elle bloquera les applications jusqu\'à 2 minutes après chaque démarrage, puis se désactivera d\'elle-même. Pour la supprimer définitivement :\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">Notifications des nouvelles applications</string>

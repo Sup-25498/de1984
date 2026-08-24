@@ -455,8 +455,8 @@
     <string name="settings_show_icons_description">Può velocizzare l’app se disattivato</string>
 
     <string name="settings_boot_protection_title">Protezione all\'Avvio</string>
-    <string name="settings_boot_protection_description">Blocca tutto il traffico di rete durante l\'avvio del dispositivo fino all\'attivazione del firewall (richiede root)</string>
-    <string name="settings_boot_protection_unavailable">Richiede accesso root</string>
+    <string name="settings_boot_protection_description">Blocca tutto il traffico di rete durante l\'avvio del dispositivo fino all\'attivazione del firewall (richiede root e Magisk)</string>
+    <string name="settings_boot_protection_unavailable">Richiede root e gli script di avvio Magisk</string>
     <string name="settings_boot_protection_stuck">⚠️ La Protezione all\'Avvio è ancora installata, ma De1984 ha perso l\'accesso root e non può più rimuoverla da qui. Bloccherà le app fino a 2 minuti dopo ogni avvio, poi si disattiva da sola. Per rimuoverla definitivamente:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">Notifiche Nuove App</string>

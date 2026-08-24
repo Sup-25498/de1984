@@ -1,0 +1,7 @@
+Fixed apps staying blocked after a network change until you toggled the firewall #87 #74
+Fixed roaming silently allowed when changing one network for an app #80
+Fixed IPv6 traffic escaping the VPN backend for blocked apps
+Stopping the firewall is now verified: if rules survive, De1984 warns you
+Boot Protection self-heals and now says it needs Magisk, not just root #79
+Fixed captive portal settings altered by backup and restore
+Corrected backend requirements in the README #75 #76 #89

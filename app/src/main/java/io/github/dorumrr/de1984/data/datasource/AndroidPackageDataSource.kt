@@ -959,6 +959,7 @@ class AndroidPackageDataSource(
                         appName = getAppName(appInfo),
                         wifiBlocked = blocked,
                         mobileBlocked = isBlockAllDefault,
+                        blockWhenRoaming = isBlockAllDefault,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
                         hasInternetPermission = hasNetworkPermissions(packageName, userId)
@@ -1011,6 +1012,7 @@ class AndroidPackageDataSource(
                         appName = getAppName(appInfo),
                         wifiBlocked = isBlockAllDefault,
                         mobileBlocked = blocked,
+                        blockWhenRoaming = isBlockAllDefault,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
                         hasInternetPermission = hasNetworkPermissions(packageName, userId)
@@ -1116,6 +1118,7 @@ class AndroidPackageDataSource(
                         appName = getAppName(appInfo),
                         wifiBlocked = isBlockAllDefault,
                         mobileBlocked = isBlockAllDefault,
+                        blockWhenRoaming = isBlockAllDefault,
                         blockWhenBackground = blocked,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),

@@ -458,8 +458,8 @@
     <string name="settings_show_icons_description">Might speed up the app when disabled</string>
 
     <string name="settings_boot_protection_title">Boot Protection</string>
-    <string name="settings_boot_protection_description">Block all network traffic during device startup until firewall activates (requires root)</string>
-    <string name="settings_boot_protection_unavailable">Requires root access</string>
+    <string name="settings_boot_protection_description">Block all network traffic during device startup until firewall activates (requires root and Magisk)</string>
+    <string name="settings_boot_protection_unavailable">Requires root and Magisk boot scripts</string>
     <string name="settings_boot_protection_stuck">⚠️ Boot protection is still installed, but De1984 has lost root access and can no longer remove it from here. It will block apps for up to 2 minutes after each boot, then lift itself automatically. To remove it permanently:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
 
     <string name="settings_new_app_notifications_title">New App Notifications</string>
