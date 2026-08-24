@@ -108,6 +108,17 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
      * Only this one setting changes what the adapter is, so only this one should rebuild it.
      */
     private var previousObservedShowIcons: Boolean? = null
+
+    /**
+     * Last `allowCriticalPackageFirewall` value the rows were bound for.
+     *
+     * The adapter caches this flag and reads it only at bind time, to decide whether a
+     * system-critical or VPN row is dimmed and whether its quick toggles respond. Before the
+     * early-return below existed, the unconditional adapter rebuild happened to repaint those rows.
+     * Nothing else does - refreshSettings() updates the cache with no notify, and updateUI bails out
+     * when the package objects have not changed. So this has to be tracked explicitly.
+     */
+    private var previousObservedAllowCritical: Boolean? = null
     private var lastSubmittedPackages: List<NetworkPackage> = emptyList()
 
     // Dialog tracking to prevent multiple dialogs from stacking
@@ -498,6 +509,19 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     val iconsChanged = previousObservedShowIcons != settingsState.showAppIcons
                     val policyChanged = previousObservedPolicy != null &&
                         previousObservedPolicy != settingsState.defaultFirewallPolicy
+                    val allowCriticalChanged = previousObservedAllowCritical != null &&
+                        previousObservedAllowCritical != settingsState.allowCriticalPackageFirewall
+
+                    if (allowCriticalChanged) {
+                        // Changes what each row LOOKS like and whether its quick toggles respond, but
+                        // not the package data - so updateUI's diff sees nothing to submit. Refresh
+                        // the adapter's cached copy and force a rebind, or critical and VPN rows stay
+                        // dimmed with dead toggles until they scroll off screen and back.
+                        AppLogger.d(TAG, "observeSettingsState: allowCriticalPackageFirewall changed - rebinding rows")
+                        adapter.refreshSettings(requireContext())
+                        adapter.notifyDataSetChanged()
+                    }
+                    previousObservedAllowCritical = settingsState.allowCriticalPackageFirewall
 
                     if (!iconsChanged && !policyChanged && previousObservedPolicy != null) {
                         // Nothing this screen renders has changed. Rebuilding here reset the scroll
@@ -1746,15 +1770,25 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
                 var changed = false
+                val seenThisEmit = mutableSetOf<PackageId>()
                 state.packages.forEach { pkg ->
                     if (trackedSelection.containsKey(pkg.id)) {
+                        if (trackedSelection[pkg.id] != pkg) changed = true
                         trackedSelection[pkg.id] = pkg
-                        changed = true
+                        seenThisEmit.add(pkg.id)
                     }
                 }
-                if (changed && !isUpdatingProgrammatically) {
-                    AppLogger.d(TAG, "showMultiSelectRulesSheet: uiState collected - updating ${trackedSelection.size} packages")
-                    updateTogglesFromPackages(trackedSelection.values.toList())
+
+                // Aggregate over what we can still SEE. A selected app that has dropped out of the
+                // filtered list - which is exactly what a toggle in this sheet does under a
+                // Blocked/Allowed filter - would otherwise keep voting with its last-seen values and
+                // drag the switch the user just moved back to "Mixed". Writes are unaffected: they go
+                // through getSelectedPackagePairs(), which reads the full selection.
+                val visible = trackedSelection.filterKeys { it in seenThisEmit }.values.toList()
+
+                if (changed && visible.isNotEmpty() && !isUpdatingProgrammatically) {
+                    AppLogger.d(TAG, "showMultiSelectRulesSheet: uiState collected - updating from ${visible.size} of ${trackedSelection.size} selected")
+                    updateTogglesFromPackages(visible)
                 }
             }
         }

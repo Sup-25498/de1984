@@ -82,17 +82,19 @@ class AndroidPackageDataSource(
                     if (!isLoading && (packagesFlow.replayCache.isEmpty() || (now - lastLoadTime) > CACHE_TTL)) {
                         isLoading = true
                         try {
-                            // null means the scan FAILED, which is not the same as "this device has
-                            // no apps". Emitting the old empty list showed the empty state with no
-                            // error, and - worse - stamped lastLoadTime, so every subscriber for the
-                            // next second got that empty list back instead of retrying.
+                            // A failed scan THROWS. It used to return emptyList(), which was emitted
+                            // and stamped lastLoadTime, so the user saw "no packages" with no error
+                            // and every collector for the next second got that cached empty list.
+                            //
+                            // Swallowing it into null was worse still: nothing was emitted at all, so
+                            // PackagesViewModel's .catch never fired and its spinner ran forever, and
+                            // SettingsViewModel's getPackages().first() suspended for good.
+                            //
+                            // Both callers already handle a thrown error. Letting it out is what
+                            // reaches them. lastLoadTime is not stamped, so the next collector retries.
                             val packages = loadPackagesInternal()
-                            if (packages != null) {
-                                lastLoadTime = System.currentTimeMillis()
-                                packagesFlow.emit(packages)
-                            } else {
-                                AppLogger.w(TAG, "Package scan failed - not caching, the next collector retries")
-                            }
+                            lastLoadTime = System.currentTimeMillis()
+                            packagesFlow.emit(packages)
                         } finally {
                             isLoading = false
                         }
@@ -101,8 +103,8 @@ class AndroidPackageDataSource(
             }
         }
     
-    /** @return the packages, or null when the scan failed. Null and empty are not the same thing. */
-    private suspend fun loadPackagesInternal(): List<PackageEntity>? = withContext(Dispatchers.IO) {
+    /** @throws Exception when the scan fails. A failure is not an empty device - see the caller. */
+    private suspend fun loadPackagesInternal(): List<PackageEntity> = withContext(Dispatchers.IO) {
         val flowStartTime = System.currentTimeMillis()
         AppLogger.i(TAG, "⏱️ TIMING: getPackages START at $flowStartTime")
         try {
@@ -289,7 +291,9 @@ class AndroidPackageDataSource(
             allPackages.sortedBy { it.name.lowercase() }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get packages: ${e.message}", e)
-            null
+            // Rethrown, not swallowed. This also stops a CancellationException from loadJob.cancel()
+            // being eaten here, which it was under both of the previous versions.
+            throw e
         }
     }
     

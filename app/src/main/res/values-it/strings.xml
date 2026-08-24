@@ -94,6 +94,9 @@
     <string name="status_enabled">Attivo</string>
     <string name="status_disabled">Disattivo</string>
     <string name="status_uninstalled">Disinstallato</string>
+    <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
+    <string name="packages_status_enabled">Attivo</string>
+    <string name="packages_status_disabled">Disattivo</string>
     <string name="status_system">Sistema</string>
     <string name="status_user">Utente</string>
     <string name="status_threat">Rischio</string>

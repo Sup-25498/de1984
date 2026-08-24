@@ -94,6 +94,9 @@
     <string name="status_enabled">Activé</string>
     <string name="status_disabled">Désactivé</string>
     <string name="status_uninstalled">Désinstallé</string>
+    <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
+    <string name="packages_status_enabled">Activé</string>
+    <string name="packages_status_disabled">Désactivé</string>
     <string name="status_system">Système</string>
     <string name="status_user">Utilisateur</string>
     <string name="status_threat">Menace</string>

@@ -94,6 +94,9 @@
     <string name="status_enabled">Включён</string>
     <string name="status_disabled">Отключён</string>
     <string name="status_uninstalled">Удалён</string>
+    <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
+    <string name="packages_status_enabled">Включён</string>
+    <string name="packages_status_disabled">Отключён</string>
     <string name="status_system">Системный</string>
     <string name="status_user">Пользовательский</string>
     <string name="status_threat">Угроза</string>
