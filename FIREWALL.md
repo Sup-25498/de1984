@@ -310,7 +310,9 @@ The ConnectivityManager firewall chain API operates at the app level, not the ne
 
 **Network changes:**
 
-Rules are re-applied on every network change: PrivilegedFirewallService observes the network type and calls `applyRules`, which evaluates `rule.isBlockedOn(networkType)`. The result is normally identical, because this backend offers only a single Block Network toggle and granular rules are flattened by `migrateRulesToSimple` when switching from VPN or iptables. A rule that is still non-uniform — for example one that survived a restart where the migration did not run — will therefore change behaviour between WiFi and Mobile.
+Rules are re-applied on every network change: `PrivilegedFirewallService` observes the network type and calls `applyRules`. The network type does **not** affect the outcome for this backend. `applyRules` evaluates `rule.isBlockedOnAnyNetwork()`, so an app is blocked if its rule blocks on WiFi, Mobile **or** Roaming, whichever network is live.
+
+This is what makes "all-or-nothing" true in practice. A non-uniform rule — one that survived a switch from VPN or iptables where `migrateRulesToSimple` did not run — used to leave the app blocked on one network and open on another, while the single Block Network toggle said blocked either way. It now resolves toward blocking. LAN is excluded from that test: it is a separate axis that only iptables enforces.
 
 **Example (Block All):**
 - Chrome (no rule) → Blocked everywhere
@@ -318,6 +320,56 @@ Rules are re-applied on every network change: PrivilegedFirewallService observes
 - Telegram (has "block" rule) → Blocked everywhere (WiFi, Mobile, Roaming)
 
 For a uniform rule, switching between WiFi and Mobile has no effect - the blocking state remains the same.
+
+---
+
+## Boot Protection
+
+Optional, **root only**. Blocks all network traffic from the moment the kernel is up until De1984 starts, closing the window where apps can talk before any backend exists.
+
+**How it works.** A script is installed at `/data/adb/post-fs-data.d/de1984_boot_protection.sh` — Magisk's directory, not the app's. At boot it creates a `de1984_boot` chain that accepts loopback and a small set of system UIDs, and DROPs everything else. It uses raw `iptables` because `post-fs-data` runs long before Android's framework.
+
+**Toggling it reboots the device**, on both enable and disable. This is deliberate, chosen so that on-disk state and live state can never disagree. The confirmation dialog says so and lists ADB recovery steps.
+
+**Two safety guards, both verified on hardware:**
+- **Self-expiry.** The chain removes itself about 120 seconds after boot whether or not De1984 ever starts. Measured at +72 s on a test device.
+- **Self-delete.** If the APK is gone from every user profile, the script deletes itself and exits without installing anything.
+
+**Recovery if it ever goes wrong:**
+```
+adb shell
+su
+rm /data/adb/post-fs-data.d/de1984_boot_protection.sh
+reboot
+```
+
+The switch reads the **script on disk**, not the preference, so clearing app data cannot leave the UI disagreeing with reality.
+
+---
+
+## What survives uninstalling De1984
+
+Backends do not all store their blocks in the same place, so uninstalling has different consequences depending on which one was running. **Stopping the firewall first always cleans up correctly** — this only concerns uninstalling while it is on.
+
+| Backend | Where blocks live | Survives uninstall | Survives reboot |
+|---|---|---|---|
+| NetworkPolicyManager | `/data/system/netpolicy.xml` | **Yes** | **Yes** |
+| ConnectivityManager | live system state | Yes | No |
+| iptables | kernel | Yes | No |
+| VPN | the tunnel | No | No |
+
+**NetworkPolicyManager is the one that matters.** Its blocks are stored by Android in a system file outside the app. Uninstall De1984 with an app blocked and that app has no internet **permanently** — nothing in Android's UI explains it, and it survives reboot. Verified on hardware.
+
+Android never tells an app it is being uninstalled, so De1984 cannot clean up after itself.
+
+**Turn the firewall off before uninstalling.**
+
+To clear a block left behind, per affected UID:
+```
+adb shell cmd netpolicy add    restrict-background-blacklist <uid>
+adb shell cmd netpolicy remove restrict-background-blacklist <uid>
+```
+Both commands are needed; `remove` alone is refused when the UID is not on that list.
 
 ---
 
