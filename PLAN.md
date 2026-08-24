@@ -21,42 +21,42 @@ Last updated: 2026-08-22 · against v2.6.2 (versionCode 33), commit `baf6b4e`
 ## P0-1 Boot protection: five ways to permanently kill app networking — VERIFIED
 
 **What is written:** `/data/adb/post-fs-data.d/de1984_boot_protection.sh`, mode 755, outside the app
-sandbox. Root only. `data/common/BootProtectionManager.kt:135`, path at `utils/Constants.kt:140`
+sandbox. Root only. `data/common/BootProtectionManager.kt:115`, path at `utils/Constants.kt:140`
 
 **What it does every boot:** creates iptables + ip6tables chain `de1984_boot`; ACCEPTs loopback and
 uids 0/1000/1010/1016/1051; `DROP`s everything else; inserts itself at the head of `OUTPUT`.
 `data/common/BootProtectionManager.kt:96-131`
 
-**Only remover:** `resetIptablesPolicies()` (`:190-224`), two callers only (`BootReceiver.kt:174`,
-`BootWorker.kt:97`), both requiring ALL THREE: pref `firewall_enabled` true, `startFirewall()` success,
+**Only remover:** `resetIptablesPolicies()` (`:170-204`), two callers only (`BootReceiver.kt:150`,
+`BootWorker.kt:81`), both requiring ALL THREE: pref `firewall_enabled` true, `startFirewall()` success,
 pref `boot_protection` true.
 
 | # | Trigger | Outcome | Status |
 |---|---|---|---|
-| 1 | Firewall OFF + boot protection ON + reboot | Boot restore returns at `BootReceiver.kt:124` / `BootWorker.kt:48-51` before the reset. All user apps offline every boot. | VERIFIED |
+| 1 | Firewall OFF + boot protection ON + reboot | Boot restore returns at `BootReceiver.kt:106` / `BootWorker.kt:48-51` before the reset. All user apps offline every boot. | VERIFIED |
 | 2 | Uninstall De1984 | No uninstall hook exists anywhere; no Magisk module, no `uninstall.sh`. Script runs forever. | VERIFIED |
-| 3 | Clear app data | `boot_protection` pref → false (`Constants.kt:128`); reset skipped, script still runs. | VERIFIED |
+| 3 | Clear app data | `boot_protection` pref → false (`Constants.kt:127`); reset skipped, script still runs. | VERIFIED |
 | 4 | Root not ready at boot, or third-party VPN connected | `startFirewall()` fails → reset never runs. | VERIFIED |
 | 5 | Root lost after enabling | `bootProtectionAvailable=false` forces the switch `isChecked=false, isEnabled=false`. User can never turn it off. | VERIFIED |
 
 **The app's own recovery advice is half-broken.** `res/values/strings.xml:773` (the enable-warning
 dialog) offers two routes. Route 1 "Settings → Disable Boot Protection" is exactly the control that is
-force-disabled in scenario 5 — `ui/settings/SettingsFragmentViews.kt:504-508`. Route 2 gives correct
+force-disabled in scenario 5 — `ui/settings/SettingsFragmentViews.kt:458-462`. Route 2 gives correct
 ADB+root commands, but needs a PC and root, and is only shown once, before enabling.
 
 **Turning the setting OFF does not unblock the running device.** `setBootProtection(false)` calls
 `deleteBootScript()` — an `rm -f` only. `resetIptablesPolicies()` is not on that path. The live chain
-survives until reboot. `data/common/BootProtectionManager.kt:165`
+survives until reboot. `data/common/BootProtectionManager.kt:145`
 
 **`resetIptablesPolicies()` always returns success** even when nothing ran. `executeCommand` returns
-`(-1, "No root or Shizuku access")` at `:239`; exit codes at `:197-219` are logged and discarded; `:222`
+`(-1, "No root or Shizuku access")` at `:218`; exit codes at `:177-199` are logged and discarded; `:202`
 returns `Result.success`. Logs claim the chain was removed while the device is still blocked.
 
 **Removal is single-shot and unverified.** The script's `iptables -I OUTPUT` is unguarded and can link
 twice; the reset issues exactly one `-D` per family, every command ends in `|| true`.
 
 **`isBootProtectionEnabled()` reads the real on-disk truth and has ZERO callers.** Nothing ever
-reconciles pref against disk. `data/common/BootProtectionManager.kt:46`
+reconciles pref against disk. `data/common/BootProtectionManager.kt:38`
 
 **Allow-list problems.** Exempt uids are 0/1000/1010/1016/1051 + loopback only.
 - `AID_RADIO` (1001) and the networkstack uid are absent → cellular data setup and connectivity
@@ -66,8 +66,8 @@ reconciles pref against disk. `data/common/BootProtectionManager.kt:46`
 - Comments are wrong: 1016 is `AID_VPN` (media is 1013); 1051 is `AID_DNS` (gps is 1021).
 
 **Enable path leaves an orphan on partial failure.** `createBootScript` writes with a truncating `echo`
-redirect (`:135`), never reads the file back, and on `chmod` failure returns failure **without deleting
-the file** (`:147-154`). Pref stays false, UI shows OFF, script sits on disk.
+redirect (`:115`), never reads the file back, and on `chmod` failure returns failure **without deleting
+the file** (`:127-134`). Pref stays false, UI shows OFF, script sits on disk.
 
 **RESOLVED ON HARDWARE 2026-08-22 — the chain SURVIVES `netd`.**
 Tested on TrebleDroid GSI / LineageOS 21 / Android 14 / userdebug / Magisk root, using a harmless probe
@@ -412,8 +412,8 @@ traffic (335 -> 620 packets during the test). Only a reboot recovered the device
 ## P0-2 NetworkPolicyManager blocks survive stop, reboot AND uninstall — VERIFIED
 
 `stopInternal` clears only the in-memory `appliedPolicies` map; `setUidPolicy(uid, POLICY_REJECT_*)`
-written at `:333` is never set back to `POLICY_NONE` anywhere in the tree.
-`data/firewall/NetworkPolicyManagerFirewallBackend.kt:145-165`
+written at `:308` is never set back to `POLICY_NONE` anywhere in the tree.
+`data/firewall/NetworkPolicyManagerFirewallBackend.kt:111-128`
 
 Android persists uid policies in `/data/system/netpolicy.xml`. So blocked apps stay blocked forever
 after the firewall is stopped or De1984 is uninstalled. Reboot does not help. **This needs only
@@ -421,14 +421,14 @@ Shizuku — no root — so it is easier to hit than P0-1.** The map holds exactl
 cleanup is possible and simply not done.
 
 `cleanupAllBackends` only instantiates `IptablesFirewallBackend`, and its comment at
-`data/firewall/FirewallManager.kt:668-671` falsely asserts the other backends leave no persistent
+`data/firewall/FirewallManager.kt:566-569` falsely asserts the other backends leave no persistent
 state. NPM is not mentioned at all.
 
 ## P0-3 Deadlock in the firewall failure-recovery path — VERIFIED
 
 `handleBackendFailure` runs inside `startStopMutex.withLock` (`FirewallManager.kt:1107`) then calls
-`startFirewall` (`:1163`, `:1226`), which takes the same non-reentrant `kotlinx.coroutines.Mutex`
-(`:362`). The coroutine suspends forever **holding the lock**, so every later start/stop/toggle also
+`startFirewall` (`:1016`, `:1068`), which takes the same non-reentrant `kotlinx.coroutines.Mutex`
+(`:288`). The coroutine suspends forever **holding the lock**, so every later start/stop/toggle also
 hangs for the rest of the process.
 
 Matches user reports "Firewall Not Running But The Switch Was On" and "Not Responding" in
@@ -436,7 +436,7 @@ Matches user reports "Firewall Not Running But The Switch Was On" and "Not Respo
 
 ## P0-4 Any installed app can permanently disable the firewall — VERIFIED
 
-`ui/widget/FirewallWidget.kt:96` writes `KEY_FIREWALL_ENABLED` straight from a broadcast extra. The
+`ui/widget/FirewallWidget.kt:81` writes `KEY_FIREWALL_ENABLED` straight from a broadcast extra. The
 receiver is `android:exported="true"` on a custom, **unprotected** action
 `io.github.dorumrr.de1984.FIREWALL_STATE_CHANGED` (`AndroidManifest.xml:225-230`).
 
@@ -454,11 +454,11 @@ Self-inflicted, but a pasted "recommended settings" string from a forum is a rea
 ## P0-6 Captive-portal changes outlive the app, and reinstall destroys the real original — VERIFIED
 
 `setSystemSetting` writes device-wide `Settings.Global` (`:113,:366-379`) while the only backup lives in
-the app's own SharedPreferences (`:122-133`). Uninstall or Clear Data destroys the backup; the system
+the app's own SharedPreferences (`:99-110`). Uninstall or Clear Data destroys the backup; the system
 keeps the modified values. A user left on `mode=IGNORE` or a dead custom URL gets permanent
 "no internet" WiFi with no in-app way back.
 
-Worse: `captureOriginalSettings` skips only when its flag exists (`:115-118`). After a reinstall the
+Worse: `captureOriginalSettings` skips only when its flag exists (`:92-95`). After a reinstall the
 flag is gone, so it **stores the already-modified state as pristine**. `restoreOriginalSettings` then
 restores the damage. The true original is unrecoverable.
 
@@ -488,28 +488,28 @@ warning: `create-keystore` should refuse to overwrite an existing `.backup`, or 
 | P1-3 | Privilege-gain switch stops VPN first, and on failure only logs: `isFirewallDown` stays false, no notification, no broadcast, and `break` ends health monitoring. Firewall off, silently, no recovery. | `FirewallManager.kt:1009-1022` | VERIFIED |
 | P1-4 | `Error` state has **no UI consumer at all**. `firewallState`, `isFirewallDown`, `backendHealthWarning` are read by nothing. The user cannot tell "I turned it off" from "protection collapsed". | `MainActivity.kt`, `FirewallViewModel.kt:123-132` | VERIFIED |
 | P1-5 | Init Case C not implemented: a detected running backend is adopted as Running without ever reading `KEY_FIREWALL_ENABLED`. Orphaned services keep enforcing while the user believes the firewall is off. | `FirewallManager.kt:167-243` | VERIFIED |
-| P1-6 | `migrateRulesToSimple` permanently rewrites partial rules to block-all on any granular→simple switch, including automatic privilege-loss fallback. Switching back does not restore. | `FirewallManager.kt:843-877`, trigger `:475` | VERIFIED |
-| P1-7 | Bulk "Allow All" clears wifi+mobile but not roaming; single-app `allowAll()` clears all three. Roaming is derived as `roaming OR mobile`. | `FirewallRuleDao.kt:95` vs `FirewallRule.kt:43,66` | VERIFIED |
-| P1-8 | "Block all networks" leaves LAN open — `setAllNetworkBlocking` creates the rule without `lanBlocked`. | `AndroidPackageDataSource.kt:1301` | VERIFIED |
+| P1-6 | `migrateRulesToSimple` permanently rewrites partial rules to block-all on any granular→simple switch, including automatic privilege-loss fallback. Switching back does not restore. | `FirewallManager.kt:730-764`, trigger `:395` | VERIFIED |
+| P1-7 | Bulk "Allow All" clears wifi+mobile but not roaming; single-app `allowAll()` clears all three. Roaming is derived as `roaming OR mobile`. | `FirewallRuleDao.kt:74` vs `FirewallRule.kt:33,66` | VERIFIED |
+| P1-8 | "Block all networks" leaves LAN open — `setAllNetworkBlocking` creates the rule without `lanBlocked`. | `AndroidPackageDataSource.kt:1188` | VERIFIED |
 | P1-9 | Batch confirmation counts only **visible** selections but uninstalls **every** selected package. User is told "3", loses more. | `PackagesFragmentViews.kt:1253,1294,1302` | INFERRED |
 | P1-10 | Package safety DB fails open and caches the empty result **permanently**. One parse error → every app becomes unknown → all uninstall rails silently downgrade. | `PackageSafetyLoader.kt:55-66` | VERIFIED |
 | P1-11 | Work-only apps get a UID fabricated from `packageName.hashCode()`, then fed to the firewall backends as a real uid. | `HiddenApiHelper.kt:438` | INFERRED |
-| P1-12 | ConnectivityManager backend keys policy by package name only, ignoring `userId`. | `ConnectivityManagerFirewallBackend.kt:296` | VERIFIED |
+| P1-12 | ConnectivityManager backend keys policy by package name only, ignoring `userId`. | `ConnectivityManagerFirewallBackend.kt:243` | VERIFIED |
 | P1-13 | Failed rule writes are never reverted — the "revert by reloading" path replays the already-mutated cache. | `FirewallViewModel.kt:315` | VERIFIED |
-| P1-14 | `PrivilegedFirewallService.onDestroy` cancels the coroutine that tears iptables down, leaving DROP rules on the device. | `PrivilegedFirewallService.kt:169` | INFERRED |
-| P1-15 | Both services return `START_STICKY` but `stopSelf` on the null redelivered intent — after a process kill the firewall fails open. | `FirewallVpnService.kt:140`, `BackendMonitoringService.kt:81-100` | INFERRED |
+| P1-14 | `PrivilegedFirewallService.onDestroy` cancels the coroutine that tears iptables down, leaving DROP rules on the device. | `PrivilegedFirewallService.kt:165` | INFERRED |
+| P1-15 | Both services return `START_STICKY` but `stopSelf` on the null redelivered intent — after a process kill the firewall fails open. | `FirewallVpnService.kt:136`, `BackendMonitoringService.kt:81-100` | INFERRED |
 | P1-16 | iptables DROP rules accumulate across restarts: `blockedUids` is per-instance, `startInternal` never flushes the chain. An app shown Allowed can stay blocked by a duplicate rule. | `IptablesFirewallBackend.kt:91,500,712` | INFERRED |
-| P1-17 | iptables `stop()` is fire-and-forget `startService` returning success unconditionally. If the service is dead, DROP rules stay while the log says "stopped successfully". | `IptablesFirewallBackend.kt:118-138` | INFERRED |
+| P1-17 | iptables `stop()` is fire-and-forget `startService` returning success unconditionally. If the service is dead, DROP rules stay while the log says "stopped successfully". | `IptablesFirewallBackend.kt:90-105` | INFERRED |
 | P1-18 | ConnectivityManager per-package denies are never reverted on stop — only the global chain is switched off and the cache cleared. | `ConnectivityManagerFirewallBackend.kt:137-150,322-324` | VERIFIED |
 | P1-19 | VPN tunnel is IPv4-only (address `10.0.0.2/24`, route `0.0.0.0/0`, no IPv6). Blocked apps reach the network over IPv6. | `FirewallVpnService.kt:619-624` | VERIFIED |
 | P1-20 | Widget/tile toggle always starts `FirewallMode.AUTO`, ignoring a sticky manual choice, and marks the firewall enabled even when the start failed. | `FirewallToggleReceiver.kt`, `VpnPermissionActivity.kt:76-82` | VERIFIED |
-| P1-21 | User apps uninstall permanently with one tap; the Uninstalled filter and Reinstall are gated on `type == SYSTEM`. Batch-of-50 is one ordinary button while one ESSENTIAL app requires typing "UNINSTALL". Friction is inverted. | `PackagesViewModel.kt:195`, `PackagesFragmentViews.kt:1122-1129,1292-1306,1054-1069` | VERIFIED |
+| P1-21 | User apps uninstall permanently with one tap; the Uninstalled filter and Reinstall are gated on `type == SYSTEM`. Batch-of-50 is one ordinary button while one ESSENTIAL app requires typing "UNINSTALL". Friction is inverted. | `PackagesViewModel.kt:170`, `PackagesFragmentViews.kt:1122-1129,1292-1306,1054-1069` | VERIFIED |
 | P1-22 | Settings "import uninstalled apps" applies **no criticality check** — filters only on "is installed", forces `userId=0`, batch-uninstalls. | `SettingsViewModel.kt:888-892,948-977` | VERIFIED |
 | P1-23 | Nothing survives reinstall. `allowBackup=false`, both backup XMLs exclude everything, Room destructive fallback with only 4→5 and 5→6 written, schema export off and `app/schemas/` empty. | `AndroidManifest.xml:49`, `De1984Dependencies.kt:103-176` | VERIFIED |
-| P1-24 | All backend work runs on the caller's dispatcher — no `withContext` anywhere. UI callers use `lifecycleScope`, so `su` probes, iptables `isActive()`, `VpnService.prepare` and Room queries run on the main thread on every `onResume`. | `FirewallManager.kt:362,2320`; `MainActivity.kt:255,284,825,857` | VERIFIED |
+| P1-24 | All backend work runs on the caller's dispatcher — no `withContext` anywhere. UI callers use `lifecycleScope`, so `su` probes, iptables `isActive()`, `VpnService.prepare` and Room queries run on the main thread on every `onResume`. | `FirewallManager.kt:288,2320`; `MainActivity.kt:227,284,825,857` | VERIFIED |
 | P1-25 | `catch (e: Exception)` swallows `CancellationException` in six places, converting a cancelled switch into a failure **after** the new backend already started. | `FirewallManager.kt:580,630,828,885,1080,1760` | INFERRED |
-| P1-26 | Backend switches are non-atomic outside `startFirewall`: privilege change stops old first (code comment admits a 1–2s gap); `restartFirewallIfRunning` does stop + `delay(500)` + start, so picking a backend in Settings unblocks every app for at least half a second. | `FirewallManager.kt:2244-2258`, `SettingsViewModel.kt:557` | VERIFIED |
-| P1-27 | Under iptables, state monitoring never starts, so `currentNetworkType` stays `NONE` and `isScreenOn` stays true for the whole session. Network-conditional rules are evaluated against a network the device is never on. | `FirewallManager.kt:141-142,207,565-572,1754` | INFERRED |
+| P1-26 | Backend switches are non-atomic outside `startFirewall`: privilege change stops old first (code comment admits a 1–2s gap); `restartFirewallIfRunning` does stop + `delay(500)` + start, so picking a backend in Settings unblocks every app for at least half a second. | `FirewallManager.kt:2244-2258`, `SettingsViewModel.kt:518` | VERIFIED |
+| P1-27 | Under iptables, state monitoring never starts, so `currentNetworkType` stays `NONE` and `isScreenOn` stays true for the whole session. Network-conditional rules are evaluated against a network the device is never on. | `FirewallManager.kt:112-113,207,565-572,1754` | INFERRED |
 
 ---
 
@@ -529,11 +529,11 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 ## Change (doc is wrong)
 | Doc says | Code does |
 |---|---|
-| Health/privilege ladder 1s→5s→10s→30s, reset to 1s | Two tiers: 15s initial, 60s after 10 successes; failure resets to 15s — `Constants.kt:180-182` |
+| Health/privilege ladder 1s→5s→10s→30s, reset to 1s | Two tiers: 15s initial, 60s after 10 successes; failure resets to 15s — `Constants.kt:177-179` |
 | Root check `su -c id` with 3s timeout | libsu on a **cached** shell running `id`, no timeout — `RootManager.kt:104-140` |
 | iptables availability = `iptables -L` | `iptables --version`, **plus** it requires Shizuku in root mode when no root — `IptablesFirewallBackend.kt:456-470` |
 | Dropdown shows only available backends | All 5 always listed; unavailable ones greyed with a reason dialog — `SettingsFragmentViews.kt:598-615` |
-| Toggle ON only when Running | ON for Running **or** Starting — `FirewallViewModel.kt:128` |
+| Toggle ON only when Running | ON for Running **or** Starting — `FirewallViewModel.kt:118` |
 | Toggle disabled during Starting/Switching | Never disabled; the switch stays live |
 | "Firewall not running" error indicator in UI | No UI reads `Error`/`isFirewallDown`/`backendHealthWarning`. Only ACTIVE and OFF badges exist |
 | Fallback notification persistent until resolved | `setAutoCancel(true)` — it dismisses on tap |
@@ -606,22 +606,22 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 # P4 — Built but unreachable
 
 - Global `BlockAllAppsUseCase` / `AllowAllAppsUseCase` / `GetBlockedCountUseCase` /
-  `GetFirewallRuleByPackageUseCase`: wired in DI, **zero UI callers** — `De1984Dependencies.kt:284-301`
+  `GetFirewallRuleByPackageUseCase`: wired in DI, **zero UI callers** — `De1984Dependencies.kt:244-261`
 - The dead global bulk excludes the **soft** `SYSTEM_RECOMMENDED_ALLOW` tier but **not** the untouchable
   `SYSTEM_WHITELIST` — the two-tier model inverted. Wiring it up would block SystemUI.
-  `FirewallRepositoryImpl.kt:154,160`
+  `FirewallRepositoryImpl.kt:136,160`
 - "Threats" filter + badge translated into all 7 languages, no Kotlin behind it — `strings.xml:82,99`
 - Four settings read at startup, never written by any UI: auto-refresh, show system apps, dark theme,
-  refresh interval — `SettingsViewModel.kt:81-84,251-262,582-585`
+  refresh interval — `SettingsViewModel.kt:77-80,251-262,582-585`
 - "Open source licenses" returns a "coming soon" message from a function nothing calls — `:589-594`
 - Entire second navigation stack unused: `res/layout/activity_main.xml`, `res/navigation/nav_graph.xml`,
   `res/menu/drawer_menu.xml`, `res/menu/popup_menu.xml`, `res/layout/activity_test_views.xml`
 - ~90 unreferenced translated strings, 11 unreferenced drawables, `item_footer.xml`, `item_library.xml`
-- Batch uninstall/reinstall renders hardcoded English from `Constants.kt:52-82` while full translations
+- Batch uninstall/reinstall renders hardcoded English from `Constants.kt:51-81` while full translations
   exist and are referenced nowhere
 - `wouldBackendChange` (`FirewallManager.kt:2310`) — zero callers, comment admits it is obsolete
 - `dismissVpnConflictNotification` (`FirewallManager.kt:1509`) — zero callers
-- `isBootProtectionEnabled` (`BootProtectionManager.kt:46`) — zero callers
+- `isBootProtectionEnabled` (`BootProtectionManager.kt:38`) — zero callers
 - A large amount of user-facing copy lives hardcoded in `Constants.kt` and can never translate,
   despite shipping 7 locales
 
@@ -703,15 +703,15 @@ VPN→iptables→CM→NPM with 5 attempts · Cases A, B, D.
 ### THE THREE MEANINGS OF BLOCK ALL — evidence, 2026-08-23
 
 A firewall rule has FIVE blocking dimensions: `wifiBlocked`, `mobileBlocked`, `blockWhenRoaming`,
-`blockWhenBackground` (screen-off), `lanBlocked`. `domain/model/FirewallRule.kt:20-24`
+`blockWhenBackground` (screen-off), `lanBlocked`. `domain/model/FirewallRule.kt:11-15`
 
 Three separate code paths claim to "block all" and each covers a different subset:
 
 | Path | Where | Sets | Misses |
 |---|---|---|---|
 | Global default policy, app with no rule | `data/datasource/AndroidPackageDataSource.kt:355-363` | wifi, mobile, roaming, **LAN** | screen-off (deliberately conservative) |
-| `FirewallRule.blockAll()` — per-app, notification action | `domain/model/FirewallRule.kt:68` | wifi, mobile, roaming | **LAN**, screen-off |
-| `blockAllApps()` SQL — bulk policy switch | `data/database/dao/FirewallRuleDao.kt:92` | wifi, mobile | **roaming** (= M076), **LAN**, screen-off |
+| `FirewallRule.blockAll()` — per-app, notification action | `domain/model/FirewallRule.kt:58` | wifi, mobile, roaming | **LAN**, screen-off |
+| `blockAllApps()` SQL — bulk policy switch | `data/database/dao/FirewallRuleDao.kt:71` | wifi, mobile | **roaming** (= M076), **LAN**, screen-off |
 
 The multi-select sheet makes the mismatch visible: it shows four toggles including LAN
 (`res/layout/bottom_sheet_firewall_multiselect.xml:94-147`), but its "Block All Networks" button calls
@@ -733,7 +733,7 @@ Needed to implement decision 4 (hide what cannot be enforced).
 | LAN | yes | **no** | **no** | **no** |
 
 "approximate" = the backend re-reads the per-network rule on every network change
-(`ConnectivityManagerFirewallBackend.kt:253-256`, `NetworkPolicyManagerFirewallBackend.kt:425-431`)
+(`ConnectivityManagerFirewallBackend.kt:253-256`, `NetworkPolicyManagerFirewallBackend.kt:373-379`)
 but the block it installs applies to every network until the next recalculation.
 
 `lanBlocked` is read in exactly one backend: `data/firewall/IptablesFirewallBackend.kt:350`. On the
@@ -760,7 +760,7 @@ no meaningful user impact). **25 survived as worth acting on.** The unverified c
 | M107 NetworkPolicyManager currentBackend regression | Shizuku user on the NetworkPolicyManager backend restarts the app: turning the firewall off no longer stops it (cleanupAllBackends only clears iptables), so apps stay blocked. | `data/firewall/FirewallManager.kt:229` | CONFIRMED |
 | M049 backends report success on failed rules | An app the user blocked keeps full network access while the UI shows the rule applied and no error is raised; on iptables it stays unblocked until the backend restarts. | `data/firewall/IptablesFirewallBackend.kt:733` | CONFIRMED |
 | M040 PrivilegedFirewallService not idempotent | Switching between two privileged backends leaves the old iptables chains or netpolicy uid rules installed, and the later stop tears down the new backend instead, leaving stale blocks. | `data/service/PrivilegedFirewallService.kt:283` | CONFIRMED |
-| M077 backup restore uses stale uid | Restoring a backup on another device (or after reinstalls) can block the wrong apps and leave intended apps unblocked on the root/Shizuku backends, silently. | `presentation/viewmodel/SettingsViewModel.kt:690` | CONFIRMED |
+| M077 backup restore uses stale uid | Restoring a backup on another device (or after reinstalls) can block the wrong apps and leave intended apps unblocked on the root/Shizuku backends, silently. | `presentation/viewmodel/SettingsViewModel.kt:637` | CONFIRMED |
 
 **P1-28 M107 NetworkPolicyManager currentBackend regression** is datable. `git log -L 226,232` shows
 commit `4c6171c` ("Add Quick Settings Tile and Home Screen Widget") changed `currentBackend = npmBackend`
@@ -787,26 +787,26 @@ failed DROP is recorded as applied and never retried. The intent was right; the 
 | ID | User impact | Where | Verdict |
 |---|---|---|---|
 | M091 dev.sh emulator wait overruns its timeout | Emulator wait can hang ~9 minutes despite a stated 3-minute timeout while spamming a false 'Emulator is ready!' line. | `dev.sh:232-251` | CONFIRMED |
-| M001 init races the start/stop lock | On startup, widget/tile/boot paths racing the 5-attempt init loop can leave the manager pointing at a replaced backend, so state shown and stopped is the wrong one. | `data/firewall/FirewallManager.kt:188` | CONFIRMED |
-| M002 early-exit leaves stale down-state | Reachable via handleVpnConflictFallbackFailed (:2029), which nulls _activeBackendType but keeps currentBackend: a later start leaves UI showing no backend while firewall runs. | `data/firewall/FirewallManager.kt:423-425 and :445-463` | PARTIAL |
-| M006 firewall list adapter rebuilt on every settings emit | Any settings-state change while the firewall list is visible jumps the list back to the top and reloads every visible icon from disk. | `ui/firewall/FirewallFragmentViews.kt:496` | CONFIRMED |
+| M001 init races the start/stop lock | On startup, widget/tile/boot paths racing the 5-attempt init loop can leave the manager pointing at a replaced backend, so state shown and stopped is the wrong one. | `data/firewall/FirewallManager.kt:150` | CONFIRMED |
+| M002 early-exit leaves stale down-state | Reachable via handleVpnConflictFallbackFailed (:2029), which nulls _activeBackendType but keeps currentBackend: a later start leaves UI showing no backend while firewall runs. | `data/firewall/FirewallManager.kt:347-349 and :445-463` | PARTIAL |
+| M006 firewall list adapter rebuilt on every settings emit | Any settings-state change while the firewall list is visible jumps the list back to the top and reloads every visible icon from disk. | `ui/firewall/FirewallFragmentViews.kt:444` | CONFIRMED |
 | M013 multi-select aggregates a partial subset | With a state filter or search active, the multi-select toggle can show a uniform state derived from part of the selection; the next tap applies to all selected apps. | `ui/firewall/FirewallFragmentViews.kt:1713-1716` | CONFIRMED |
 | M031 package load caches empty results | A transient enumeration failure shows the empty-list state with no error, and new subscribers within the 1s TTL get the cached empty list instead of retrying. | `data/datasource/AndroidPackageDataSource.kt:281-283` | PARTIAL |
-| M039 onLost reports NONE and over-blocks | After a WiFi-to-cellular handoff, apps blocked on only one transport are blocked on both until the next capability callback re-emits the real type. | `data/monitor/NetworkStateMonitor.kt:179-181` | CONFIRMED |
+| M039 onLost reports NONE and over-blocks | After a WiFi-to-cellular handoff, apps blocked on only one transport are blocked on both until the next capability callback re-emits the real type. | `data/monitor/NetworkStateMonitor.kt:170-172` | CONFIRMED |
 | M014 one-shot dialogs never cleared | Dismissing the import-preview dialog by tapping outside makes it pop up again every time the user returns to Settings, until Confirm/Cancel is pressed. | `ui/settings/SettingsFragmentViews.kt:556` | CONFIRMED |
-| M094 CM backend does react to network changes | A granular rule left from VPN/iptables makes an app blocked on every network while on WiFi and fully allowed on mobile data, contradicting the documented all-or-nothing behaviour. | `data/firewall/ConnectivityManagerFirewallBackend.kt:266` | CONFIRMED |
-| M111 CM OEM_DENY_3 toggled without capturing prior state | Uninstalling or force-stopping De1984 while the CM backend is active leaves blocked apps with no network until reboot; disabling chain3 could also clobber an OEM's own use of it. | `data/firewall/ConnectivityManagerFirewallBackend.kt:149` | PARTIAL |
-| M099 widget/tile ignores sticky manual mode | Widget/tile start ignores a manually chosen VPN mode and uses a different backend; a failed start still records firewall_enabled=true, so boot restore thinks it was running. | `data/receiver/FirewallToggleReceiver.kt:90` | CONFIRMED |
+| M094 CM backend does react to network changes | A granular rule left from VPN/iptables makes an app blocked on every network while on WiFi and fully allowed on mobile data, contradicting the documented all-or-nothing behaviour. | `data/firewall/ConnectivityManagerFirewallBackend.kt:216` | CONFIRMED |
+| M111 CM OEM_DENY_3 toggled without capturing prior state | Uninstalling or force-stopping De1984 while the CM backend is active leaves blocked apps with no network until reboot; disabling chain3 could also clobber an OEM's own use of it. | `data/firewall/ConnectivityManagerFirewallBackend.kt:109` | PARTIAL |
+| M099 widget/tile ignores sticky manual mode | Widget/tile start ignores a manually chosen VPN mode and uses a different backend; a failed start still records firewall_enabled=true, so boot restore thinks it was running. | `data/receiver/FirewallToggleReceiver.kt:78` | CONFIRMED |
 | M047 superuser banner matches English text only | In any non-English locale, a firewall block/allow that fails for lack of root shows only a raw error line, never the superuser banner telling the user to grant root/Shizuku. | `app/src/main/res/values-ru/strings.xml:753` | CONFIRMED |
-| M100 boot-protection UI trusts the pref not the disk | After an app-data wipe or external script deletion the switch shows a state that does not match /data/adb/post-fs-data.d; user cannot tell or clear it from the UI. | `presentation/viewmodel/SettingsViewModel.kt:91` | CONFIRMED |
-| M076 bulk allow-all leaves roaming blocked | After switching the default policy to Allow All, apps that had roaming blocked stay blocked while roaming; the roaming toggle still reads ON. | `data/database/dao/FirewallRuleDao.kt:95` | CONFIRMED |
-| M024 Packages list mixes languages | On a translated device the Packages list mixes languages: translated chips beside English Enabled/Disabled/Uninstalled badges, English empty state and English toasts. | `ui/packages/PackageAdapter.kt:235` | CONFIRMED |
-| M050 work-profile VPN apps never detected as exempt | A VPN app installed only in the work profile is not recognised as a VPN, so Block All mode blocks it and work-profile VPN connectivity breaks. | `data/firewall/IptablesFirewallBackend.kt:874` | CONFIRMED |
-| M027 work-profile enabled-state defaults to true without root | On Shizuku-only (unrooted) devices every work-profile app is shown as Enabled, and the detail sheet offers Disable for apps that are already disabled. | `data/multiuser/HiddenApiHelper.kt:574` | CONFIRMED |
-| M055 stale Shizuku granted state | If Shizuku revocation does not kill the process, Settings keeps showing Granted and privileged actions fail until the app is restarted. | `data/common/ShizukuManager.kt:163` | NEEDS-RUNTIME |
-| M098 VPN tunnel is IPv4 only | On an IPv6-capable network a blocked app may still reach the internet over IPv6 while the UI shows it as blocked. | `data/service/FirewallVpnService.kt:621` | NEEDS-RUNTIME |
+| M100 boot-protection UI trusts the pref not the disk | After an app-data wipe or external script deletion the switch shows a state that does not match /data/adb/post-fs-data.d; user cannot tell or clear it from the UI. | `presentation/viewmodel/SettingsViewModel.kt:87` | CONFIRMED |
+| M076 bulk allow-all leaves roaming blocked | After switching the default policy to Allow All, apps that had roaming blocked stay blocked while roaming; the roaming toggle still reads ON. | `data/database/dao/FirewallRuleDao.kt:74` | CONFIRMED |
+| M024 Packages list mixes languages | On a translated device the Packages list mixes languages: translated chips beside English Enabled/Disabled/Uninstalled badges, English empty state and English toasts. | `ui/packages/PackageAdapter.kt:214` | CONFIRMED |
+| M050 work-profile VPN apps never detected as exempt | A VPN app installed only in the work profile is not recognised as a VPN, so Block All mode blocks it and work-profile VPN connectivity breaks. | `data/firewall/IptablesFirewallBackend.kt:834` | CONFIRMED |
+| M027 work-profile enabled-state defaults to true without root | On Shizuku-only (unrooted) devices every work-profile app is shown as Enabled, and the detail sheet offers Disable for apps that are already disabled. | `data/multiuser/HiddenApiHelper.kt:479` | CONFIRMED |
+| M055 stale Shizuku granted state | If Shizuku revocation does not kill the process, Settings keeps showing Granted and privileged actions fail until the app is restarted. | `data/common/ShizukuManager.kt:137` | NEEDS-RUNTIME |
+| M098 VPN tunnel is IPv4 only | On an IPv6-capable network a blocked app may still reach the internet over IPv6 while the UI shows it as blocked. | `data/service/FirewallVpnService.kt:587` | NEEDS-RUNTIME |
 | M072 reinstalled app silently reuses its old rule | Reinstalled app is silently blocked by an old rule; in iptables/NPM modes the stale uid never matches, so the UI shows Blocked while traffic is not blocked. | `domain/usecase/HandleNewAppInstallUseCase.kt:70-73` | CONFIRMED |
-| M108 stop result discarded, OFF persisted before the stop | If the stop fails, prefs, widget and toggle all show OFF while backend rules may remain, with no error shown to the user. | `presentation/viewmodel/FirewallViewModel.kt:650-655` | CONFIRMED |
+| M108 stop result discarded, OFF persisted before the stop | If the stop fails, prefs, widget and toggle all show OFF while backend rules may remain, with no error shown to the user. | `presentation/viewmodel/FirewallViewModel.kt:565-570` | CONFIRMED |
 
 Full verdicts, including the 72 downgraded and the 30 dropped, are in
 `/private/tmp/claude-501/-Users-doru-dev-phi-de1984/fdaaee55-3651-40f7-8e98-1a7463e5d26f/scratchpad/verdicts.json`.
@@ -837,7 +837,7 @@ OUTPUT**, ahead of `oem_out` / `fw_OUTPUT` / `st_OUTPUT` / `bw_OUTPUT`. There is
 BootWorker: Firewall was enabled before boot: false
 BootWorker: FIREWALL WAS NOT ENABLED | Skipping firewall restoration after boot
 ```
-That is `data/worker/BootWorker.kt:48-51` returning before the reset at `:97`. Counters on the live
+That is `data/worker/BootWorker.kt:48-51` returning before the reset at `:81`. Counters on the live
 `de1984_boot` DROP rule climbed **212 -> 246 -> 261 -> 335 -> 609 -> 620 packets** over a few minutes.
 Real app traffic, really dropped, on every boot, with no in-app way out. WiFi still shows connected
 (uid 1010 is exempt) so the phone *looks* healthy.
@@ -892,9 +892,9 @@ the real default is Cloudflare. "Reset to defaults" silently moves a privacy-foc
 inside a privacy app. `data/common/CaptivePortalManager.kt:302-314`.
 
 ### NEW P1 — every confirmation dialog can be dismissed without reverting
-`ui/common/StandardDialog.kt:36-66` builds with `cancelable = true` but wires the cancel callback only
+`ui/common/StandardDialog.kt:8-37` builds with `cancelable = true` but wires the cancel callback only
 to `setNegativeButton`. There is **no `setOnCancelListener`**, and `showConfirmation` never passes the
-`onDismiss` hook that exists at `:62`. Tapping outside or pressing Back dismisses without running the
+`onDismiss` hook that exists at `:33`. Tapping outside or pressing Back dismisses without running the
 revert.
 
 Observed live: the boot-protection switch showed **ON** while nothing had been written and the pref key
@@ -1074,7 +1074,7 @@ a second action.
 
 **Fix:** cancel is now explicit. `show()` takes its own `onCancel`; `showConfirmation` passes it through
 because there the negative button genuinely is cancel. All 5 direct `show()` callers pass none, so they
-behave exactly as before. This also removed a low-severity double-callback at `ui/MainActivity.kt:677`.
+behave exactly as before. This also removed a low-severity double-callback at `ui/MainActivity.kt:616`.
 
 **Improved by the change (6 sites):** backend-mode dropdown revert, both critical-package switches,
 boot protection switch, and both `clearImportPreview()` calls - the latter being finding **M014**.
@@ -1168,7 +1168,7 @@ the device being unusable.
 ## P0-3 Deadlock in the failure-recovery path — FIXED
 `startFirewall` is now a thin wrapper over a new private `startFirewallInternal(mode)`, matching the
 `stopFirewall` / `stopFirewallInternal` pattern the file already used. The two calls inside
-`handleBackendFailure` (`FirewallManager.kt:1163`, `:1226`) now reach the internal form, so the
+`handleBackendFailure` (`FirewallManager.kt:1016`, `:1068`) now reach the internal form, so the
 non-reentrant `startStopMutex` is taken exactly once.
 
 Traced every `startFirewall(` call site in the tree. Only those two ran under the lock. The other
@@ -1262,7 +1262,7 @@ allowance to every blocked app.
 ## Reachability — VERIFIED during the 2026-08-22 audit
 `FirewallManager.selectBackend(FirewallMode.AUTO)` is iptables -> ConnectivityManager -> VPN, with no
 NPM branch at any Android version (`FirewallManager.kt:791-820`). **AUTO never selects this backend.**
-It is reachable only by manual selection, which `SettingsFragmentViews.kt:766` offers whenever Shizuku
+It is reachable only by manual selection, which `SettingsFragmentViews.kt:694` offers whenever Shizuku
 is present, with no Android version gate.
 
 So the blast radius is users who deliberately choose NetworkPolicyManager in Settings. For them the
@@ -1313,7 +1313,7 @@ originals, and only ever clear policies it set itself.
 
 # NEW P2 — the backend picker offers ConnectivityManager where it cannot run
 
-`SettingsFragmentViews.kt:740` gates ConnectivityManager on `hasShizuku && isAndroid13Plus` only. It
+`SettingsFragmentViews.kt:669` gates ConnectivityManager on `hasShizuku && isAndroid13Plus` only. It
 never calls `checkAvailability()`.
 
 On the test device `cmd connectivity help` lists only `help` and `airplane-mode` — no
@@ -1332,8 +1332,8 @@ The 9 collapse into 4 distinct defects. All 4 are now fixed.
 
 ## A. Cross-instance race on the original-policy record — FIXED
 Raised by 3 lenses independently (deadlock, lifecycle, regression). Four instantiation sites exist:
-`FirewallManager.kt:226`, `:845`, `PrivilegedFirewallService.kt:263`, and the cleanup one at
-`FirewallManager.kt:685`. Each instance has its own `mutex`, so nothing serialised the
+`FirewallManager.kt:184`, `:732`, `PrivilegedFirewallService.kt:263`, and the cleanup one at
+`FirewallManager.kt:583`. Each instance has its own `mutex`, so nothing serialised the
 load-mutate-save of the shared prefs key across instances.
 
 **Independently reproduced on hardware before the audit landed**, which is what makes this certain:
@@ -1477,9 +1477,9 @@ never asks whether another network is still up, so **any** secondary network goi
 device as offline while WiFi is connected and validated.
 
 `FirewallRule.isBlockedOn` returns `false` for `NetworkType.NONE`
-(`domain/model/FirewallRule.kt:44`), so at that moment **every rule stops blocking**. All three
-consumers of the flow are affected — `FirewallManager.kt:934`, `PrivilegedFirewallService.kt:383`,
-`FirewallVpnService.kt:202` — which means **all four backends**, iptables included.
+(`domain/model/FirewallRule.kt:34`), so at that moment **every rule stops blocking**. All three
+consumers of the flow are affected — `FirewallManager.kt:821`, `PrivilegedFirewallService.kt:383`,
+`FirewallVpnService.kt:194` — which means **all four backends**, iptables included.
 
 The flow ends in `.distinctUntilChanged()`, so recovery needs a *changed* value. WiFi was already up
 and stays up, so nothing new is emitted. The state latches.
@@ -1777,15 +1777,15 @@ signals and applies rules to **its** instance. Both instances are of the same ba
 rule change ran two full passes over every uid — measured at ~16 s each — and it is what let two
 instances race over the shared policy record.
 
-The codebase already had the rule, at `FirewallManager.kt:207`:
+The codebase already had the rule, at `FirewallManager.kt:169`:
 ```kotlin
 // Note: iptables backend uses PrivilegedFirewallService for monitoring, so don't call startMonitoring() here
 ```
 It was applied to iptables and never extended, although `ConnectivityManagerFirewallBackend` and
-`NetworkPolicyManagerFirewallBackend` both start the same service (`:74`/`:121` and `:115`/`:163`).
+`NetworkPolicyManagerFirewallBackend` both start the same service (`:74`/`:93` and `:87`/`:163`).
 The same one-rule-in-two-places drift as `FirewallVpnService`'s `NetworkType.NONE` workaround.
 
-Fix: the exclusion now covers all three privileged backends. Three call sites — `:220`, `:233`, and the
+Fix: the exclusion now covers all three privileged backends. Three call sites — `:220`, `:190`, and the
 `if` block in `startFirewallInternal`.
 
 ## Verified on hardware — one toggle of com.aurora.store
@@ -2273,11 +2273,11 @@ no reader, those five tell the user nothing at all:
 
 | Line | Message |
 |---|---|
-| `FirewallManager.kt:1140` | FIREWALL DOWN: Failed to compute fallback plan. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:996` | FIREWALL DOWN: Failed to compute fallback plan. Your apps are UNBLOCKED! |
 | `FirewallManager.kt:1165` | FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED! |
 | `FirewallManager.kt:1281` | FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED! |
 | `FirewallManager.kt:1302` | FIREWALL DOWN: VPN fallback failed. Your apps are UNBLOCKED! |
-| `FirewallManager.kt:1350` | FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED! |
+| `FirewallManager.kt:1184` | FIREWALL DOWN: Fallback failed. Your apps are UNBLOCKED! |
 
 In each of those the firewall has stopped enforcing, every app has full network access, and the only
 record is a debug log line. `_isFirewallDown` is set to `true` alongside them and is likewise read by
@@ -2745,7 +2745,7 @@ because M076 is one of its symptoms.
   calls `networkTypeExcluding(network)` and carries a comment describing exactly this defect. Closed
   by audit item D of the session-commit verification. No work needed.
 - **M100 boot-protection UI trusts the pref not the disk** — closed during P0-1 Boot protection
-  Part A. Disk reconciliation is live at `presentation/viewmodel/SettingsViewModel.kt:446`.
+  Part A. Disk reconciliation is live at `presentation/viewmodel/SettingsViewModel.kt:420`.
 
 ## M108 stop result discarded — FIXED
 
@@ -2774,7 +2774,7 @@ would make boot restore start the firewall again on the next reboot.
 
 `domain/usecase/HandleNewAppInstallUseCase.kt` returned early when a rule already existed, so a
 reinstalled app kept the uid from its previous install. The privileged backends group by `rule.uid`
-(`IptablesFirewallBackend.kt:191`, `NetworkPolicyManagerFirewallBackend.kt:387`), so a stale uid
+(`IptablesFirewallBackend.kt:153`, `NetworkPolicyManagerFirewallBackend.kt:387`), so a stale uid
 matches nothing: the UI read "Blocked" while the traffic flowed.
 
 New `refreshRuleIdentity()` re-reads uid and label from the live `PackageInfo` and writes only when

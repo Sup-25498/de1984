@@ -1166,13 +1166,6 @@ class FirewallManager(
     }
 
     /**
-     * The privileged service could not tear a backend down.
-     *
-     * Deliberately takes no lock. It is called from the service's own stop handler, which runs while
-     * stopFirewallInternal may still be sweeping, and blocking there would serialise the two halves
-     * of a stop against each other. It only publishes state.
-     */
-    /**
      * A cold-start sweep found a backend still enforcing. Raise the same warning a failed stop does.
      *
      * De1984Application sweeps on every cold start where the firewall is supposed to be OFF, using
@@ -1187,6 +1180,13 @@ class FirewallManager(
         reportStopFailed(backendType, error)
     }
 
+    /**
+     * The privileged service could not tear a backend down.
+     *
+     * Deliberately takes no lock. It is called from the service's own stop handler, which runs while
+     * stopFirewallInternal may still be sweeping, and blocking there would serialise the two halves
+     * of a stop against each other. It only publishes state.
+     */
     suspend fun handleStopFailureFromService(backendType: FirewallBackendType, error: Throwable) {
         AppLogger.e(TAG, "Service reported a failed teardown for $backendType")
         reportStopFailed(backendType, error)
