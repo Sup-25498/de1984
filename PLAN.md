@@ -779,6 +779,10 @@ failed DROP is recorded as applied and never retried. The intent was right; the 
 > "MEDIUM FINDINGS BATCH"; M014 and M039 were found already fixed by earlier work. The table below is
 > the ORIGINAL verdict list and is left unedited as the record of what was found - it is not a
 > to-do list. Still open: M091, M001, M002, M050, M027, M055, M100.
+>
+> **M047 was a false finding** - see "ADVERSARIAL AUDIT OF THE MEDIUM BATCH". The banner already
+> worked in every locale, because "Shizuku" is untranslated. Counted as closed above only because the
+> code was improved anyway.
 
 | ID | User impact | Where | Verdict |
 |---|---|---|---|
@@ -3331,3 +3335,63 @@ change, and none was reproduced on device.
 `:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, the same 7, all pre-existing and none in a
 touched file. Device left on NetworkPolicyManager, ACTIVE, rules restored, no iptables residue,
 IPv4 and IPv6 both working.
+
+
+---
+
+# ADVERSARIAL AUDIT OF THE MEDIUM BATCH — 2026-08-24. 3 REGRESSIONS, ALL MINE.
+
+23 agents, 18 findings raised, 6 survived verification, 12 refuted. Run AFTER `d8266fd` was already
+committed, so the regressions below shipped into that commit and were corrected in `9294858`.
+
+**The lesson is the useful part.** Of the seven fixes in that batch, two were verified on hardware
+(M098, M094) and five were code-only. **All three regressions came from the code-only group**, and the
+two hardware-verified fixes survived everything the audit threw at them. "It compiles and the reasoning
+is sound" was not good enough, again.
+
+## Regressions I introduced, and the corrections
+
+| What broke | Why | Correction |
+| --- | --- | --- |
+| **The Packages screen could spin forever.** M031's `null` return meant a failed scan emitted NOTHING, so `PackagesViewModel`'s `.catch` (:124) never fired and `isLoadingData` stayed true. `SettingsViewModel.importUninstalledApps` (:961) calls `getPackages().first()`, which suspended indefinitely | I replaced "wrong but terminal" (an empty list) with "silent and non-terminal" (no emission). Both callers already had error handling that the null bypassed | `loadPackagesInternal` now THROWS. Both callers handle a thrown error, `lastLoadTime` is not stamped so the next collector retries, and a `CancellationException` from `loadJob.cancel()` is no longer swallowed either |
+| **"Allow Firewall Critical Packages" stopped repainting the list.** The adapter caches that flag and reads it only at bind time. The unconditional rebuild M006 removed was the ONLY thing forcing a rebind, so critical and VPN rows stayed dimmed with inert quick toggles until they scrolled off screen and back | The early return was correct about scroll position and wrong about what else the rebuild was quietly doing | The setting is tracked explicitly; a change calls `adapter.refreshSettings()` + `notifyDataSetChanged()` WITHOUT rebuilding, so the rows repaint and the scroll position still survives |
+| **A switch could snap back to "Mixed".** M013's `trackedSelection` kept packages that had dropped out of the filtered list at their last-seen values, and they kept voting in `calculateToggleState` | Merging fixed the write path but left stale entries in the read path | The aggregate is computed only over packages seen in the current emit. Writes were always correct - they go through `getSelectedPackagePairs()` |
+| **The badges mixed plural and singular in 5 of 7 locales.** M024 reused the filter-chip labels, which are plural (`Activate`, `Ativados`), beside the already-singular `Uninstalled` | I checked that the strings EXISTED in every locale and not what they SAID | New singular `packages_status_enabled` / `packages_status_disabled` in all seven locales, each matched to the gender of that file's `status_uninstalled` |
+
+## A correction to the record: M047's premise was false
+
+M047 claimed the superuser banner never appeared in non-English locales because
+`shouldShowBannerForError` matched English words. The audit checked the actual strings: **the proper
+noun "Shizuku" is retained verbatim in all seven translations**, so `contains("Shizuku")` already
+matched everywhere and the banner did appear.
+
+The typed `De1984Error.RootRequired` check is still worth keeping - it does not depend on wording
+surviving a future edit - but it fixed nothing that was broken. **The finding should not have been
+accepted without reading the translations first.**
+
+## The new strings need a native review
+
+Written by me, not by native speakers, same standing as the rest of the translations:
+
+| Locale | enabled / disabled |
+| --- | --- |
+| ro | Activat / Dezactivat |
+| it | Attivo / Disattivo |
+| fr | Activé / Désactivé |
+| pt | Ativado / Desativado |
+| ru | Включён / Отключён |
+| zh | 已启用 / 已禁用 |
+
+## What the audit could NOT break
+
+12 findings refuted, including everything aimed at the two hardware-verified fixes: the IPv6 tunnel
+(fix M098) and the all-or-nothing blocking decision (fix M094). Those two held.
+
+## Verification
+
+`:app:assembleDebug` clean. `:app:lintDebug` - 7 errors, the same 7, none new and none in a touched
+file. Smoke-tested on device after the throw change: the Packages list loads 466 apps with no scan
+failure. The `allowCriticalPackageFirewall` correction was proven on device - the log shows
+`allowCriticalPackageFirewall changed - rebinding rows` followed by
+`nothing relevant changed - leaving the list alone`, i.e. the rows repaint and the list is still not
+rebuilt. Device left on NetworkPolicyManager, ACTIVE, setting reverted, network working.
