@@ -1,0 +1,3 @@
+- Fixed the firewall stopping on its own after a while #93 #37 #18 #4
+- ConnectivityManager backend now sends around 85% fewer commands per pass
+- No longer sends rules for system apps that Android always refuses
