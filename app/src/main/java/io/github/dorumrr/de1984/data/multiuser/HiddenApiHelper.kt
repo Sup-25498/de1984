@@ -633,7 +633,13 @@ object HiddenApiHelper {
                     AppLogger.d(TAG, "Found ${viaShizuku.size} disabled packages for user $userId via Shizuku")
                     return viaShizuku
                 }
+                // CACHED, even though it is a failure. This function is called once per PACKAGE
+                // (createSyntheticApplicationInfo, ~466 of them here), and without caching the
+                // negative every one of them would retry the Shizuku shell - each with its own 5s
+                // timeout. The old code returned early here with no work at all, so leaving this
+                // uncached turned a free path into a very expensive one.
                 AppLogger.d(TAG, "Could not determine disabled packages for user $userId - assuming none")
+                disabledPackagesCache[userId] = emptySet()
                 return emptySet()
             }
 
@@ -644,7 +650,10 @@ object HiddenApiHelper {
                 .exec()
 
             if (!result.isSuccess) {
+                // Cached for the same reason as above - one shell call per enumeration, not one per
+                // package. clearDisabledPackagesCache() is the way back when state changes.
                 AppLogger.d(TAG, "Shell pm list packages -d failed for user $userId: exit code ${result.code}")
+                disabledPackagesCache[userId] = emptySet()
                 return emptySet()
             }
 
@@ -661,6 +670,7 @@ object HiddenApiHelper {
             disabledSet
         } catch (e: Exception) {
             AppLogger.d(TAG, "Shell pm list packages -d failed: ${e.message}")
+            disabledPackagesCache[userId] = emptySet()
             emptySet()
         }
     }

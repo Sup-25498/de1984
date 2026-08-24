@@ -971,16 +971,13 @@ class IptablesFirewallBackend(
      *
      * VPN apps don't REQUEST the BIND_VPN_SERVICE permission - they DECLARE it on their service.
      * This is a service permission that protects the VPN service from being bound by unauthorized apps.
-     */
-        /**
-     * Does this package host a VPN service, for THIS user profile?
      *
-     * userId has no default on purpose. It used to default to 0, and every enforcement call
-     * site omitted it - so a VPN app installed only in the work profile was looked up in the
-     * personal profile, not found, and treated as an ordinary app. Block All then cut the work
-     * profile's VPN. Making it required means the compiler catches the next such caller.
+     * userId has NO DEFAULT on purpose. It used to default to 0, and every enforcement call site
+     * omitted it - so a VPN app installed only in the work profile was looked up in the personal
+     * profile, not found, and treated as an ordinary app. Block All then cut the work profile's
+     * VPN. Making it required means the compiler catches the next caller that forgets.
      */
-        private fun hasVpnService(packageName: String, userId: Int): Boolean {
+    private fun hasVpnService(packageName: String, userId: Int): Boolean {
         return try {
             val packageInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
                 context,
