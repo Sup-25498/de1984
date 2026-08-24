@@ -21,10 +21,11 @@
 ## ✨ Features
 
 ### 🛡️ Firewall
-- **Multiple firewall capabilities**: iptables, ConnectivityManager, and VPN fallback
+- **Multiple firewall capabilities**: iptables, ConnectivityManager, NetworkPolicyManager, and VPN fallback
 - **Automatic firewall method selection** based on device capabilities
 - **Comprehensive iptables** for rooted devices provides kernel-level blocking with superior performance
-- **ConnectivityManager** for Android 13+ devices without root
+- **ConnectivityManager** for Android 13+ devices with Shizuku, no root required
+- **NetworkPolicyManager** for older devices with Shizuku, selectable manually
 - **VPN backend** as fallback for maximum compatibility (no root required)
 - Block apps from accessing WiFi, Mobile Data, or Roaming independently
 - **Global firewall policies**: "Block All by Default" (allowlist) or "Allow All by Default" (blocklist)
@@ -50,8 +51,9 @@
 ## 📋 Requirements
 
 - **Android 8.0 (API 26) or higher**
-- **For iptables firewall**: Root or Shizuku access
-- **For ConnectivityManager firewall**: Android 13+ (no root required)
+- **For iptables firewall**: Root, or Shizuku running in root mode. Shizuku started over ADB runs as the shell user and cannot create kernel rules, so this backend stays unavailable in that mode
+- **For ConnectivityManager firewall**: Shizuku + Android 13+ (no root required)
+- **For NetworkPolicyManager firewall**: Shizuku (no root required). On ROMs that do not implement `POLICY_REJECT_ALL` it can only block metered background data, not WiFi
 - **For VPN firewall**: VPN permission (no root required, works on all Android versions)
 - **For package management**: Shizuku or root access
 
@@ -62,7 +64,21 @@
 - **QUERY_ALL_PACKAGES**: View all installed apps
 - **POST_NOTIFICATIONS**: Show notifications for new app installations (optional)
 - **RECEIVE_BOOT_COMPLETED**: Auto-start firewall on device boot
-- **Shizuku or root access**: For iptables firewall and package management (optional)
+- **Shizuku or root access**: For the iptables, ConnectivityManager and NetworkPolicyManager firewalls, and for package management (optional)
+
+## ⚠️ Good to Know
+
+**If you use VPN mode, turn OFF "Block connections without VPN"**
+
+In Android's VPN settings, De1984 must not have "Block connections without VPN" (also called lockdown) enabled. De1984's VPN routes only the apps you have *blocked* through its tunnel — allowed apps deliberately bypass it and use the network directly. Lockdown tells Android to drop anything that does not go through the VPN, so it blocks exactly those allowed apps. On recent Android versions this switch is turned on automatically when you grant a VPN, so it is worth checking.
+
+**iptables needs real root, not ADB-mode Shizuku**
+
+Shizuku started over ADB runs as the shell user (uid 2000), which cannot create kernel firewall rules. The iptables backend stays greyed out in that mode. It becomes available with root, or with Shizuku itself started in root mode.
+
+**AUTO mode never picks NetworkPolicyManager**
+
+Automatic selection tries iptables, then ConnectivityManager, then VPN. NetworkPolicyManager is available only by choosing it manually in Settings, and on ROMs that do not implement `POLICY_REJECT_ALL` it can block metered background data but not WiFi.
 
 ## 🤝 Contributing
 
