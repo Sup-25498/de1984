@@ -431,7 +431,7 @@ class NetworkPolicyManagerFirewallBackend(
             // in a UID is critical with no rule, the entire UID should be allowed
             val uidsWithCritical = if (allowCritical) {
                 allPackages
-                    .filter { Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName) }
+                    .filter { Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName, it.uid / 100000) }
                     .map { it.uid }
                     .toSet()
             } else {
@@ -477,7 +477,7 @@ class NetworkPolicyManagerFirewallBackend(
                     if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
                         // Log shared UID scenario for debugging
                         val packagesInUid = allPackages.filter { it.uid == uid }.map { it.packageName }
-                        val criticalInUid = packagesInUid.filter { Constants.Firewall.isSystemCritical(it) || hasVpnService(it) }
+                        val criticalInUid = packagesInUid.filter { Constants.Firewall.isSystemCritical(it) || hasVpnService(it, uid / 100000) }
                         if (criticalInUid.isNotEmpty() && packagesInUid.size > 1) {
                             AppLogger.d(TAG, "  UID $uid: allowing (shares UID with critical: ${criticalInUid.joinToString()})")
                         }
@@ -894,7 +894,15 @@ class NetworkPolicyManagerFirewallBackend(
      * VPN apps don't REQUEST the BIND_VPN_SERVICE permission - they DECLARE it on their service.
      * This is a service permission that protects the VPN service from being bound by unauthorized apps.
      */
-    private fun hasVpnService(packageName: String, userId: Int = 0): Boolean {
+        /**
+     * Does this package host a VPN service, for THIS user profile?
+     *
+     * userId has no default on purpose. It used to default to 0, and every enforcement call
+     * site omitted it - so a VPN app installed only in the work profile was looked up in the
+     * personal profile, not found, and treated as an ordinary app. Block All then cut the work
+     * profile's VPN. Making it required means the compiler catches the next such caller.
+     */
+        private fun hasVpnService(packageName: String, userId: Int): Boolean {
         return try {
             val packageInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
                 context,
@@ -939,7 +947,7 @@ class NetworkPolicyManagerFirewallBackend(
         // Check if ANY package with this UID is system-critical or a VPN app (unless setting is enabled)
         return packagesWithUid.any { appInfo ->
             (!allowCritical && Constants.Firewall.isSystemCritical(appInfo.packageName)) ||
-            (!allowCritical && hasVpnService(appInfo.packageName))
+            (!allowCritical && hasVpnService(appInfo.packageName, appInfo.uid / 100000))
         }
     }
 }

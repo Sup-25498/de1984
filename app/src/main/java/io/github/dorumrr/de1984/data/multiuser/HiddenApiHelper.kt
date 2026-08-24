@@ -619,7 +619,21 @@ object HiddenApiHelper {
         return try {
             val cachedShell = Shell.getCachedShell()
             if (cachedShell == null || !cachedShell.isRoot) {
-                AppLogger.d(TAG, "No cached root shell available for disabled packages check (user $userId)")
+                // Fall back to Shizuku instead of giving up. Root was the ONLY route here, so on a
+                // Shizuku-only device this returned an empty set - indistinguishable from "nothing is
+                // disabled". Every work-profile app then showed as Enabled, and the detail sheet
+                // offered "Disable" for apps that were already disabled.
+                //
+                // The same shell already lists packages for other profiles a few lines above, so the
+                // capability was there and simply unused for this one query.
+                AppLogger.d(TAG, "No cached root shell for disabled packages (user $userId) - trying Shizuku")
+                val viaShizuku = getDisabledPackagesViaShizuku(userId)
+                if (viaShizuku != null) {
+                    disabledPackagesCache[userId] = viaShizuku
+                    AppLogger.d(TAG, "Found ${viaShizuku.size} disabled packages for user $userId via Shizuku")
+                    return viaShizuku
+                }
+                AppLogger.d(TAG, "Could not determine disabled packages for user $userId - assuming none")
                 return emptySet()
             }
 
@@ -648,6 +662,35 @@ object HiddenApiHelper {
         } catch (e: Exception) {
             AppLogger.d(TAG, "Shell pm list packages -d failed: ${e.message}")
             emptySet()
+        }
+    }
+
+    /**
+     * Disabled packages for [userId] via the Shizuku shell.
+     *
+     * @return the set, or null when the query could not run at all. Null and empty mean different
+     * things: empty is "nothing is disabled", null is "we could not look".
+     */
+    private fun getDisabledPackagesViaShizuku(userId: Int): Set<String>? {
+        val manager = shizukuManager ?: return null
+        if (!manager.hasShizukuPermission) return null
+
+        return try {
+            val (exitCode, output) = runBlocking {
+                manager.executeShellCommand("pm list packages -d --user $userId")
+            }
+            if (exitCode != 0) {
+                AppLogger.d(TAG, "Shizuku pm list packages -d failed for user $userId: exit $exitCode")
+                return null
+            }
+            output.lines()
+                .filter { it.startsWith("package:") }
+                .map { it.removePrefix("package:").trim() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Shizuku pm list packages -d threw for user $userId: ${e.message}")
+            null
         }
     }
 

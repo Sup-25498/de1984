@@ -551,7 +551,7 @@ class FirewallVpnService : VpnService() {
         // Even though VPN backend operates per-package, Android's network permissions are UID-based
         val uidsWithCritical = if (allowCritical) {
             allPackages
-                .filter { io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName) }
+                .filter { io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName, it.uid / 100000) }
                 .map { it.uid }
                 .toSet()
         } else {
@@ -575,7 +575,7 @@ class FirewallVpnService : VpnService() {
             }
 
             // Never block VPN apps to prevent VPN reconnection issues (unless setting is enabled)
-            if (hasVpnService(packageName) && !allowCritical) {
+            if (hasVpnService(packageName, userId) && !allowCritical) {
                 continue
             }
 
@@ -595,7 +595,7 @@ class FirewallVpnService : VpnService() {
                 // EXCEPT: When allowCritical is ON and UID contains critical package, default to ALLOW for stability
                 // IMPORTANT: Check at UID level because Android's network permissions are UID-based
                 if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
-                    val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName)
+                    val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName, userId)
                     if (!isSelfCritical) {
                         AppLogger.d(TAG, "  $packageName (UID $uid): no rule, shares UID with critical package → allowing")
                     }
@@ -744,7 +744,7 @@ class FirewallVpnService : VpnService() {
             // Even though VPN backend operates per-package, Android's network permissions are UID-based
             val uidsWithCritical = if (allowCritical) {
                 allPackages
-                    .filter { io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName) }
+                    .filter { io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName, it.uid / 100000) }
                     .map { it.uid }
                     .toSet()
             } else {
@@ -780,7 +780,7 @@ class FirewallVpnService : VpnService() {
                 }
 
                 // Never block VPN apps to prevent VPN reconnection issues (unless setting is enabled)
-                if (hasVpnService(packageName) && !allowCritical) {
+                if (hasVpnService(packageName, userId) && !allowCritical) {
                     allowedCount++
                     return@forEach
                 }
@@ -803,7 +803,7 @@ class FirewallVpnService : VpnService() {
                     // IMPORTANT: Check at UID level because Android's network permissions are UID-based
                     defaultPolicyCount++
                     if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
-                        val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName)
+                        val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName, userId)
                         if (!isSelfCritical) {
                             AppLogger.d(TAG, "  $packageName (UID $uid): no rule, shares UID with critical package → allowing")
                         }
@@ -957,7 +957,15 @@ class FirewallVpnService : VpnService() {
      * VPN apps don't REQUEST the BIND_VPN_SERVICE permission - they DECLARE it on their service.
      * This is a service permission that protects the VPN service from being bound by unauthorized apps.
      */
-    private fun hasVpnService(packageName: String, userId: Int = 0): Boolean {
+        /**
+     * Does this package host a VPN service, for THIS user profile?
+     *
+     * userId has no default on purpose. It used to default to 0, and every enforcement call
+     * site omitted it - so a VPN app installed only in the work profile was looked up in the
+     * personal profile, not found, and treated as an ordinary app. Block All then cut the work
+     * profile's VPN. Making it required means the compiler catches the next such caller.
+     */
+        private fun hasVpnService(packageName: String, userId: Int): Boolean {
         return try {
             val packageInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
                 this,

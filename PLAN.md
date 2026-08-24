@@ -3395,3 +3395,133 @@ failure. The `allowCriticalPackageFirewall` correction was proven on device - th
 `allowCriticalPackageFirewall changed - rebinding rows` followed by
 `nothing relevant changed - leaving the list alone`, i.e. the rows repaint and the list is still not
 rebuilt. Device left on NetworkPolicyManager, ACTIVE, setting reverted, network working.
+
+---
+
+# HARDWARE TESTS 2 AND 3 — RUN 2026-08-24. ONE CONFIRMED DEFECT.
+
+Both had been outstanding since the plan was written. TrebleDroid GSI, Android 14, Magisk root,
+Shizuku as root, work profile at user 10, real global IPv6.
+
+## Test 2 — boot protection: PASSES, and the self-heal is now proven
+
+Firewall OFF, boot protection ON, reboot.
+
+At **+30 s** the chain was live and linked:
+
+```
+-A OUTPUT -j de1984_boot
+-A de1984_boot -o lo -j ACCEPT
+-A de1984_boot -m owner --uid-owner 0 -j ACCEPT      (9 system UIDs in total)
+-A de1984_boot -j DROP
+```
+
+Loopback plus nine system UIDs are accepted; everything else hits the final DROP. No app UID is on
+that list, so **normal apps are blocked by construction**.
+
+At **+72 s the chain was gone**, with the app doing nothing. This is the self-expiry from P0-1 Part A,
+and it had never been observed before. The script stayed on disk and the preference stayed true,
+which is correct - it re-arms on the next boot and expires again.
+
+Disabling boot protection removed the script (`SCRIPT_REMOVED`) and left no chain (`NO_CHAIN`).
+
+**Method limit, stated plainly.** The "apps have no internet" half is proven from the chain CONTENTS,
+not from a live packet. `run-as <pkg> ping` is not a valid probe - apps lack the capability, and it
+fails identically with no chain present. `run-as <pkg> curl` also fails with no chain present.
+Neither measures the firewall. No valid app-UID network probe was found over adb.
+
+## Test 3 — NetworkPolicyManager orphans: CONFIRMED DEFECT
+
+Blocked `com.aurora.store` (UID 10272), uninstalled De1984 **without stopping first**, rebooted.
+
+| Moment | `netpolicy.xml` |
+| --- | --- |
+| Before anything | UID 10272 absent |
+| Blocked, firewall running | `uid-policy uid="10272" policy="262144"` |
+| After `adb uninstall` | still present |
+| **After reboot** | **still present** |
+
+`262144` is `POLICY_REJECT_ALL`. The app is gone, the block is not, and nothing in Android's UI
+explains or offers to undo it.
+
+**The stop path is NOT at fault.** Stopping normally logged `Restored UID 10272 to policy 0` and
+`Restored UID 10212 to policy 262144`. The second looks like a leak and is not: `262144` was that
+UID's ORIGINAL value. De1984 restores what it found. The defect is precisely: **stop cleans up,
+uninstall does not.**
+
+**It is self-perpetuating.** Reinstall and De1984 reads the current state to learn each app's
+"original" policy. It reads *blocked*, records that as the original, and preserves it from then on.
+
+**Blast radius by backend.** NetworkPolicyManager is the only permanent one, because its blocks live
+in `/data/system/netpolicy.xml`, a system file outside the app.
+
+| Backend | Survives uninstall | Survives reboot |
+| --- | --- | --- |
+| NetworkPolicyManager | Yes | **Yes** - measured |
+| ConnectivityManager | Yes | No - reasoned only, this ROM has no `cmd connectivity set-chain3-enabled` |
+| iptables | Yes | No - kernel state, confirmed empty after two reboots |
+| VPN | No | No |
+
+**Manual recovery**, used to clean this device. `remove` alone is refused when the UID is not on that
+particular list, so it takes the pair:
+
+```
+adb shell cmd netpolicy add    restrict-background-blacklist <uid>
+adb shell cmd netpolicy remove restrict-background-blacklist <uid>
+```
+
+## Could an uninstall clean up after itself? Yes for root, no for Shizuku-only.
+
+**Nothing inside the app can do it.** Android never delivers `ACTION_PACKAGE_REMOVED` to the package
+being removed, and `ACTION_MY_PACKAGE_REPLACED` fires only on update. There is no code left to run.
+
+The mechanism that CAN do it already exists in this project. `BootProtectionManager` writes to
+`/data/adb/post-fs-data.d/`, which is Magisk's directory and survives an uninstall, and its script
+already carries a proven `de1984_present()` check that self-deletes when the APK is gone.
+
+Sketch, **not built, needs its own design pass**:
+
+1. While running, mirror the blocked UIDs and their original policies to `/data/adb/de1984/`.
+2. A **`service.d`** script runs `de1984_present()` on each boot. `/data/adb/service.d` exists on the
+   test device.
+3. If the app is gone, restore each recorded UID with the `add`/`remove` pair above, then delete the
+   record and itself.
+
+It must be `service.d`, not `post-fs-data.d`: `cmd netpolicy` needs the framework up, and
+`post-fs-data` runs far too early. Boot protection can use `post-fs-data` only because raw `iptables`
+does not need the framework.
+
+Limits, accepted as part of the sketch: it cleans up on the **next reboot**, not immediately; it is
+**root only**, and Shizuku-only users are exactly the ones most likely to be on NetworkPolicyManager;
+and it leaves privileged code on the device that edits network policy, which is the risk profile that
+forced boot protection to grow a self-heal timer and a self-delete guard.
+
+**Decision 2026-08-24 (Doru): do not build it now. Document the defect and warn the user instead.**
+
+## NEW finding — Restore fails on a file picked from search
+
+Restoring a backup chosen from the picker's SEARCH results fails:
+
+```
+Failed to read backup file: com.android.externalstorage has no access to
+content://media/external_primary/file/1000000143
+```
+
+Searching hands back a MediaStore URI the app cannot open; browsing to the file yields a
+DocumentsProvider URI instead. **Which paths work is unconfirmed** - three attempts to complete a
+clean browse-based restore ran out of UI-navigation budget and were stopped rather than ground on.
+The app did surface the error clearly rather than failing silently, which is correct.
+
+The device was restored from a raw root copy of `databases/` and `shared_prefs/` instead: 12 rules
+back, both blocks live, firewall ACTIVE.
+
+## Correction — the backup is NOT lossy
+
+Earlier in this session the backup JSON was reported as dropping `lanBlocked`, `blockWhenBackground`,
+`userId` and `enabled`. **That was wrong, and it changed a decision.** kotlinx.serialization omits any
+field equal to its default; the restore fills them back from the same defaults. Proven by setting
+`lanBlocked` and `blockWhenBackground` to true on one rule and re-exporting - both appeared in the
+JSON immediately.
+
+Same failure mode as the M047 false finding: **absence was read as loss without checking whether the
+value was simply the default.** Twice in one session.
