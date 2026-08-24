@@ -31,6 +31,12 @@ class ConnectivityManagerFirewallBackend(
         private const val MIN_API_LEVEL = Build.VERSION_CODES.TIRAMISU // Android 13
         private const val FIREWALL_CHAIN_OEM_DENY_3 = 3 // OEM-specific deny chain
 
+        // Android packs a UID as userId * 100000 + appId, and only an appId in this range is an
+        // installed app. "cmd connectivity set-package-networking-enabled" refuses anything else
+        // with "Can't set package firewall rule for system app <pkg> with appId <n>".
+        private const val PER_USER_RANGE = 100000
+        private val APP_APP_ID_RANGE = 10000..19999
+
         /**
          * Process-wide, NOT per-instance.
          *
@@ -197,6 +203,8 @@ class ConnectivityManagerFirewallBackend(
             var appliedCount = 0
             var errorCount = 0
             var skippedCount = 0
+            var systemUidCount = 0
+            var untouchedCount = 0
 
             val rulesByPackageAndUser = rules.filter { it.enabled }.associateBy { "${it.packageName}:${it.userId}" }
 
@@ -234,6 +242,11 @@ class ConnectivityManagerFirewallBackend(
                 val packageName = appInfo.packageName
                 val uid = appInfo.uid
                 val userId = uid / 100000
+
+                if (uid % PER_USER_RANGE !in APP_APP_ID_RANGE) {
+                    systemUidCount++
+                    return@forEach
+                }
 
                 if (Constants.Firewall.isSystemCritical(packageName) && !allowCritical) {
                     desiredPolicies[packageName] = false
@@ -301,6 +314,19 @@ class ConnectivityManagerFirewallBackend(
             }
 
             desiredPolicies.forEach { (packageName, shouldBlock) ->
+                // Nothing to lift: we have never denied this package, so there is no denial to
+                // undo and no command to send. Without this every untouched package cost one
+                // Shizuku process per pass, rejected with "sUidOwnerMap does not have entry".
+                //
+                // One-directional on purpose. existingRecord says what we INTENDED to deny, not
+                // what is denied now - it is written before the commands run and survives a reboot
+                // that clears the denials themselves - so it must never short-circuit a BLOCK.
+                // See issue #93.
+                if (!shouldBlock && appliedPolicies[packageName] != true && packageName !in existingRecord) {
+                    untouchedCount++
+                    return@forEach
+                }
+
                 val currentPolicy = appliedPolicies[packageName]
 
                 if (currentPolicy == shouldBlock) {
@@ -347,7 +373,7 @@ class ConnectivityManagerFirewallBackend(
             }
             saveBlockedPackages(record)
 
-                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $errorCount errors")
+                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $untouchedCount never ours, $systemUidCount system UIDs Android will not firewall, $errorCount errors")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply rules", e)

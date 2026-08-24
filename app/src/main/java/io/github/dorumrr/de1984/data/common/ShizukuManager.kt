@@ -294,32 +294,38 @@ class ShizukuManager(private val context: Context) {
                 null
             ) as Process
 
-            val output = StringBuilder()
-            val error = StringBuilder()
+            // Destroy on every path, not just on timeout: destroy() is the only thing here that
+            // releases the process and its pipes on the Shizuku side. ShizukuRemoteProcess also
+            // holds itself in a static CACHE until its binderDied fires. See issue #93.
+            try {
+                val output = StringBuilder()
+                val error = StringBuilder()
 
-            process.inputStream.bufferedReader().use { reader ->
-                reader.forEachLine { line ->
-                    output.append(line).append("\n")
+                process.inputStream.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        output.append(line).append("\n")
+                    }
                 }
-            }
 
-            process.errorStream.bufferedReader().use { reader ->
-                reader.forEachLine { line ->
-                    error.append(line).append("\n")
+                process.errorStream.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        error.append(line).append("\n")
+                    }
                 }
+
+                val exitCode = kotlinx.coroutines.withTimeoutOrNull(5000) {
+                    process.waitFor()
+                } ?: -1
+
+                val outputStr = output.toString().trim()
+                val errorStr = error.toString().trim()
+
+                return@withContext Pair(exitCode, if (outputStr.isNotEmpty()) outputStr else errorStr)
+            } finally {
+                // Do not close outputStream here: getOutputStream() is lazy, so asking for it would
+                // open an fd over binder that no caller ever wanted. Nothing writes stdin.
+                runCatching { process.destroy() }
             }
-
-            val exitCode = kotlinx.coroutines.withTimeoutOrNull(5000) {
-                process.waitFor()
-            } ?: run {
-                process.destroy()
-                -1
-            }
-
-            val outputStr = output.toString().trim()
-            val errorStr = error.toString().trim()
-
-            return@withContext Pair(exitCode, if (outputStr.isNotEmpty()) outputStr else errorStr)
         } catch (e: Exception) {
             return@withContext Pair(-1, "Shizuku command execution failed: ${e.message}")
         }
