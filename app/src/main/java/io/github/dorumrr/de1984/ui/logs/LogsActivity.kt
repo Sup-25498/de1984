@@ -17,16 +17,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Activity to view and share app logs.
- * 
- * Features:
- * - Enable/disable logging toggle
- * - Shows file info (size, line count)
- * - Preview last 100 lines
- * - Share log file directly
- * - Clear logs
- */
 class LogsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLogsBinding
@@ -110,13 +100,11 @@ class LogsActivity : AppCompatActivity() {
                 binding.logTextView.text = getString(R.string.logs_empty)
             } else {
                 binding.logTextView.text = preview
-                // Scroll to bottom
                 binding.logScrollView.post {
                     binding.logScrollView.fullScroll(View.FOCUS_DOWN)
                 }
             }
             
-            // Update stats
             AppLogger.refreshStats()
             val formattedSize = AppLogger.getFormattedFileSize()
             val lineCount = AppLogger.logCount.value

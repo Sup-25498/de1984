@@ -19,16 +19,8 @@ class HandleNewAppInstallUseCase constructor(
         private const val TAG = "HandleNewAppInstallUseCase"
     }
     
-    /**
-     * Handle a new app installation by creating a default firewall rule.
-     *
-     * @param packageName The package name of the newly installed app
-     * @param uid Optional UID of the app. If provided, userId will be derived from it.
-     *            If not provided, the app's UID will be looked up from PackageManager.
-     */
     suspend fun execute(packageName: String, uid: Int? = null): Result<Unit> {
         return try {
-            // Derive userId from UID first: userId = uid / 100000
             val userId = uid?.let { it / 100000 } ?: 0
 
             val packageInfo = validatePackage(packageName, userId)
@@ -40,14 +32,13 @@ class HandleNewAppInstallUseCase constructor(
             val de1984InstallTime = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).firstInstallTime
             } catch (e: Exception) {
-                0L  // Fallback: treat as new app if we can't get our install time
+                0L
             }
             
             val isPreExistingApp = packageInfo.firstInstallTime < de1984InstallTime
             
             if (isPreExistingApp) {
                 AppLogger.d(TAG, "Pre-existing app (installed before De1984): $packageName")
-                // Still create rule for pre-existing apps, but return failure to skip notification
                 if (!hasNetworkPermissions(packageName, userId)) {
                     return Result.failure(Exception("Pre-existing app without network permissions"))
                 }
@@ -187,19 +178,15 @@ class HandleNewAppInstallUseCase constructor(
         val uid = appInfo.uid
         val isSystemApp = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
 
-        // Check if this is a critical package (SYSTEM_WHITELIST or VPN app)
         val isSystemCritical = Constants.Firewall.isSystemCritical(packageName)
         val isVpnApp = hasVpnService(packageName, uid / 100000)
         val isCriticalPackage = isSystemCritical || isVpnApp
 
-        // System-recommended apps are ALWAYS allowed, regardless of default policy
         val isRecommendedAllow = Constants.Firewall.isSystemRecommendedAllow(packageName)
 
         return when {
-            // Critical packages (SYSTEM_WHITELIST + VPN apps) - handle based on allowCritical setting
             isCriticalPackage -> {
                 if (!allowCritical) {
-                    // Setting OFF: Create 'allow all' rule to protect critical package
                     AppLogger.d(TAG, "Creating 'allow all' rule for critical package (protection ON): $packageName (userId=$userId)")
                     FirewallRule(
                         packageName = packageName,
@@ -219,7 +206,6 @@ class HandleNewAppInstallUseCase constructor(
                     null
                 }
             }
-            // System-recommended apps always get "allow all" rules
             isRecommendedAllow -> {
                 FirewallRule(
                     packageName = packageName,
@@ -233,7 +219,6 @@ class HandleNewAppInstallUseCase constructor(
                     isSystemApp = isSystemApp
                 )
             }
-            // Block All policy - block everything except VPN apps and system-recommended
             defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL -> {
                 FirewallRule(
                     packageName = packageName,
@@ -248,7 +233,6 @@ class HandleNewAppInstallUseCase constructor(
                     isSystemApp = isSystemApp
                 )
             }
-            // Allow All policy or default - allow everything
             else -> {
                 FirewallRule(
                     packageName = packageName,
@@ -285,7 +269,6 @@ class HandleNewAppInstallUseCase constructor(
                 userId
             ) ?: return false
 
-            // Check if any service has BIND_VPN_SERVICE permission
             packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false

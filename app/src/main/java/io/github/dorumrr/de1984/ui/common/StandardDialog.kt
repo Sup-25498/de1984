@@ -3,36 +3,8 @@ package io.github.dorumrr.de1984.ui.common
 import android.content.Context
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
-/**
- * Standard reusable dialog component for simple dialogs across the app.
- * 
- * Use this for:
- * - Confirmation dialogs (two buttons)
- * - Error messages (one button)
- * - Information messages (one button)
- * - Welcome/onboarding dialogs (two buttons)
- * 
- * For complex permission setup flows with status badges and cards,
- * use PermissionSetupDialog instead.
- * 
- * This dialog follows Material Design 3 standards and matches the styling
- * of the firewall start dialog in MainActivity.
- */
 object StandardDialog {
 
-    /**
-     * Show a standard dialog with customizable title, message, and buttons.
-     * 
-     * @param context The context to show the dialog in
-     * @param title Dialog title
-     * @param message Dialog message/description
-     * @param positiveButtonText Text for the positive (confirm) button
-     * @param onPositiveClick Callback when positive button is clicked
-     * @param negativeButtonText Optional text for the negative (cancel) button. If null, no negative button is shown.
-     * @param onNegativeClick Optional callback when negative button is clicked
-     * @param cancelable Whether the dialog can be dismissed by tapping outside or pressing back (default: true)
-     * @param onDismiss Optional callback when dialog is dismissed
-     */
     fun show(
         context: Context,
         title: String,
@@ -51,7 +23,6 @@ object StandardDialog {
             .setPositiveButton(positiveButtonText) { _, _ -> onPositiveClick() }
             .setCancelable(cancelable)
 
-        // Add negative button if text is provided
         if (negativeButtonText != null) {
             builder.setNegativeButton(negativeButtonText) { _, _ ->
                 onNegativeClick?.invoke()
@@ -72,7 +43,6 @@ object StandardDialog {
             builder.setOnCancelListener { onCancel() }
         }
 
-        // Add dismiss listener if provided
         if (onDismiss != null) {
             builder.setOnDismissListener { onDismiss() }
         }
@@ -80,14 +50,6 @@ object StandardDialog {
         builder.show()
     }
 
-    /**
-     * Convenience method for showing an error dialog with a single "OK" button.
-     * 
-     * @param context The context to show the dialog in
-     * @param message Error message to display
-     * @param title Dialog title (default: "Error")
-     * @param onDismiss Optional callback when dialog is dismissed
-     */
     fun showError(
         context: Context,
         message: String,
@@ -105,14 +67,6 @@ object StandardDialog {
         )
     }
 
-    /**
-     * Convenience method for showing an information dialog with a single "OK" button.
-     * 
-     * @param context The context to show the dialog in
-     * @param title Dialog title
-     * @param message Information message to display
-     * @param onDismiss Optional callback when dialog is dismissed
-     */
     fun showInfo(
         context: Context,
         title: String,
@@ -130,17 +84,6 @@ object StandardDialog {
         )
     }
 
-    /**
-     * Convenience method for showing a confirmation dialog with "Confirm" and "Cancel" buttons.
-     * 
-     * @param context The context to show the dialog in
-     * @param title Dialog title
-     * @param message Confirmation message to display
-     * @param confirmButtonText Text for the confirm button (default: "Confirm")
-     * @param onConfirm Callback when confirm button is clicked
-     * @param cancelButtonText Text for the cancel button (default: "Cancel")
-     * @param onCancel Optional callback when cancel button is clicked
-     */
     fun showConfirmation(
         context: Context,
         title: String,
@@ -165,13 +108,6 @@ object StandardDialog {
         )
     }
 
-    /**
-     * Convenience method for showing a "no privileged access" dialog.
-     * This replaces the legacy PrivilegedAccessDialog.showRequiredDialog().
-     * 
-     * @param context The context to show the dialog in
-     * @param onDismiss Optional callback when dialog is dismissed
-     */
     fun showNoAccessDialog(
         context: Context,
         onDismiss: (() -> Unit)? = null
@@ -187,13 +123,6 @@ object StandardDialog {
         )
     }
 
-    /**
-     * Convenience method for showing a "root access denied" dialog.
-     * This replaces the legacy PrivilegedAccessDialog.showRootDeniedDialog().
-     * 
-     * @param context The context to show the dialog in
-     * @param onOkClick Optional callback when OK button is clicked
-     */
     fun showRootDeniedDialog(
         context: Context,
         onOkClick: (() -> Unit)? = null
@@ -209,18 +138,6 @@ object StandardDialog {
         )
     }
 
-    /**
-     * Show a type-to-confirm dialog that requires the user to type a specific word to confirm.
-     * Used for critical/dangerous operations.
-     *
-     * @param context The context to show the dialog in
-     * @param title The dialog title
-     * @param message The dialog message
-     * @param confirmWord The word the user must type to confirm (default: "UNINSTALL")
-     * @param confirmButtonText Text for the confirm button (default: "Confirm")
-     * @param onConfirm Callback when user types the correct word and clicks confirm
-     * @param onCancel Optional callback when cancel button is clicked
-     */
     fun showTypeToConfirm(
         context: Context,
         title: String,
@@ -230,7 +147,6 @@ object StandardDialog {
         onConfirm: () -> Unit,
         onCancel: (() -> Unit)? = null
     ) {
-        // Create EditText for user input
         val editText = android.widget.EditText(context).apply {
             hint = context.getString(io.github.dorumrr.de1984.R.string.dialog_type_to_confirm_hint, confirmWord)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
@@ -242,7 +158,7 @@ object StandardDialog {
             .setTitle(title)
             .setMessage(message)
             .setView(editText)
-            .setPositiveButton(confirmButtonText, null) // Set to null initially
+            .setPositiveButton(confirmButtonText, null)
             .setNegativeButton(context.getString(io.github.dorumrr.de1984.R.string.dialog_cancel)) { _, _ ->
                 onCancel?.invoke()
             }
@@ -251,9 +167,8 @@ object StandardDialog {
 
         dialog.setOnShowListener {
             val positiveButton = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
-            positiveButton.isEnabled = false // Disable initially
+            positiveButton.isEnabled = false
 
-            // Enable/disable button based on input
             editText.addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}

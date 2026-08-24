@@ -10,9 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * State manager for the superuser banner
- */
 class SuperuserBannerState {
 
     private val _showBanner = MutableStateFlow(false)

@@ -51,7 +51,7 @@ class VpnFirewallBackend(
             // KEY_VPN_INTERFACE_ACTIVE=true after VPN interface is established.
             // This typically takes 500ms-2s depending on device/Android version.
             val startTime = System.currentTimeMillis()
-            val timeout = 10000L  // 10 second timeout for VPN establishment
+            val timeout = 10000L
             var attempts = 0
 
             while (!isActive()) {
@@ -61,10 +61,10 @@ class VpnFirewallBackend(
                     return Result.failure(Exception("VPN service failed to become active within ${timeout}ms"))
                 }
                 attempts++
-                if (attempts % 10 == 0) {  // Log every 500ms
+                if (attempts % 10 == 0) {
                     AppLogger.d(TAG, "Waiting for VPN to become active... (${elapsed}ms elapsed)")
                 }
-                kotlinx.coroutines.delay(50)  // Check every 50ms
+                kotlinx.coroutines.delay(50)
             }
 
             val totalTime = System.currentTimeMillis() - startTime
@@ -78,7 +78,6 @@ class VpnFirewallBackend(
     
     override suspend fun stop(): Result<Unit> {
         return try {
-            // Send stop intent to FirewallVpnService
             val intent = Intent(context, FirewallVpnService::class.java).apply {
                 action = FirewallVpnService.ACTION_STOP
             }
@@ -102,7 +101,7 @@ class VpnFirewallBackend(
                     break
                 }
                 attempts++
-                kotlinx.coroutines.delay(50)  // Check every 50ms
+                kotlinx.coroutines.delay(50)
             }
 
             val totalTime = System.currentTimeMillis() - startTime
@@ -141,10 +140,6 @@ class VpnFirewallBackend(
         networkType: NetworkType,
         screenOn: Boolean
     ): Result<Unit> {
-        // VPN service handles rule application automatically via:
-        // 1. Listening to FIREWALL_RULES_CHANGED broadcast
-        // 2. Monitoring network type changes via NetworkStateMonitor
-        // 3. Monitoring screen state changes via ScreenStateMonitor
         return Result.success(Unit)
     }
     
@@ -155,7 +150,6 @@ class VpnFirewallBackend(
                 Context.MODE_PRIVATE
             )
 
-            // Check if service is running
             val isServiceRunning = prefs.getBoolean(
                 io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_SERVICE_RUNNING,
                 false
@@ -165,13 +159,11 @@ class VpnFirewallBackend(
                 return false
             }
 
-            // Check if VPN interface is active
             val isInterfaceActive = prefs.getBoolean(
                 io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_INTERFACE_ACTIVE,
                 false
             )
 
-            // Verify service is actually alive
             val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
             if (activityManager != null) {
                 @Suppress("DEPRECATION")
@@ -193,7 +185,6 @@ class VpnFirewallBackend(
                 return isInterfaceActive
             }
 
-            // Fallback: trust SharedPreferences
             return isServiceRunning && isInterfaceActive
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to check if VPN is active", e)
@@ -204,11 +195,9 @@ class VpnFirewallBackend(
     override fun getType(): FirewallBackendType = FirewallBackendType.VPN
 
     override suspend fun checkAvailability(): Result<Unit> {
-        // VPN is always available on Android (no special requirements)
-        // User just needs to grant VPN permission when starting
         return Result.success(Unit)
     }
 
-    override fun supportsGranularControl(): Boolean = true  // Supports WiFi/Mobile/Roaming granular control
+    override fun supportsGranularControl(): Boolean = true
 }
 

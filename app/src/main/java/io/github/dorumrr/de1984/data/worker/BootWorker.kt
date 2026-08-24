@@ -13,18 +13,6 @@ import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.delay
 
-/**
- * WorkManager worker that restores firewall state after device boot.
- * This is the Android 12+ (API 31+) compatible way to handle boot persistence.
- * 
- * WorkManager advantages over BroadcastReceiver:
- * - Works on Android 12+ where foreground service restrictions apply
- * - Not affected by battery optimization
- * - Guaranteed to run even if app is not in foreground
- * - Can properly start foreground services
- * 
- * Per FIREWALL.md: Firewall must survive device restarts.
- */
 class BootWorker(
     context: Context,
     params: WorkerParameters
@@ -39,13 +27,11 @@ class BootWorker(
         try {
             AppLogger.d(TAG, "🔄 BOOT WORKER STARTED | WorkManager-based boot restoration (Android 12+ compatible)")
 
-            // Check if firewall was enabled before boot
             val prefs = applicationContext.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val wasEnabled = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, Constants.Settings.DEFAULT_FIREWALL_ENABLED)
 
             AppLogger.d(TAG, "Firewall was enabled before boot: $wasEnabled")
 
-            // Get FirewallManager from application
             val app = applicationContext as? De1984Application
             if (app == null) {
                 AppLogger.e(TAG, "❌ FAILED TO GET APPLICATION INSTANCE | Cannot restore firewall - application context not available")
@@ -77,7 +63,6 @@ class BootWorker(
             AppLogger.d(TAG, "Requesting root permission to wake up Magisk...")
             rootManager.forceRecheckRootStatus()
 
-            // Small delay to allow Magisk to process the permission request
             delay(500)
 
             // Wait for Shizuku to be initialized before starting firewall
@@ -85,7 +70,6 @@ class BootWorker(
             AppLogger.d(TAG, "Checking Shizuku status before starting firewall...")
             shizukuManager.checkShizukuStatus()
 
-            // Small delay to ensure Shizuku is fully ready
             delay(500)
 
             AppLogger.d(TAG, "🚀 Starting firewall after boot...")
@@ -111,14 +95,10 @@ class BootWorker(
                     AppLogger.e(TAG, "❌ Exception while lifting boot protection block", e)
                 }
 
-                // Check if we fell back to VPN and should start monitoring service
                 if (backendType == FirewallBackendType.VPN) {
                     val currentMode = firewallManager.getCurrentMode()
                     val shizukuStatus = shizukuManager.shizukuStatus.value
 
-                    // Only start monitoring if:
-                    // 1. Mode is AUTO (not manually selected VPN)
-                    // 2. Shizuku is installed but not running or no permission
                     val shouldMonitor = currentMode == FirewallMode.AUTO &&
                         (shizukuStatus == ShizukuStatus.INSTALLED_NOT_RUNNING ||
                          shizukuStatus == ShizukuStatus.RUNNING_NO_PERMISSION)

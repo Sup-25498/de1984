@@ -45,15 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Firewall Fragment using XML Views
- * 
- * Features:
- * - Filter chips for package type and network state
- * - RecyclerView with network packages
- * - Click to toggle allow/block
- * - Empty and loading states
- */
 class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
     private val TAG = "FirewallFragmentViews"
@@ -93,11 +84,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     private var currentPermissionFilter: Boolean = false
     private var currentProfileFilter: String? = null
 
-    // Track profile availability for dynamic filter chip visibility
     private var lastHasWorkProfile: Boolean? = null
     private var lastHasCloneProfile: Boolean? = null
 
-    // Track previous policy to detect changes across lifecycle events
     private var previousObservedPolicy: String? = null
 
     /**
@@ -121,12 +110,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     private var previousObservedAllowCritical: Boolean? = null
     private var lastSubmittedPackages: List<NetworkPackage> = emptyList()
 
-    // Dialog tracking to prevent multiple dialogs from stacking
     private var currentDialog: BottomSheetDialog? = null
     private var dialogOpenTimestamp: Long = 0
-    private var pendingDialogPackageId: PackageId? = null  // Track which package we're waiting to show
+    private var pendingDialogPackageId: PackageId? = null
 
-    // Selection mode state
     private var isSelectionMode = false
     private val selectedPackages = mutableSetOf<PackageId>()
     private var backPressedCallback: OnBackPressedCallback? = null
@@ -137,14 +124,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     ) = FragmentFirewallBinding.inflate(inflater, container, false)
 
     override fun scrollToTop() {
-        // Only scroll if binding is available (fragment view is created)
         _binding?.packagesRecyclerView?.scrollToPosition(0)
     }
 
-    /**
-     * Scroll to a specific package in the list.
-     * Used for cross-navigation to keep the same app in view.
-     */
     private fun scrollToPackage(packageName: String) {
         _binding?.let { binding ->
             binding.packagesRecyclerView.post {
@@ -161,7 +143,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Show loading state immediately until first state emission
         binding.loadingState.visibility = View.VISIBLE
         binding.emptyState.visibility = View.GONE
         binding.packagesRecyclerView.visibility = View.GONE
@@ -183,12 +164,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
         observeUiState()
         observeSettingsState()
-        // Note: ViewModel's init{} handles first load - no need to refresh here
     }
 
     override fun onResume() {
         super.onResume()
-        // Refresh cached settings in adapter (in case user changed settings)
         if (::adapter.isInitialized) {
             adapter.refreshSettings(requireContext())
         }
@@ -199,7 +178,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         AppLogger.d(TAG, "onHiddenChanged: hidden=$hidden")
 
         if (!hidden) {
-            // Fragment became visible - check if policy changed while we were hidden
             AppLogger.d(TAG, "onHiddenChanged: Fragment became visible, checking for policy changes")
             val currentPolicy = settingsViewModel.uiState.value.defaultFirewallPolicy
             AppLogger.d(TAG, "onHiddenChanged: previousObservedPolicy=$previousObservedPolicy, currentPolicy=$currentPolicy")
@@ -212,7 +190,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 AppLogger.d(TAG, "onHiddenChanged: No policy change detected")
             }
 
-            // Refresh cached settings when fragment becomes visible
             if (::adapter.isInitialized) {
                 adapter.refreshSettings(requireContext())
             }
@@ -221,7 +198,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
     private fun setupRecyclerView() {
         adapter = NetworkPackageAdapter(
-            showIcons = true, // Will be updated from settings
+            showIcons = true,
             onPackageClick = { pkg ->
                 showPackageActionSheet(pkg)
             },
@@ -233,10 +210,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         )
 
-        // Initialize adapter with context for caching
         adapter.initialize(requireContext())
 
-        // Setup selection listeners
         adapter.setOnSelectionChangedListener { selected ->
             selectedPackages.clear()
             selectedPackages.addAll(selected)
@@ -263,22 +238,15 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     private fun setupFilterChips() {
-        // Initial setup - only called once
         currentTypeFilter = getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
         currentStateFilter = null
         currentPermissionFilter = true
         currentProfileFilter = getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
 
-        // Build chips with initial profile availability (false, false - will be updated by updateUI)
         rebuildFilterChips(hasWorkProfile = false, hasCloneProfile = false)
     }
 
-    /**
-     * Rebuild filter chips based on profile availability.
-     * Only shows Work/Clone chips if those profiles have packages.
-     */
     private fun rebuildFilterChips(hasWorkProfile: Boolean, hasCloneProfile: Boolean) {
-        // Get translated filter strings
         val packageTypeFilters = listOf(
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all),
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user),
@@ -292,9 +260,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             getString(io.github.dorumrr.de1984.R.string.firewall_state_internet)
         )
 
-        // Build profile filters dynamically - only show profiles that have packages
         val profileFilters = mutableListOf<String>()
-        // Always show "All Profiles" if we have any non-personal profiles
         if (hasWorkProfile || hasCloneProfile) {
             profileFilters.add(getString(io.github.dorumrr.de1984.R.string.filter_profile_all))
             profileFilters.add(getString(io.github.dorumrr.de1984.R.string.filter_profile_personal))
@@ -306,10 +272,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             profileFilters.add(getString(io.github.dorumrr.de1984.R.string.filter_profile_clone))
         }
 
-        // If current profile filter is no longer available, reset to "All" or null
         if (currentProfileFilter != null && !profileFilters.contains(currentProfileFilter)) {
             currentProfileFilter = profileFilters.firstOrNull()
-            // Also update viewModel if filter was reset
             if (currentProfileFilter != null) {
                 viewModel.setProfileFilter(mapProfileFilterToInternal(currentProfileFilter!!))
             }
@@ -329,7 +293,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 if (filter != currentTypeFilter) {
                     AppLogger.d(TAG, "🔘 USER ACTION: Package type filter changed: $filter")
                     currentTypeFilter = filter
-                    // Map translated string to internal constant
                     val internalFilter = mapTypeFilterToInternal(filter)
                     viewModel.setPackageTypeFilter(internalFilter)
                 }
@@ -338,14 +301,12 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 if (filter != currentStateFilter) {
                     AppLogger.d(TAG, "🔘 USER ACTION: Network state filter changed: ${filter ?: "none"}")
 
-                    // Exit selection mode when state filter changes
                     if (isSelectionMode) {
                         AppLogger.d(TAG, "🔘 Exiting selection mode due to state filter change")
                         exitSelectionMode()
                     }
 
                     currentStateFilter = filter
-                    // Map translated string to internal constant
                     val internalFilter = filter?.let { mapStateFilterToInternal(it) }
                     viewModel.setNetworkStateFilter(internalFilter)
                 }
@@ -361,7 +322,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 if (filter != currentProfileFilter) {
                     AppLogger.d(TAG, "🔘 USER ACTION: Profile filter changed: $filter")
                     currentProfileFilter = filter
-                    // Map translated string to internal constant
                     val internalFilter = mapProfileFilterToInternal(filter)
                     viewModel.setProfileFilter(internalFilter)
                 }
@@ -370,10 +330,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     private fun setupSearchBox() {
-        // Initially hide clear icon
         binding.searchLayout.isEndIconVisible = false
 
-        // Text change listener for real-time search
         binding.searchInput.addTextChangedListener { text ->
             val query = text?.toString() ?: ""
             if (query.isNotEmpty()) {
@@ -381,18 +339,15 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
             viewModel.setSearchQuery(query)
 
-            // Show/hide clear icon based on text length
             binding.searchLayout.isEndIconVisible = query.isNotEmpty()
         }
 
-        // Clear icon click listener
         binding.searchLayout.setEndIconOnClickListener {
             AppLogger.d(TAG, "🔘 USER ACTION: Search cleared")
             binding.searchInput.text?.clear()
             binding.searchLayout.isEndIconVisible = false
         }
 
-        // Handle keyboard "Search" or "Done" button
         binding.searchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
                 hideKeyboardAndClearFocus()
@@ -402,7 +357,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Clear focus and hide keyboard when touching/scrolling RecyclerView
         binding.packagesRecyclerView.setOnTouchListener { view, event ->
             if (event.action == android.view.MotionEvent.ACTION_DOWN) {
                 if (binding.searchInput.hasFocus()) {
@@ -410,10 +364,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     view.requestFocus()
                 }
             }
-            false // Allow touch events to propagate for normal scrolling
+            false
         }
 
-        // Clear focus when scrolling RecyclerView
         binding.packagesRecyclerView.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: androidx.recyclerview.widget.RecyclerView, newState: Int) {
                 if (newState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING) {
@@ -424,10 +377,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         })
 
-        // Clear focus when clicking on root container (outside search box)
         binding.rootContainer.setOnTouchListener { view, event ->
             if (event.action == android.view.MotionEvent.ACTION_DOWN) {
-                // Check if touch is outside the search layout
                 val searchLayoutLocation = IntArray(2)
                 binding.searchLayout.getLocationOnScreen(searchLayoutLocation)
                 val searchLayoutRect = android.graphics.Rect(
@@ -445,7 +396,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     view.requestFocus()
                 }
             }
-            false // Allow touch events to propagate
+            false
         }
     }
 
@@ -461,12 +412,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         internetOnlyFilter: Boolean,
         profileFilter: String
     ) {
-        // Map internal constants to translated strings
         val translatedTypeFilter = mapInternalToTypeFilter(packageTypeFilter)
         val translatedStateFilter = networkStateFilter?.let { mapInternalToStateFilter(it) }
         val translatedProfileFilter = mapInternalToProfileFilter(profileFilter)
 
-        // Only update if filters have changed
         if (translatedTypeFilter == currentTypeFilter &&
             translatedStateFilter == currentStateFilter &&
             internetOnlyFilter == currentPermissionFilter &&
@@ -479,7 +428,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         currentPermissionFilter = internetOnlyFilter
         currentProfileFilter = translatedProfileFilter
 
-        // Update chip selection without recreating or triggering listeners
         FilterChipsHelper.updateMultiSelectFilterChips(
             chipGroup = binding.filterChips,
             selectedTypeFilter = translatedTypeFilter,
@@ -531,13 +479,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     }
 
                     if (iconsChanged) {
-                    // Exit selection mode before recreating adapter
                     if (isSelectionMode) {
                         AppLogger.d(TAG, "observeSettingsState: Exiting selection mode before adapter recreation")
                         exitSelectionMode()
                     }
 
-                    // Update adapter when showIcons setting changes
                     adapter = NetworkPackageAdapter(
                         showIcons = settingsState.showAppIcons,
                         onPackageClick = { pkg ->
@@ -551,10 +497,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                         }
                     )
 
-                    // Initialize adapter with context for caching
                     adapter.initialize(requireContext())
 
-                    // Setup selection listeners for new adapter
                     adapter.setOnSelectionChangedListener { selected ->
                         selectedPackages.clear()
                         selectedPackages.addAll(selected)
@@ -571,12 +515,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
                     binding.packagesRecyclerView.adapter = adapter
 
-                    // Reset last submitted packages when creating new adapter
                     lastSubmittedPackages = emptyList()
                     }
                     previousObservedShowIcons = settingsState.showAppIcons
 
-                    // If default policy changed, refresh packages to reflect new blocking states
                     if (previousObservedPolicy != null && previousObservedPolicy != settingsState.defaultFirewallPolicy) {
                         AppLogger.d(TAG, "observeSettingsState: Policy changed! Refreshing packages...")
                         viewModel.refreshDefaultPolicy()
@@ -589,7 +531,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     // Update previous policy for next comparison (persists across lifecycle)
                     previousObservedPolicy = settingsState.defaultFirewallPolicy
 
-                    // Trigger updateUI to re-apply filters and submit to new adapter
                     updateUI(viewModel.uiState.value)
                 }
             }
@@ -597,9 +538,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     private fun updateUI(state: io.github.dorumrr.de1984.presentation.viewmodel.FirewallUiState) {
-        // Update visibility based on state
         if (state.isLoadingData && state.packages.isEmpty()) {
-            binding.packagesRecyclerView.visibility = View.INVISIBLE  // INVISIBLE instead of GONE
+            binding.packagesRecyclerView.visibility = View.INVISIBLE
             binding.loadingState.visibility = View.VISIBLE
             binding.emptyState.visibility = View.GONE
         } else if (state.packages.isEmpty()) {
@@ -612,7 +552,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.emptyState.visibility = View.GONE
         }
 
-        // Check if profile availability changed - rebuild chips if so
         if (lastHasWorkProfile != state.hasWorkProfile || lastHasCloneProfile != state.hasCloneProfile) {
             lastHasWorkProfile = state.hasWorkProfile
             lastHasCloneProfile = state.hasCloneProfile
@@ -620,7 +559,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             rebuildFilterChips(state.hasWorkProfile, state.hasCloneProfile)
         }
 
-        // Update filter chips selection
         updateFilterChips(
             packageTypeFilter = state.filterState.packageType,
             networkStateFilter = state.filterState.networkState,
@@ -628,13 +566,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             profileFilter = state.filterState.profileFilter
         )
 
-        // Handle batch operation results
         state.batchBlockResult?.let { result ->
             showBatchResultDialog(result)
             viewModel.clearBatchBlockResult()
         }
 
-        // Apply search filtering with partial substring matching (app name only)
         val displayedPackages = if (state.searchQuery.isBlank()) {
             state.packages
         } else {
@@ -644,8 +580,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Update package count in search field
-        // Hide count if 0 results AND no search query (empty state)
         val count = displayedPackages.size
         binding.packageCounter.text = if (count == 0 && state.searchQuery.isBlank()) {
             ""
@@ -657,7 +591,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             )
         }
 
-        // Update RecyclerView only if list changed
         val listChanged = displayedPackages != lastSubmittedPackages
         if (!listChanged) {
             return
@@ -673,22 +606,13 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     // ============================================================================
     // DO NOT REMOVE: This method is called from MainActivity for cross-navigation
     // ============================================================================
-    /**
-     * Open the firewall dialog for a specific app by package name and user ID.
-     * Used for cross-navigation from other screens.
-     *
-     * @param packageName The package name of the app
-     * @param userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
-     */
     fun openAppDialog(packageName: String, userId: Int = 0) {
-        // Prevent multiple dialogs from stacking
         if (currentDialog?.isShowing == true) {
             AppLogger.w(TAG, "[FIREWALL] Dialog already open, dismissing before opening new one")
             currentDialog?.dismiss()
             currentDialog = null
         }
 
-        // Find the package in the current list (match both packageName and userId)
         val pkg = viewModel.uiState.value.packages.find {
             it.packageName == packageName && it.userId == userId
         }
@@ -700,29 +624,23 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             scrollToPackage(packageName)
             showPackageActionSheet(pkg)
         } else {
-            // Package not in filtered list - need to load it and possibly change filter
             pendingDialogPackageId = targetPackageId
 
-            // Package not in filtered list - try to get it directly from repository
             lifecycleScope.launch {
                 try {
-                    // Get package from repository (bypasses filter)
                     val app = requireActivity().application as De1984Application
                     val networkPackageRepository = app.dependencies.networkPackageRepository
                     val result = networkPackageRepository.getNetworkPackage(packageName, userId)
 
                     result.onSuccess { foundPkg ->
-                        // Check if this request is still valid
                         if (pendingDialogPackageId != targetPackageId) {
                             return@onSuccess
                         }
 
-                        // Check if we need to change filter to show this package
                         val currentFilter = viewModel.uiState.value.filterState.packageType
                         val packageType = foundPkg.type.toString()
 
                         if (currentFilter.equals(packageType, ignoreCase = true)) {
-                            // Filter already matches - just wait for data to load
                             viewModel.uiState.collect { state ->
                                 if (pendingDialogPackageId != targetPackageId) {
                                     return@collect
@@ -739,10 +657,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                                 }
                             }
                         } else {
-                            // Need to change filter
                             viewModel.setPackageTypeFilter(packageType)
 
-                            // Wait for filter change and data load
                             viewModel.uiState.collect { state ->
                                 if (pendingDialogPackageId != targetPackageId) {
                                     return@collect
@@ -781,11 +697,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val dialog = BottomSheetDialog(requireContext())
         currentDialog = dialog
 
-        // Get FirewallManager from application dependencies
         val app = requireActivity().application as De1984Application
         val firewallManager = app.dependencies.firewallManager
 
-        // Check if current backend supports granular control
         val supportsGranular = firewallManager.supportsGranularControl()
 
         if (supportsGranular) {
@@ -799,12 +713,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         AppLogger.d(TAG, "showGranularControlSheet: ENTRY - pkg=${pkg.packageName}, dialog=$dialog")
         val binding = BottomSheetPackageActionGranularBinding.inflate(layoutInflater)
 
-        // Check if device has cellular capability
         val telephonyManager = requireContext().getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         val hasCellular = telephonyManager?.phoneType != TelephonyManager.PHONE_TYPE_NONE
 
-        // Setup header with async icon loading (prevents UI freeze for work profile apps)
-        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon) // Placeholder
+        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon)
         binding.actionSheetAppName.text = pkg.name
         binding.actionSheetPackageName.text = pkg.packageName
 
@@ -828,28 +740,20 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     null
                 }
             }
-            // Update icon if dialog is still showing and fragment is attached
             if (dialog.isShowing && isAdded) {
                 icon?.let { binding.actionSheetAppIcon.setImageDrawable(it) }
             }
         }
 
-        // ============================================================================
-        // Click package name to copy to clipboard
-        // ============================================================================
         binding.actionSheetPackageName.setOnClickListenerDebounced {
             requireContext().copyToClipboard(pkg.packageName, getString(R.string.clipboard_label_package_name))
         }
 
-        // ============================================================================
-        // Click settings icon to open Android system settings
-        // ============================================================================
         binding.actionSheetSettingsIcon.setOnClickListener {
             requireContext().openAppSettings(pkg.packageName)
             dialog.dismiss()
         }
 
-        // Always show roaming toggle if device has cellular
         if (hasCellular) {
             binding.roamingDivider.visibility = View.VISIBLE
             binding.roamingToggle.root.visibility = View.VISIBLE
@@ -858,29 +762,23 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.roamingToggle.root.visibility = View.GONE
         }
 
-        // Flag to prevent infinite recursion when updating switches programmatically
         var isUpdatingProgrammatically = false
 
-        // Function to update UI toggles based on current package state
         fun updateTogglesFromPackage(currentPkg: NetworkPackage) {
             AppLogger.d(TAG, "updateTogglesFromPackage: pkg=${currentPkg.packageName}, wifi=${currentPkg.wifiBlocked}, mobile=${currentPkg.mobileBlocked}, roaming=${currentPkg.roamingBlocked}, background=${currentPkg.backgroundBlocked}, isFullyBlocked=${currentPkg.isFullyBlocked}")
             isUpdatingProgrammatically = true
 
-            // Update WiFi toggle
             binding.wifiToggle.toggleSwitch.isChecked = currentPkg.wifiBlocked
             updateSwitchColors(binding.wifiToggle.toggleSwitch, currentPkg.wifiBlocked)
 
-            // Update Mobile toggle
             binding.mobileToggle.toggleSwitch.isChecked = currentPkg.mobileBlocked
             updateSwitchColors(binding.mobileToggle.toggleSwitch, currentPkg.mobileBlocked)
 
-            // Update Roaming toggle (if device has cellular)
             if (hasCellular) {
                 binding.roamingToggle.toggleSwitch.isChecked = currentPkg.roamingBlocked
                 updateSwitchColors(binding.roamingToggle.toggleSwitch, currentPkg.roamingBlocked)
             }
 
-            // Update LAN toggle - always update checked state, only update colors if enabled (iptables)
             val app = requireActivity().application as De1984Application
             val backendType = app.dependencies.firewallManager.activeBackendType.value
             binding.lanToggle.toggleSwitch.isChecked = currentPkg.lanBlocked
@@ -888,7 +786,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 updateSwitchColors(binding.lanToggle.toggleSwitch, currentPkg.lanBlocked)
             }
 
-            // Update Background toggle visibility based on current blocking state
             val allowCriticalForUpdate = settingsViewModel.uiState.value.allowCriticalPackageFirewall
             val shouldShowBackgroundAccess = (!currentPkg.isSystemCritical || allowCriticalForUpdate) && (!currentPkg.isVpnApp || allowCriticalForUpdate) && !currentPkg.isFullyBlocked
             val wasBackgroundToggleVisible = binding.foregroundOnlyToggle.root.visibility == View.VISIBLE
@@ -897,9 +794,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.foregroundOnlyDivider.visibility = if (shouldShowBackgroundAccess) View.VISIBLE else View.GONE
             binding.foregroundOnlyToggle.root.visibility = if (shouldShowBackgroundAccess) View.VISIBLE else View.GONE
 
-            // Update Background toggle state if visible
             if (shouldShowBackgroundAccess) {
-                // If toggle just became visible, we need to set up the listener
                 if (!wasBackgroundToggleVisible) {
                     AppLogger.d(TAG, "updateTogglesFromPackage: Background toggle just became visible - setting up listener")
                     setupNetworkToggle(
@@ -915,7 +810,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                         }
                     )
                 } else {
-                    // Toggle was already visible, just update the state
                     binding.foregroundOnlyToggle.toggleSwitch.isChecked = !currentPkg.backgroundBlocked
                     updateSwitchColors(binding.foregroundOnlyToggle.toggleSwitch, !currentPkg.backgroundBlocked, invertColors = true)
                 }
@@ -925,7 +819,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             isUpdatingProgrammatically = false
         }
 
-        // Observe package changes to update UI when ViewModel makes cascading changes
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
                 val updatedPkg = state.packages.find { it.packageName == pkg.packageName }
@@ -939,7 +832,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Cancel observer when dialog is dismissed
         dialog.setOnDismissListener {
             AppLogger.d(TAG, "showGranularControlSheet: Dialog dismissed, cancelling observer for ${pkg.packageName}")
             observerJob.cancel()
@@ -948,23 +840,19 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Setup protection warning banner
         val allowCritical = settingsViewModel.uiState.value.allowCriticalPackageFirewall
         val isProtected = (pkg.isSystemCritical || pkg.isVpnApp) && !allowCritical
         if (isProtected) {
             binding.protectionWarningBanner.root.visibility = View.VISIBLE
 
-            // Set banner message based on package type
             val bannerMessage = when {
                 pkg.isSystemCritical -> getString(R.string.protection_banner_message_firewall_system)
                 pkg.isVpnApp -> getString(R.string.protection_banner_message_firewall_vpn)
                 else -> getString(R.string.protection_banner_message_firewall)
             }
 
-            // Set the message text
             binding.protectionWarningBanner.bannerMessage.text = bannerMessage
 
-            // Setup Settings button click listener
             binding.protectionWarningBanner.bannerSettingsButton.setOnClickListener {
                 dialog.dismiss()
                 (requireActivity() as? io.github.dorumrr.de1984.ui.MainActivity)?.navigateToSettings()
@@ -973,7 +861,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.protectionWarningBanner.root.visibility = View.GONE
         }
 
-        // Setup WiFi toggle
         setupNetworkToggle(
             binding = binding.wifiToggle,
             label = getString(R.string.firewall_network_label_wifi),
@@ -986,7 +873,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         )
 
-        // Setup Mobile Data toggle
         setupNetworkToggle(
             binding = binding.mobileToggle,
             label = getString(R.string.firewall_network_label_mobile),
@@ -996,12 +882,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 if (isUpdatingProgrammatically) return@setupNetworkToggle
                 AppLogger.d(TAG, "🔘 USER ACTION: Mobile toggle changed for ${pkg.packageName} - blocked: $blocked")
 
-                // ViewModel handles mobile+roaming dependency atomically
                 viewModel.setMobileBlocking(pkg.packageName, pkg.userId, blocked)
             }
         )
 
-        // Setup Roaming toggle (only if device has cellular)
         if (hasCellular) {
             setupNetworkToggle(
                 binding = binding.roamingToggle,
@@ -1012,7 +896,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     if (isUpdatingProgrammatically) return@setupNetworkToggle
                     AppLogger.d(TAG, "🔘 USER ACTION: Roaming toggle changed for ${pkg.packageName} - blocked: $blocked")
 
-                    // ViewModel handles mobile+roaming dependency atomically
                     viewModel.setRoamingBlocking(pkg.packageName, pkg.userId, blocked)
                 }
             )
@@ -1023,11 +906,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val backendTypeForLan = appForLan.dependencies.firewallManager.activeBackendType.value
         val isIptablesBackend = backendTypeForLan == FirewallBackendType.IPTABLES
 
-        // Always show LAN toggle
         binding.lanDivider.visibility = View.VISIBLE
         binding.lanToggle.root.visibility = View.VISIBLE
 
-        // Show "Requires root access" subtitle when LAN blocking is unavailable
         if (!isIptablesBackend) {
             binding.lanToggle.root.alpha = 0.6f
             binding.lanToggle.networkTypeSubtitle.visibility = View.VISIBLE
@@ -1045,23 +926,19 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         )
 
-        // Add click listeners to toggle containers for protected packages
         if (isProtected) {
-            // WiFi toggle - click on entire row to show snackbar
             binding.wifiToggle.root.setOnClickListener {
                 if (!binding.wifiToggle.toggleSwitch.isEnabled) {
                     showProtectionSnackbar(dialog)
                 }
             }
 
-            // Mobile toggle - click on entire row to show snackbar
             binding.mobileToggle.root.setOnClickListener {
                 if (!binding.mobileToggle.toggleSwitch.isEnabled) {
                     showProtectionSnackbar(dialog)
                 }
             }
 
-            // Roaming toggle - click on entire row to show snackbar (if visible)
             if (hasCellular) {
                 binding.roamingToggle.root.setOnClickListener {
                     if (!binding.roamingToggle.toggleSwitch.isEnabled) {
@@ -1070,7 +947,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 }
             }
 
-            // LAN toggle - show protection snackbar when protected and using iptables
             binding.lanToggle.root.setOnClickListener {
                 if (!binding.lanToggle.toggleSwitch.isEnabled && isIptablesBackend) {
                     showProtectionSnackbar(dialog)
@@ -1078,7 +954,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Setup Background Access toggle (only shown when app is allowed)
         val defaultPolicy = viewModel.uiState.value.defaultFirewallPolicy
         val isBlockAllMode = defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL
         val shouldShowBackgroundAccess = (!pkg.isSystemCritical || allowCritical) && (!pkg.isVpnApp || allowCritical) && !pkg.isFullyBlocked
@@ -1094,7 +969,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 label = getString(R.string.firewall_network_label_background_access),
                 isBlocked = !pkg.backgroundBlocked, // INVERTED: ON = allowed (not blocked), OFF = blocked
                 enabled = true,
-                invertLabels = true, // Swap labels so right side = Allowed, left side = Blocked
+                invertLabels = true,
                 onToggle = { isChecked ->
                     if (isUpdatingProgrammatically) return@setupNetworkToggle
                     // isChecked=true means switch is ON, which means "allowed" for this toggle
@@ -1107,14 +982,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.foregroundOnlyToggle.root.visibility = View.GONE
         }
 
-        // Show info message (only for VPN-related info, not for system-critical packages)
-        // System-critical packages now show the protection banner at the top instead
         val app = requireActivity().application as De1984Application
         val firewallManager = app.dependencies.firewallManager
         val backendType = firewallManager.getActiveBackendType()
 
         if (!pkg.hasInternetPermission) {
-            // Show "No Internet Permission" info message
             binding.infoMessage.visibility = View.VISIBLE
             binding.infoMessage.text = getString(R.string.firewall_no_internet_info)
         } else if (pkg.isVpnApp) {
@@ -1127,7 +999,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.infoMessage.visibility = View.GONE
         }
 
-        // Cross-navigation action to Packages screen
         binding.manageAppAction.setOnClickListener {
             dialog.dismiss()
             (requireActivity() as? io.github.dorumrr.de1984.ui.MainActivity)?.navigateToPackagesWithApp(pkg.packageName, pkg.userId)
@@ -1137,7 +1008,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         AppLogger.d(TAG, "showGranularControlSheet: EXIT - About to show dialog for ${pkg.packageName}")
         dialog.show()
 
-        // Configure BottomSheetBehavior to properly handle nested scrolling
         dialog.behavior.apply {
             isDraggable = true
             // Allow the sheet to be dragged, but nested scrolling will take priority
@@ -1148,8 +1018,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     private fun showSimpleControlSheet(dialog: BottomSheetDialog, pkg: NetworkPackage) {
         val binding = BottomSheetPackageActionSimpleBinding.inflate(layoutInflater)
 
-        // Setup header with async icon loading (prevents UI freeze for work profile apps)
-        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon) // Placeholder
+        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon)
         binding.actionSheetAppName.text = pkg.name
         binding.actionSheetPackageName.text = pkg.packageName
 
@@ -1173,15 +1042,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     null
                 }
             }
-            // Update icon if dialog is still showing and fragment is attached
             if (dialog.isShowing && isAdded) {
                 icon?.let { binding.actionSheetAppIcon.setImageDrawable(it) }
             }
         }
 
-        // ============================================================================
-        // Click package name to copy to clipboard
-        // ============================================================================
         binding.actionSheetPackageName.setOnClickListenerDebounced {
             requireContext().copyToClipboard(pkg.packageName, getString(R.string.clipboard_label_package_name))
         }
@@ -1196,13 +1061,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             dialog.dismiss()
         }
 
-        // Set appropriate info message based on package type and backend
         val app = requireActivity().application as De1984Application
         val firewallManager = app.dependencies.firewallManager
         val backendType = firewallManager.getActiveBackendType()
         val allowCriticalSimple = settingsViewModel.uiState.value.allowCriticalPackageFirewall
 
-        // Only show info message for special cases - normal apps show info as subtitle under Internet Access
         val infoMessage: String? = if (!pkg.hasInternetPermission) {
             getString(R.string.firewall_no_internet_info)
         } else if ((pkg.isSystemCritical || pkg.isVpnApp) && allowCriticalSimple) {
@@ -1212,10 +1075,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         } else if (pkg.isVpnApp) {
             getString(R.string.firewall_vpn_app_info)
         } else if (backendType == io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.CONNECTIVITY_MANAGER) {
-            // Show ConnectivityManager info only (explains granular control requires root)
             getString(R.string.firewall_connectivity_manager_info)
         } else {
-            null  // Hide info message for normal apps on VPN backend
+            null
         }
 
         if (infoMessage != null) {
@@ -1225,14 +1087,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             binding.infoMessage.visibility = View.GONE
         }
 
-        // Flag to prevent infinite recursion when updating switch programmatically
         var isUpdatingProgrammatically = false
 
-        // Function to update UI toggle based on current package state
         fun updateToggleFromPackage(currentPkg: NetworkPackage) {
             isUpdatingProgrammatically = true
 
-            // For all-or-nothing backends, check if ANY network is blocked
             val isBlocked = currentPkg.wifiBlocked || currentPkg.mobileBlocked || currentPkg.roamingBlocked
             binding.internetToggle.toggleSwitch.isChecked = isBlocked
             updateSwitchColors(binding.internetToggle.toggleSwitch, isBlocked)
@@ -1240,10 +1099,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             isUpdatingProgrammatically = false
         }
 
-        // Initial setup of toggle
         updateToggleFromPackage(pkg)
 
-        // Observe package changes to update UI when ViewModel makes changes
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
                 val updatedPkg = state.packages.find { it.packageName == pkg.packageName }
@@ -1253,13 +1110,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Cancel observer when dialog is dismissed
         dialog.setOnDismissListener {
             AppLogger.d(TAG, "showSimpleControlSheet: Dialog dismissed, cancelling observer for ${pkg.packageName}")
             observerJob.cancel()
         }
 
-        // Setup single "Internet Access" toggle
         setupNetworkToggle(
             binding = binding.internetToggle,
             label = getString(R.string.firewall_network_label_internet_access),
@@ -1268,28 +1123,23 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             onToggle = { blocked ->
                 if (isUpdatingProgrammatically) return@setupNetworkToggle
 
-                // Block/unblock ALL networks at once atomically - prevents race conditions
                 viewModel.setAllNetworkBlocking(pkg.packageName, pkg.userId, blocked)
             }
         )
-        // Show "WiFi, Mobile, Roaming" subtitle under Internet Access
         binding.internetToggle.networkTypeSubtitle.visibility = View.VISIBLE
         binding.internetToggle.networkTypeSubtitle.text = getString(R.string.firewall_internet_access_subtitle)
 
-        // Setup LAN toggle - always shown but disabled (requires root/iptables which isn't available in simple mode)
         setupNetworkToggle(
             binding = binding.lanToggle,
             label = getString(R.string.firewall_network_label_lan),
             isBlocked = pkg.lanBlocked,
-            enabled = false,  // Always disabled in simple control sheet (requires iptables/root)
-            onToggle = { /* No-op - disabled */ }
+            enabled = false,
+            onToggle = { }
         )
-        // Show "Requires root access" subtitle
         binding.lanToggle.root.alpha = 0.6f
         binding.lanToggle.networkTypeSubtitle.visibility = View.VISIBLE
         binding.lanToggle.networkTypeSubtitle.text = getString(R.string.firewall_lan_requires_root)
 
-        // Cross-navigation action to Packages screen
         binding.manageAppAction.setOnClickListener {
             dialog.dismiss()
             (requireActivity() as? io.github.dorumrr.de1984.ui.MainActivity)?.navigateToPackagesWithApp(pkg.packageName, pkg.userId)
@@ -1298,7 +1148,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         dialog.setContentView(binding.root)
         dialog.show()
 
-        // Configure BottomSheetBehavior to properly handle nested scrolling
         dialog.behavior.apply {
             isDraggable = true
             // Allow the sheet to be dragged, but nested scrolling will take priority
@@ -1317,25 +1166,19 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         AppLogger.d(TAG, "setupNetworkToggle: label=$label, isBlocked=$isBlocked, enabled=$enabled, binding=$binding")
         binding.networkTypeLabel.text = label
 
-        // Optionally use ON/OFF labels for "Allow in Background" toggle
         if (invertLabels) {
-            // For inverted toggle: use OFF/ON instead of Allowed/Blocked
             binding.labelLeft.text = getString(R.string.firewall_state_off)
             binding.labelRight.text = getString(R.string.firewall_state_on)
         } else {
-            // For normal toggle: left = Allowed, right = Blocked
             binding.labelLeft.text = getString(R.string.firewall_state_allowed)
             binding.labelRight.text = getString(R.string.firewall_state_blocked)
         }
 
-        // Set initial state: switch ON = blocked, switch OFF = allowed
         binding.toggleSwitch.isChecked = isBlocked
         binding.toggleSwitch.isEnabled = enabled
 
-        // Update colors based on state
         updateSwitchColors(binding.toggleSwitch, isBlocked, invertColors = invertLabels)
 
-        // Simple switch listener - only fires on user interaction
         binding.toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
             updateSwitchColors(binding.toggleSwitch, isChecked, invertColors = invertLabels)
             onToggle(isChecked)
@@ -1349,122 +1192,95 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     ) {
         val context = switch.context
 
-        // Determine colors based on whether we're inverting
         val (checkedColor, uncheckedColor) = if (invertColors) {
-            // For "Allow in Background": ON = TEAL (allowed), OFF = RED (blocked)
             Pair(
                 ContextCompat.getColor(context, R.color.lineage_teal),
                 ContextCompat.getColor(context, R.color.error_red)
             )
         } else {
-            // For normal toggles: ON = RED (blocked), OFF = TEAL (allowed)
             Pair(
                 ContextCompat.getColor(context, R.color.error_red),
                 ContextCompat.getColor(context, R.color.lineage_teal)
             )
         }
 
-        // Create color state lists for checked (ON) and unchecked (OFF) states
         val thumbColorStateList = ColorStateList(
             arrayOf(
-                intArrayOf(android.R.attr.state_checked),  // When switch is ON
-                intArrayOf(-android.R.attr.state_checked)  // When switch is OFF
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
             ),
             intArrayOf(checkedColor, uncheckedColor)
         )
 
         val trackColorStateList = ColorStateList(
             arrayOf(
-                intArrayOf(android.R.attr.state_checked),  // When switch is ON
-                intArrayOf(-android.R.attr.state_checked)  // When switch is OFF
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
             ),
             intArrayOf(
-                checkedColor and 0x80FFFFFF.toInt(),      // 50% opacity when ON
-                uncheckedColor and 0x80FFFFFF.toInt()     // 50% opacity when OFF
+                checkedColor and 0x80FFFFFF.toInt(),
+                uncheckedColor and 0x80FFFFFF.toInt()
             )
         )
 
-        // Set thumb (the circle) and track (the background) colors
         switch.thumbTintList = thumbColorStateList
         switch.trackTintList = trackColorStateList
     }
 
-    /**
-     * Map translated type filter string to internal constant
-     */
     private fun mapTypeFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all) -> Constants.Packages.TYPE_ALL
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user) -> Constants.Packages.TYPE_USER
             getString(io.github.dorumrr.de1984.R.string.packages_filter_system) -> Constants.Packages.TYPE_SYSTEM
-            else -> Constants.Packages.TYPE_ALL // Default fallback
+            else -> Constants.Packages.TYPE_ALL
         }
     }
 
-    /**
-     * Map translated state filter string to internal constant
-     */
     private fun mapStateFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.firewall_state_allowed) -> Constants.Firewall.STATE_ALLOWED
             getString(io.github.dorumrr.de1984.R.string.firewall_state_blocked) -> Constants.Firewall.STATE_BLOCKED
-            else -> translatedFilter // Fallback to original
+            else -> translatedFilter
         }
     }
 
-    /**
-     * Map internal constant to translated type filter string
-     */
     private fun mapInternalToTypeFilter(internalFilter: String): String {
         return when (internalFilter) {
             Constants.Packages.TYPE_ALL -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
             Constants.Packages.TYPE_USER -> getString(io.github.dorumrr.de1984.R.string.packages_filter_user)
             Constants.Packages.TYPE_SYSTEM -> getString(io.github.dorumrr.de1984.R.string.packages_filter_system)
-            else -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all) // Default fallback
+            else -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
         }
     }
 
-    /**
-     * Map internal constant to translated state filter string
-     */
     private fun mapInternalToStateFilter(internalFilter: String): String {
         return when (internalFilter) {
             Constants.Firewall.STATE_ALLOWED -> getString(io.github.dorumrr.de1984.R.string.firewall_state_allowed)
             Constants.Firewall.STATE_BLOCKED -> getString(io.github.dorumrr.de1984.R.string.firewall_state_blocked)
-            else -> internalFilter // Fallback to original
+            else -> internalFilter
         }
     }
 
-    /**
-     * Map translated profile filter string to internal constant
-     */
     private fun mapProfileFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.filter_profile_all) -> "All"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_personal) -> "Personal"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_work) -> "Work"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_clone) -> "Clone"
-            else -> "All" // Default fallback
+            else -> "All"
         }
     }
 
-    /**
-     * Map internal constant to translated profile filter string
-     */
     private fun mapInternalToProfileFilter(internalFilter: String): String {
         return when (internalFilter) {
             "All" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
             "Personal" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_personal)
             "Work" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_work)
             "Clone" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_clone)
-            else -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all) // Default fallback
+            else -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
         }
     }
 
-    /**
-     * Show snackbar informing user that package is protected.
-     * Provides action button to navigate to Settings.
-     */
     private fun showProtectionSnackbar(dialog: BottomSheetDialog) {
         val parentView = dialog.window?.decorView ?: requireView()
         Snackbar.make(
@@ -1477,7 +1293,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }.show()
     }
 
-    // ========== SELECTION MODE METHODS ==========
 
     private fun setupSelectionToolbar() {
         binding.selectionToolbar.setNavigationOnClickListener {
@@ -1502,13 +1317,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback!!)
     }
 
-    /**
-     * Handle long click on a package to enter selection mode
-     */
     private fun onPackageLongClick(pkg: NetworkPackage): Boolean {
         AppLogger.d(TAG, "🔘 Long click on package: ${pkg.packageName}")
 
-        // Check if package can be selected
         if (!adapter.canSelectPackage(pkg, requireContext())) {
             Toast.makeText(
                 requireContext(),
@@ -1522,7 +1333,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             enterSelectionMode()
         }
 
-        // Select the long-pressed package
         adapter.selectPackage(pkg.id)
         return true
     }
@@ -1548,7 +1358,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     private fun updateSelectionToolbar() {
         val count = selectedPackages.size
         binding.selectionCount.text = getString(R.string.multiselect_toolbar_title_format, count)
-        // Rules button is always visible - no need to toggle visibility based on filter
     }
 
     private fun showBatchResultDialog(result: io.github.dorumrr.de1984.presentation.viewmodel.BatchBlockResult) {
@@ -1571,20 +1380,13 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             .show()
     }
 
-    // ========== MULTI-SELECT RULES SHEET ==========
 
-    /**
-     * Represents the aggregated state of a network toggle across multiple selected packages.
-     */
     private enum class MultiSelectToggleState {
-        ALL_BLOCKED,    // All selected packages have this network blocked
-        ALL_ALLOWED,    // All selected packages have this network allowed
-        MIXED           // Some blocked, some allowed
+        ALL_BLOCKED,
+        ALL_ALLOWED,
+        MIXED
     }
 
-    /**
-     * Calculate the aggregated state for a specific network type across selected packages.
-     */
     private fun calculateToggleState(
         packages: List<NetworkPackage>,
         getBlockedState: (NetworkPackage) -> Boolean
@@ -1599,16 +1401,12 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
     }
 
-    /**
-     * Show the multi-select rules bottom sheet with granular network controls.
-     */
     private fun showMultiSelectRulesSheet() {
         val dialog = BottomSheetDialog(requireContext())
         currentDialog = dialog
 
         val sheetBinding = BottomSheetFirewallMultiselectBinding.inflate(layoutInflater)
 
-        // Get selected packages from current UI state
         val allPackages = viewModel.uiState.value.packages
         val selectedPkgs = allPackages.filter { selectedPackages.contains(it.id) }
 
@@ -1617,39 +1415,32 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             return
         }
 
-        // Setup header
         sheetBinding.multiselectHeader.text = getString(R.string.firewall_multiselect_sheet_header_format, selectedPkgs.size)
 
-        // Check if device has cellular capability
         val telephonyManager = requireContext().getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         val hasCellular = telephonyManager?.phoneType != TelephonyManager.PHONE_TYPE_NONE
 
-        // Check if using iptables backend for LAN toggle
         val app = requireActivity().application as De1984Application
         val backendType = app.dependencies.firewallManager.activeBackendType.value
         val isIptablesBackend = backendType == FirewallBackendType.IPTABLES
 
-        // Calculate initial states
         val wifiState = calculateToggleState(selectedPkgs) { it.wifiBlocked }
         val mobileState = calculateToggleState(selectedPkgs) { it.mobileBlocked }
         val roamingState = calculateToggleState(selectedPkgs) { it.roamingBlocked }
         val lanState = calculateToggleState(selectedPkgs) { it.lanBlocked }
 
-        // Setup WiFi toggle (initial state only, listener added below)
         setupMultiSelectToggleInitial(
             binding = sheetBinding.wifiToggle,
             label = getString(R.string.firewall_network_label_wifi),
             state = wifiState
         )
 
-        // Setup Mobile toggle (initial state only, listener added below)
         setupMultiSelectToggleInitial(
             binding = sheetBinding.mobileToggle,
             label = getString(R.string.firewall_network_label_mobile),
             state = mobileState
         )
 
-        // Setup Roaming toggle (only if device has cellular)
         if (hasCellular) {
             sheetBinding.roamingDivider.visibility = View.VISIBLE
             sheetBinding.roamingToggle.root.visibility = View.VISIBLE
@@ -1660,7 +1451,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             )
         }
 
-        // Setup LAN toggle (only if using iptables backend)
         if (isIptablesBackend) {
             sheetBinding.lanDivider.visibility = View.VISIBLE
             sheetBinding.lanToggle.root.visibility = View.VISIBLE
@@ -1671,7 +1461,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             )
         }
 
-        // Setup Quick Action buttons
         sheetBinding.allowAllButton.setOnClickListener {
             viewModel.batchAllowPackages(selectedPackages.toList())
             dialog.dismiss()
@@ -1684,10 +1473,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             exitSelectionMode()
         }
 
-        // Flag to prevent infinite recursion when updating toggles programmatically
         var isUpdatingProgrammatically = false
 
-        // Function to update all toggles based on current package states
         fun updateTogglesFromPackages(packages: List<NetworkPackage>) {
             if (packages.isEmpty()) return
             isUpdatingProgrammatically = true
@@ -1697,18 +1484,14 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             val newRoamingState = calculateToggleState(packages) { it.roamingBlocked }
             val newLanState = calculateToggleState(packages) { it.lanBlocked }
 
-            // Update WiFi toggle
             updateMultiSelectToggleState(sheetBinding.wifiToggle, newWifiState)
 
-            // Update Mobile toggle
             updateMultiSelectToggleState(sheetBinding.mobileToggle, newMobileState)
 
-            // Update Roaming toggle (if visible)
             if (hasCellular) {
                 updateMultiSelectToggleState(sheetBinding.roamingToggle, newRoamingState)
             }
 
-            // Update LAN toggle (if visible)
             if (isIptablesBackend) {
                 updateMultiSelectToggleState(sheetBinding.lanToggle, newLanState)
             }
@@ -1716,12 +1499,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             isUpdatingProgrammatically = false
         }
 
-        // Helper to convert selected PackageIds to pairs with userId
         fun getSelectedPackagePairs(): List<Pair<String, Int>> {
             return selectedPackages.map { it.packageName to it.userId }
         }
 
-        // Wrap toggle callbacks to check the flag
         sheetBinding.wifiToggle.toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isUpdatingProgrammatically) return@setOnCheckedChangeListener
             sheetBinding.wifiToggle.networkTypeSubtitle.visibility = View.GONE
@@ -1766,7 +1547,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             selectedPkgs.forEach { put(it.id, it) }
         }
 
-        // Observe package changes to update UI when ViewModel makes cascading changes
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
                 var changed = false
@@ -1793,7 +1573,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             }
         }
 
-        // Cancel observer when dialog is dismissed
         dialog.setOnDismissListener {
             AppLogger.d(TAG, "showMultiSelectRulesSheet: Dialog dismissed, cancelling observer")
             observerJob.cancel()
@@ -1806,9 +1585,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         dialog.show()
     }
 
-    /**
-     * Update a multi-select toggle's visual state without triggering the listener.
-     */
     private fun updateMultiSelectToggleState(
         binding: NetworkTypeToggleBinding,
         state: MultiSelectToggleState
@@ -1847,7 +1623,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         binding.labelRight.text = getString(R.string.firewall_state_blocked)
         binding.toggleSwitch.isEnabled = true
 
-        // Set initial state based on aggregated state
         when (state) {
             MultiSelectToggleState.ALL_BLOCKED -> {
                 binding.toggleSwitch.isChecked = true
@@ -1860,7 +1635,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                 updateSwitchColors(binding.toggleSwitch, false)
             }
             MultiSelectToggleState.MIXED -> {
-                // For mixed state, show as unchecked (allowed) but with "Mixed" subtitle
                 binding.toggleSwitch.isChecked = false
                 binding.networkTypeSubtitle.visibility = View.VISIBLE
                 binding.networkTypeSubtitle.text = getString(R.string.firewall_multiselect_sheet_state_mixed)
@@ -1869,10 +1643,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
     }
 
-    /**
-     * Handle quick toggle on network icons
-     * Shows confirmation dialog or executes toggle with snackbar based on settings
-     */
     private fun handleQuickToggle(pkg: NetworkPackage, networkType: NetworkType) {
         val prefs = requireContext().getSharedPreferences(
             Constants.Settings.PREFS_NAME,
@@ -1883,7 +1653,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             Constants.Settings.DEFAULT_CONFIRM_RULE_CHANGES
         )
 
-        // Determine current state and new state
         val isCurrentlyBlocked = when (networkType) {
             NetworkType.WIFI -> pkg.wifiBlocked
             NetworkType.MOBILE -> pkg.mobileBlocked
@@ -1898,15 +1667,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
     }
 
-    /**
-     * Show confirmation dialog for quick toggle
-     */
     private fun showQuickToggleConfirmationDialog(
         pkg: NetworkPackage,
         networkType: NetworkType,
         willBlock: Boolean
     ) {
-        // Use user-friendly network type names for dialog title
         val networkTypeName = when (networkType) {
             NetworkType.WIFI -> getString(R.string.firewall_network_label_wifi)
             NetworkType.MOBILE -> getString(R.string.firewall_network_label_mobile)
@@ -1940,9 +1705,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             .show()
     }
 
-    /**
-     * Execute the quick toggle action
-     */
     private fun executeQuickToggle(
         pkg: NetworkPackage,
         networkType: NetworkType,
@@ -1962,9 +1724,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
     }
 
-    /**
-     * Show snackbar with undo option after quick toggle
-     */
     private fun showQuickToggleSnackbar(
         pkg: NetworkPackage,
         networkType: NetworkType,
@@ -1990,7 +1749,6 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG)
             .setAction(getString(R.string.snackbar_undo)) {
-                // Undo: reverse the action
                 AppLogger.d(TAG, "🔄 UNDO QUICK TOGGLE: ${networkType.name} for ${pkg.packageName}")
                 when (networkType) {
                     NetworkType.WIFI -> viewModel.setWifiBlocking(pkg.packageName, pkg.userId, !wasBlocked)

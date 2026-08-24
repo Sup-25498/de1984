@@ -61,7 +61,6 @@ class PrivilegedFirewallService : Service() {
     private var isServiceActive = false
     private var wasExplicitlyStopped = false
 
-    // Adaptive health check tracking
     private var consecutiveSuccessfulHealthChecks = 0
     private var currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
@@ -73,8 +72,6 @@ class PrivilegedFirewallService : Service() {
             if (intent?.action == "io.github.dorumrr.de1984.FIREWALL_RULES_CHANGED") {
                 AppLogger.d(TAG, "🔥 [TIMING] Broadcast RECEIVED: timestamp=${System.currentTimeMillis()}")
                 if (isServiceActive) {
-                    // Clear backend cache to force re-evaluation of all packages
-                    // This ensures rule changes take effect immediately without restart
                     val backend = currentBackend
                     if (backend is ConnectivityManagerFirewallBackend) {
                         backend.clearAppliedPoliciesCache()
@@ -103,7 +100,6 @@ class PrivilegedFirewallService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize dependencies manually
         val app = application as De1984Application
         val deps = app.dependencies
         firewallRepository = deps.firewallRepository
@@ -237,7 +233,6 @@ class PrivilegedFirewallService : Service() {
 
         serviceScope.launch {
             try {
-                // Create backend instance
                 val app = application as De1984Application
                 val deps = app.dependencies
 
@@ -249,7 +244,6 @@ class PrivilegedFirewallService : Service() {
                             shizukuManager = deps.shizukuManager,
                             errorHandler = deps.errorHandler
                         )
-                        // Call internal start method
                         b.startInternal().getOrElse { error ->
                             AppLogger.e(TAG, "Failed to start iptables backend: ${error.message}")
                             stopSelf()
@@ -263,7 +257,6 @@ class PrivilegedFirewallService : Service() {
                             shizukuManager = deps.shizukuManager,
                             errorHandler = deps.errorHandler
                         )
-                        // Call internal start method
                         b.startInternal().getOrElse { error ->
                             AppLogger.e(TAG, "Failed to start ConnectivityManager backend: ${error.message}")
                             stopSelf()
@@ -277,7 +270,6 @@ class PrivilegedFirewallService : Service() {
                             shizukuManager = deps.shizukuManager,
                             errorHandler = deps.errorHandler
                         )
-                        // Call internal start method
                         b.startInternal().getOrElse { error ->
                             AppLogger.e(TAG, "Failed to start NetworkPolicyManager backend: ${error.message}")
                             stopSelf()
@@ -296,7 +288,6 @@ class PrivilegedFirewallService : Service() {
                 currentBackendType = backendType
                 isServiceActive = true
 
-                // Update SharedPreferences to indicate service is running
                 val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
                 prefs.edit()
                     .putBoolean(Constants.Settings.KEY_PRIVILEGED_SERVICE_RUNNING, true)
@@ -304,14 +295,11 @@ class PrivilegedFirewallService : Service() {
                     .apply()
                 AppLogger.d(TAG, "Updated SharedPreferences: PRIVILEGED_SERVICE_RUNNING=true, BACKEND_TYPE=$backendType")
 
-                // Start foreground service
                 AppLogger.d(TAG, "Starting foreground service with notification")
                 startForeground(NOTIFICATION_ID, createNotification())
 
-                // Apply initial rules
                 scheduleRuleApplication("initial")
 
-                // Start monitoring
                 startMonitoring()
                 startBackendHealthMonitoring()
 
@@ -328,7 +316,6 @@ class PrivilegedFirewallService : Service() {
 
         isServiceActive = false
 
-        // Stop monitoring
         monitoringJob?.cancel()
         monitoringJob = null
         healthMonitoringJob?.cancel()
@@ -336,17 +323,14 @@ class PrivilegedFirewallService : Service() {
         ruleApplicationJob?.cancel()
         ruleApplicationJob = null
 
-        // Reset adaptive health check tracking
         consecutiveSuccessfulHealthChecks = 0
         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
-        // Stop backend
         serviceScope.launch {
             val backend = currentBackend
             val backendType = currentBackendType
 
             if (backend != null && backendType != null) {
-                // Call internal stop method based on backend type
                 when (backendType) {
                     // The teardown failure is reported, not just logged. FirewallManager judges the
                     // stop by backend.stop(), which for all three of these returns success as soon
@@ -380,7 +364,6 @@ class PrivilegedFirewallService : Service() {
             currentBackend = null
             currentBackendType = null
 
-            // Update SharedPreferences
             val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean(Constants.Settings.KEY_PRIVILEGED_SERVICE_RUNNING, false)
@@ -388,7 +371,6 @@ class PrivilegedFirewallService : Service() {
                 .apply()
             AppLogger.d(TAG, "Updated SharedPreferences: PRIVILEGED_SERVICE_RUNNING=false")
 
-            // Stop foreground and remove notification
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -397,7 +379,6 @@ class PrivilegedFirewallService : Service() {
     private fun startMonitoring() {
         AppLogger.d(TAG, "Starting network/screen state monitoring")
 
-        // Monitor network type and screen state changes
         monitoringJob = serviceScope.launch {
             combine(
                 networkStateMonitor.observeNetworkType(),
@@ -415,7 +396,6 @@ class PrivilegedFirewallService : Service() {
             }
         }
 
-        // Monitor rule changes from repository
         serviceScope.launch {
             firewallRepository.getAllRules().collect { _ ->
                 if (isServiceActive) {
@@ -427,7 +407,6 @@ class PrivilegedFirewallService : Service() {
     }
 
     private fun startBackendHealthMonitoring() {
-        // Reset adaptive tracking when starting new monitoring
         consecutiveSuccessfulHealthChecks = 0
         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
@@ -464,13 +443,11 @@ class PrivilegedFirewallService : Service() {
                         }
                     }
 
-                    // Check if backend is still available (root/Shizuku access, iptables binary, etc.)
                     val availabilityResult = backend.checkAvailability()
 
                     if (availabilityResult.isFailure) {
                         AppLogger.e(TAG, "❌ SERVICE: BACKEND AVAILABILITY CHECK FAILED | Backend: $backendType | Reason: ${availabilityResult.exceptionOrNull()?.message} | Action: Stopping service to trigger FirewallManager fallback")
 
-                        // Reset adaptive tracking on failure
                         consecutiveSuccessfulHealthChecks = 0
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
@@ -482,11 +459,9 @@ class PrivilegedFirewallService : Service() {
                     // is running (circular check). The checkAvailability() above is sufficient to
                     // verify the backend can still function (root/Shizuku access, APIs available, etc.)
 
-                    // Health check passed - increment success counter
                     consecutiveSuccessfulHealthChecks++
                     AppLogger.d(TAG, "✅ SERVICE: Health check passed - $backendType is healthy (consecutive successes: $consecutiveSuccessfulHealthChecks)")
 
-                    // Check if we should increase interval (backend is stable)
                     if (consecutiveSuccessfulHealthChecks >= Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD &&
                         currentHealthCheckInterval == Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS) {
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS
@@ -497,7 +472,6 @@ class PrivilegedFirewallService : Service() {
                     AppLogger.e(TAG, "❌ SERVICE: HEALTH CHECK EXCEPTION | Backend: $backendType | Exception: ${e.message} | Action: Stopping service to trigger FirewallManager fallback")
                     AppLogger.e(TAG, "", e)
 
-                    // Reset adaptive tracking on exception
                     consecutiveSuccessfulHealthChecks = 0
                     currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
@@ -508,12 +482,6 @@ class PrivilegedFirewallService : Service() {
         }
     }
 
-    /**
-     * Tell FirewallManager the teardown failed, so it can warn that rules may still be enforced.
-     *
-     * Suspending and called inline from the stop handler, which already runs on serviceScope: the
-     * warning has to be published before the service tears the rest of itself down.
-     */
     private suspend fun reportTeardownFailure(backendType: FirewallBackendType, error: Throwable) {
         try {
             val app = application as De1984Application
@@ -545,7 +513,6 @@ class PrivilegedFirewallService : Service() {
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to notify FirewallManager of backend failure: ${e.message}")
-            // Continue with service stop - health check will detect it eventually
         }
 
         // Stop the service
@@ -570,7 +537,7 @@ class PrivilegedFirewallService : Service() {
 
         ruleApplicationJob = serviceScope.launch {
             AppLogger.d(TAG, "🔥 [TIMING] Debounce START (300ms): source=$source")
-            delay(300)  // Debounce
+            delay(300)
             AppLogger.d(TAG, "🔥 [TIMING] Debounce END: +${System.currentTimeMillis() - ruleApplicationStartTime}ms")
 
             if (!isServiceActive) {

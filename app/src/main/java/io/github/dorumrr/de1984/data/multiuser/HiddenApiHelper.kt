@@ -28,8 +28,6 @@ object HiddenApiHelper {
     private var initialized = false
     private var hiddenApiAvailable = false
 
-    // Shizuku manager reference for shell command fallback (Issue #68)
-    // Set via setShizukuManager() from De1984Application after dependencies are created
     @Volatile
     private var shizukuManager: ShizukuManager? = null
 
@@ -42,15 +40,12 @@ object HiddenApiHelper {
         AppLogger.d(TAG, "ShizukuManager reference set for work profile shell fallback")
     }
 
-    // User profile caching to avoid repeated expensive reflection calls
     @Volatile
     private var cachedUsers: List<UserProfile>? = null
     @Volatile
     private var usersCacheTime: Long = 0
-    private const val USERS_CACHE_TTL = 30_000L // 30 seconds
+    private const val USERS_CACHE_TTL = 30_000L
 
-    // Installed apps caching to avoid repeated expensive shell/API calls
-    // This is critical for performance - applyRules() calls getInstalledApplicationsAsUser() multiple times
     @Volatile
     private var installedAppsCache: MutableMap<Int, List<ApplicationInfo>> = mutableMapOf()
     @Volatile
@@ -77,9 +72,6 @@ object HiddenApiHelper {
     private var networkPackagesCacheTime: Long = 0
     private val networkPackagesLock = Any()
     
-    /**
-     * Data class representing a user profile
-     */
     data class UserProfile(
         val userId: Int,
         val name: String?,
@@ -95,15 +87,11 @@ object HiddenApiHelper {
             }
     }
     
-    /**
-     * Initialize hidden API bypass. Should be called in Application.onCreate()
-     */
     fun initialize() {
         if (initialized) return
         
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                // Exempt all classes from hidden API restrictions
                 HiddenApiBypass.addHiddenApiExemptions("L")
                 hiddenApiAvailable = true
                 AppLogger.i(TAG, "✅ HiddenApiBypass initialized successfully")
@@ -120,21 +108,9 @@ object HiddenApiHelper {
         initialized = true
     }
     
-    /**
-     * Get all user profiles on the device.
-     *
-     * Uses multiple strategies:
-     * 1. UserManager.getUserProfiles() - public API that returns profiles for the calling user
-     * 2. UserManager.getUsers() - hidden API requiring MANAGE_USERS permission
-     * 3. Fallback to user 0 only
-     *
-     * Results are cached for 30 seconds to avoid repeated expensive reflection calls.
-     * Returns list with just user 0 if all methods fail.
-     */
     fun getUsers(context: Context): List<UserProfile> {
         if (!initialized) initialize()
 
-        // Check cache first to avoid expensive reflection calls
         cachedUsers?.let { cached ->
             if (System.currentTimeMillis() - usersCacheTime < USERS_CACHE_TTL) {
                 AppLogger.d(TAG, "🔍 MULTI-USER: Returning cached ${cached.size} user profiles")
@@ -144,8 +120,6 @@ object HiddenApiHelper {
 
         AppLogger.i(TAG, "🔍 MULTI-USER: Starting user profile detection...")
 
-        // Strategy 1: Use public API UserManager.getUserProfiles() (Android 5.0+)
-        // This returns profiles associated with the current user without special permissions
         try {
             val userManager = context.getSystemService(Context.USER_SERVICE) as android.os.UserManager
             val profiles = userManager.userProfiles
@@ -154,13 +128,9 @@ object HiddenApiHelper {
             if (profiles.isNotEmpty()) {
                 val userProfiles = profiles.mapNotNull { userHandle ->
                     try {
-                        // Get the user ID from UserHandle via reflection
                         val getIdentifierMethod = userHandle.javaClass.getMethod("getIdentifier")
                         val userId = getIdentifierMethod.invoke(userHandle) as Int
 
-                        // Determine profile type based on userId
-                        // userId 0 is always the primary user
-                        // Work profiles are detected via isManagedProfile()
                         val isWorkProfile = userId > 0 && userManager.isManagedProfile(userId)
 
                         // Clone profiles only exist on Android 12+ (API 31)
@@ -174,7 +144,6 @@ object HiddenApiHelper {
                         val name = when {
                             userId == 0 -> "Personal"
                             isWorkProfile -> "Work"
-                            // Note: Clone detection happens via Strategy 2 if available
                             else -> "User $userId"
                         }
 
@@ -196,7 +165,6 @@ object HiddenApiHelper {
             AppLogger.d(TAG, "getUserProfiles() failed: ${e.message}")
         }
 
-        // Strategy 2: Try hidden API UserManager.getUsers() (requires MANAGE_USERS permission)
         if (hiddenApiAvailable) {
             try {
                 val userManager = context.getSystemService(Context.USER_SERVICE)
@@ -240,48 +208,32 @@ object HiddenApiHelper {
             }
         }
 
-        // Strategy 3: Fallback to user 0 only
         AppLogger.d(TAG, "All user enumeration methods failed, returning only user 0")
         return cacheAndReturn(listOf(UserProfile(0, "Personal", isWorkProfile = false, isCloneProfile = false)))
     }
 
-    /**
-     * Cache the user profiles and return them.
-     */
     private fun cacheAndReturn(users: List<UserProfile>): List<UserProfile> {
         cachedUsers = users
         usersCacheTime = System.currentTimeMillis()
         return users
     }
 
-    /**
-     * Clear the user profile cache. Call this when user profiles may have changed
-     * (e.g., work profile added/removed).
-     */
     fun clearUserCache() {
         cachedUsers = null
         usersCacheTime = 0
         AppLogger.d(TAG, "User profile cache cleared")
     }
 
-    /**
-     * Check if a user ID represents a managed profile (work profile).
-     * Uses reflection to call UserManager.isManagedProfile(userId).
-     */
     private fun android.os.UserManager.isManagedProfile(userId: Int): Boolean {
         return try {
-            // Try the hidden isManagedProfile(int) method
             val method = this.javaClass.getMethod("isManagedProfile", Int::class.javaPrimitiveType)
             method.invoke(this, userId) as? Boolean ?: false
         } catch (e: Exception) {
-            // Fallback: check if the default isManagedProfile() is true for the current user
             try {
-                // Get the current user's ID via reflection (same pattern used in Strategy 1)
                 val myUserHandle = android.os.Process.myUserHandle()
                 val getIdentifierMethod = myUserHandle.javaClass.getMethod("getIdentifier")
                 val myUserId = getIdentifierMethod.invoke(myUserHandle) as Int
                 
-                // For the current user, use the public isManagedProfile() API (API 30+)
                 if (myUserId == userId) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         this.isManagedProfile
@@ -301,19 +253,6 @@ object HiddenApiHelper {
         }
     }
     
-    /**
-     * Get installed applications for a specific user.
-     *
-     * Uses multiple strategies:
-     * 1. Standard API for user 0
-     * 2. Hidden API getInstalledApplicationsAsUser()
-     * 3. Root shell: pm list packages --user X (fast, creates synthetic ApplicationInfo)
-     *
-     * Results are cached for 5 seconds to avoid repeated expensive shell/API calls.
-     * This is critical for performance - applyRules() calls this multiple times per rule application.
-     *
-     * Falls back to empty list if all methods fail.
-     */
     fun getInstalledApplicationsAsUser(
         context: Context,
         flags: Int,
@@ -321,12 +260,10 @@ object HiddenApiHelper {
     ): List<ApplicationInfo> {
         if (!initialized) initialize()
 
-        // For user 0, always use standard API (most reliable) - no caching needed as it's fast
         if (userId == 0) {
             return context.packageManager.getInstalledApplications(flags)
         }
 
-        // Check cache first for non-zero users (work profiles, clone profiles)
         val now = System.currentTimeMillis()
         if (now - installedAppsCacheTime < INSTALLED_APPS_CACHE_TTL) {
             installedAppsCache[userId]?.let { cached ->
@@ -335,7 +272,6 @@ object HiddenApiHelper {
             }
         }
 
-        // Strategy 1: Try hidden API first
         if (hiddenApiAvailable) {
             try {
                 val pm = context.packageManager
@@ -398,18 +334,11 @@ object HiddenApiHelper {
         return emptyList()
     }
 
-    /**
-     * Cache installed apps for a user and update the cache timestamp.
-     */
     private fun cacheInstalledApps(userId: Int, apps: List<ApplicationInfo>) {
         installedAppsCache[userId] = apps
         installedAppsCacheTime = System.currentTimeMillis()
     }
 
-    /**
-     * Clear the installed apps cache.
-     * Should be called when apps are installed/uninstalled or when a fresh list is needed.
-     */
     fun clearInstalledAppsCache() {
         installedAppsCache.clear()
         installedAppsCacheTime = 0
@@ -479,14 +408,6 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Create a synthetic ApplicationInfo for a work profile app.
-     * Uses the personal profile's ApplicationInfo as a template and adjusts the UID.
-     * This is much faster than calling pm dump for each package.
-     *
-     * IMPORTANT: The enabled state is queried from the work profile, not copied from personal profile,
-     * because an app can be enabled in personal profile but disabled in work profile.
-     */
     private fun createSyntheticApplicationInfo(
         context: Context,
         packageName: String,
@@ -496,7 +417,6 @@ object HiddenApiHelper {
             // Query the enabled state for this specific user (not from personal profile!)
             val isEnabled = isPackageEnabledForUser(packageName, userId)
 
-            // Try to get info from personal profile first (most apps are clones)
             val personalInfo = try {
                 context.packageManager.getApplicationInfo(packageName, 0)
             } catch (e: PackageManager.NameNotFoundException) {
@@ -504,13 +424,9 @@ object HiddenApiHelper {
             }
 
             if (personalInfo != null) {
-                // Clone the personal profile info and adjust the UID
                 ApplicationInfo(personalInfo).apply {
-                    // Calculate the absolute UID for this user
-                    // UID = userId * 100000 + appId
                     val appId = personalInfo.uid % 100000
                     this.uid = userId * 100000 + appId
-                    // Override enabled state with the actual state for this user profile
                     this.enabled = isEnabled
                 }
             } else {
@@ -530,13 +446,8 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Get package list for a user via root shell command.
-     * Uses libsu's cached shell to avoid spawning multiple su processes.
-     */
     private fun getPackageListViaShell(userId: Int): List<String> {
         return try {
-            // Use libsu's cached shell (no toast spam)
             val cachedShell = Shell.getCachedShell()
             if (cachedShell == null || !cachedShell.isRoot) {
                 AppLogger.d(TAG, "No cached root shell available for user $userId")
@@ -554,7 +465,6 @@ object HiddenApiHelper {
                 return emptyList()
             }
 
-            // Parse output: "package:com.example.app" -> "com.example.app"
             outputList
                 .filter { it.startsWith("package:") }
                 .map { it.removePrefix("package:").trim() }
@@ -565,11 +475,6 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Get package list for a user via Shizuku shell command (Issue #68).
-     * Fallback when root is not available but Shizuku is.
-     * This enables work profile support for Shizuku-only users.
-     */
     private fun getPackageListViaShizuku(userId: Int): List<String> {
         val manager = shizukuManager
         if (manager == null) {
@@ -594,7 +499,6 @@ object HiddenApiHelper {
                 return emptyList()
             }
 
-            // Parse output: "package:com.example.app" -> "com.example.app"
             output.lines()
                 .filter { it.startsWith("package:") }
                 .map { it.removePrefix("package:").trim() }
@@ -605,15 +509,9 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Get the set of disabled packages for a specific user via shell.
-     * Uses `pm list packages -d --user $userId` to get disabled packages.
-     * Results are cached per user to avoid repeated shell calls.
-     */
     private val disabledPackagesCache = mutableMapOf<Int, Set<String>>()
 
     private fun getDisabledPackagesForUser(userId: Int): Set<String> {
-        // Return cached result if available
         disabledPackagesCache[userId]?.let { return it }
 
         return try {
@@ -657,14 +555,12 @@ object HiddenApiHelper {
                 return emptySet()
             }
 
-            // Parse output: "package:com.example.app" -> "com.example.app"
             val disabledSet = outputList
                 .filter { it.startsWith("package:") }
                 .map { it.removePrefix("package:").trim() }
                 .filter { it.isNotEmpty() }
                 .toSet()
 
-            // Cache the result
             disabledPackagesCache[userId] = disabledSet
             AppLogger.d(TAG, "Found ${disabledSet.size} disabled packages for user $userId")
             disabledSet
@@ -675,12 +571,6 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Disabled packages for [userId] via the Shizuku shell.
-     *
-     * @return the set, or null when the query could not run at all. Null and empty mean different
-     * things: empty is "nothing is disabled", null is "we could not look".
-     */
     private fun getDisabledPackagesViaShizuku(userId: Int): Set<String>? {
         val manager = shizukuManager ?: return null
         if (!manager.hasShizukuPermission) return null
@@ -704,38 +594,16 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Check if a package is enabled for a specific user.
-     * Uses the cached disabled packages set for performance.
-     */
     private fun isPackageEnabledForUser(packageName: String, userId: Int): Boolean {
         val disabledPackages = getDisabledPackagesForUser(userId)
         return !disabledPackages.contains(packageName)
     }
 
-    /**
-     * Clear the disabled packages cache.
-     * Should be called when package state might have changed.
-     */
     fun clearDisabledPackagesCache() {
         disabledPackagesCache.clear()
         AppLogger.d(TAG, "Cleared disabled packages cache")
     }
 
-    /**
-     * Get application info for a specific package and user.
-     *
-     * Uses multiple strategies:
-     * 1. Standard API for user 0
-     * 2. Hidden API getApplicationInfoAsUser()
-     * 3. Root shell: pm dump to get basic info
-     *
-     * @param context Application context
-     * @param packageName Package name to look up
-     * @param flags PackageManager flags
-     * @param userId User ID (0 = personal, 10+ = work/clone profiles)
-     * @return ApplicationInfo or null if not found
-     */
     fun getApplicationInfoAsUser(
         context: Context,
         packageName: String,
@@ -744,7 +612,6 @@ object HiddenApiHelper {
     ): ApplicationInfo? {
         if (!initialized) initialize()
 
-        // For user 0, always use standard API (most reliable)
         if (userId == 0) {
             return try {
                 context.packageManager.getApplicationInfo(packageName, flags)
@@ -753,7 +620,6 @@ object HiddenApiHelper {
             }
         }
 
-        // Strategy 1: Try hidden API first
         if (hiddenApiAvailable) {
             try {
                 val pm = context.packageManager
@@ -769,26 +635,18 @@ object HiddenApiHelper {
                     return result
                 }
             } catch (e: Exception) {
-                // Fall through to shell method
             }
         }
 
-        // Strategy 2: Use root shell to get app info via pm dump
         return getApplicationInfoViaShell(context, packageName, userId)
     }
 
-    /**
-     * Get ApplicationInfo via shell command.
-     * Uses libsu's cached shell to avoid spawning multiple su processes.
-     * Parses pm dump output to construct ApplicationInfo.
-     */
     private fun getApplicationInfoViaShell(
         context: Context,
         packageName: String,
         userId: Int
     ): ApplicationInfo? {
         return try {
-            // Use libsu's cached shell (no toast spam)
             val cachedShell = Shell.getCachedShell()
             if (cachedShell == null || !cachedShell.isRoot) {
                 return null
@@ -802,29 +660,21 @@ object HiddenApiHelper {
 
             val output = outputList.joinToString("\n")
 
-            // Check if package exists for this user
             if (!result.isSuccess || output.contains("Unable to find package") || output.isBlank()) {
                 return null
             }
 
-            // Parse basic info from dump output
-            // We need: packageName, uid, flags, sourceDir
             val uidMatch = Regex("""userId=(\d+)""").find(output)
             val codePath = Regex("""codePath=([^\s]+)""").find(output)?.groupValues?.get(1)
             val flagsMatch = Regex("""pkgFlags=\[\s*([^\]]*)\s*\]""").find(output)
 
-            // Calculate the absolute UID for this user
-            // UID = userId * 100000 + appId
             val appId = uidMatch?.groupValues?.get(1)?.toIntOrNull() ?: return null
             val absoluteUid = userId * 100000 + appId
 
-            // Determine if it's a system app
             val isSystem = flagsMatch?.groupValues?.get(1)?.contains("SYSTEM") == true
 
-            // Query the enabled state for this specific user
             val isEnabled = isPackageEnabledForUser(packageName, userId)
 
-            // Create ApplicationInfo
             ApplicationInfo().apply {
                 this.packageName = packageName
                 this.uid = absoluteUid
@@ -832,14 +682,12 @@ object HiddenApiHelper {
                 this.flags = if (isSystem) ApplicationInfo.FLAG_SYSTEM else 0
                 this.enabled = isEnabled
 
-                // Try to get the label from the personal profile version
                 try {
                     val personalInfo = context.packageManager.getApplicationInfo(packageName, 0)
                     this.labelRes = personalInfo.labelRes
                     this.nonLocalizedLabel = personalInfo.nonLocalizedLabel
                     this.icon = personalInfo.icon
                 } catch (e: Exception) {
-                    // Package might not exist in personal profile
                 }
             }
         } catch (e: Exception) {
@@ -848,20 +696,6 @@ object HiddenApiHelper {
         }
     }
 
-    /**
-     * Get package info for a specific package and user.
-     *
-     * Uses multiple strategies:
-     * 1. Standard API for user 0
-     * 2. Hidden API getPackageInfoAsUser()
-     * 3. Synthetic PackageInfo based on personal profile data
-     *
-     * @param context Application context
-     * @param packageName Package name to look up
-     * @param flags PackageManager flags
-     * @param userId User ID (0 = personal, 10+ = work/clone profiles)
-     * @return PackageInfo or null if not found
-     */
     fun getPackageInfoAsUser(
         context: Context,
         packageName: String,
@@ -870,7 +704,6 @@ object HiddenApiHelper {
     ): PackageInfo? {
         if (!initialized) initialize()
 
-        // For user 0, always use standard API (more reliable)
         if (userId == 0) {
             return try {
                 context.packageManager.getPackageInfo(packageName, flags)
@@ -880,7 +713,6 @@ object HiddenApiHelper {
             }
         }
 
-        // Strategy 1: Try hidden API first
         if (hiddenApiAvailable) {
             try {
                 val pm = context.packageManager
@@ -896,7 +728,6 @@ object HiddenApiHelper {
                     return result
                 }
             } catch (e: Exception) {
-                // Fall through to synthetic method
             }
         }
 
@@ -905,13 +736,6 @@ object HiddenApiHelper {
         return createSyntheticPackageInfo(context, packageName, flags, userId)
     }
 
-    /**
-     * Create a synthetic PackageInfo for work profile apps.
-     *
-     * Work profile apps are typically clones of personal profile apps,
-     * so we can use the personal profile's PackageInfo as a base and
-     * adjust the UID for the work profile.
-     */
     private fun createSyntheticPackageInfo(
         context: Context,
         packageName: String,
@@ -919,10 +743,8 @@ object HiddenApiHelper {
         userId: Int
     ): PackageInfo? {
         return try {
-            // Get the personal profile's PackageInfo as a base
             val personalInfo = context.packageManager.getPackageInfo(packageName, flags)
 
-            // Create a copy with adjusted UID for work profile
             PackageInfo().apply {
                 this.packageName = personalInfo.packageName
                 this.versionName = personalInfo.versionName
@@ -942,7 +764,6 @@ object HiddenApiHelper {
                 this.providers = personalInfo.providers
                 this.permissions = personalInfo.permissions
 
-                // Create synthetic ApplicationInfo with correct UID
                 this.applicationInfo = personalInfo.applicationInfo?.let { appInfo ->
                     ApplicationInfo(appInfo).apply {
                         val appId = appInfo.uid % 100000
@@ -951,7 +772,6 @@ object HiddenApiHelper {
                 }
             }
         } catch (e: PackageManager.NameNotFoundException) {
-            // Package doesn't exist in personal profile - might be work-only app
             null
         } catch (e: Exception) {
             null

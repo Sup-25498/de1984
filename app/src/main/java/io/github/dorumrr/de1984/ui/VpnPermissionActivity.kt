@@ -13,25 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/**
- * Transparent activity that handles VPN permission requests from widget/tile.
- * 
- * This activity has no UI - it only shows the system VPN permission dialog
- * and then starts the firewall and finishes immediately.
- */
 class VpnPermissionActivity : Activity() {
 
     companion object {
         private const val TAG = "VpnPermissionActivity"
         private const val REQUEST_VPN_PERMISSION = 100
 
-        /**
-         * The mode the caller already resolved, as a FirewallMode name.
-         *
-         * FirewallToggleReceiver falls back to AUTO when the persisted mode names a backend the
-         * device can no longer run. Re-reading the preference here threw that away and started the
-         * unavailable mode again - failing for exactly the case the fallback exists for.
-         */
         const val EXTRA_RESOLVED_MODE = "io.github.dorumrr.de1984.extra.RESOLVED_MODE"
     }
 
@@ -41,20 +28,16 @@ class VpnPermissionActivity : Activity() {
         super.onCreate(savedInstanceState)
         AppLogger.d(TAG, "VpnPermissionActivity created")
         
-        // Make absolutely sure we're invisible
         window?.setBackgroundDrawableResource(android.R.color.transparent)
         
-        // Check if VPN permission is needed
         val prepareIntent = VpnService.prepare(this)
         AppLogger.d(TAG, "VpnService.prepare() returned: ${if (prepareIntent == null) "null (permission granted)" else "Intent (need permission)"}")
         
         if (prepareIntent != null) {
-            // Need to request VPN permission - show system dialog
             AppLogger.d(TAG, "🔐 Requesting VPN permission via system dialog...")
             @Suppress("DEPRECATION")
             startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
         } else {
-            // Already have permission, start firewall directly - NO UI at all
             AppLogger.d(TAG, "✅ VPN permission already granted, starting firewall silently...")
             startFirewallAndFinish()
         }
@@ -103,7 +86,6 @@ class VpnPermissionActivity : Activity() {
                     AppLogger.e(TAG, "Start after VPN permission failed, KEY_FIREWALL_ENABLED untouched", error)
                 }
 
-            // Finish the activity
             runOnUiThread {
                 finish()
             }

@@ -4,26 +4,15 @@ import android.content.Context
 import androidx.annotation.StringRes
 import io.github.dorumrr.de1984.R
 
-/**
- * What the user can do about a firewall problem, and the label of the button that does it.
- *
- * The activity maps each of these onto an existing recovery path, so the banner button and the
- * notification it mirrors always lead to the same place.
- */
 enum class FirewallHealthAction(@StringRes val label: Int) {
-    /** Open Settings, where the backend can be changed. */
     CHOOSE_BACKEND(R.string.firewall_down_action_choose_backend),
 
-    /** Start the firewall again from scratch. */
     RETRY(R.string.firewall_down_action_retry),
 
-    /** Ask for VPN permission so the VPN fallback can run. */
     ENABLE_VPN(R.string.firewall_down_action_enable_vpn),
 
-    /** Take the VPN slot from whichever app currently holds it. */
     REPLACE_VPN(R.string.firewall_down_action_replace_vpn),
 
-    /** Try the teardown again after a stop that failed. */
     RETRY_STOP(R.string.firewall_stop_failed_action_retry),
 }
 
@@ -40,7 +29,6 @@ enum class FirewallHealthAction(@StringRes val label: Int) {
  */
 object FirewallHealthPresenter {
 
-    /** Headline, or null when there is nothing to warn about. */
     fun title(context: Context, health: FirewallHealth): String? = when (health) {
         is FirewallHealth.Healthy -> null
         is FirewallHealth.Down -> context.getString(R.string.firewall_down_title)
@@ -48,7 +36,6 @@ object FirewallHealthPresenter {
         is FirewallHealth.StopFailed -> context.getString(R.string.firewall_stop_failed_title)
     }
 
-    /** What went wrong and what it means, or null when there is nothing to warn about. */
     fun message(context: Context, health: FirewallHealth): String? = when (health) {
         is FirewallHealth.Healthy -> null
 
@@ -92,11 +79,9 @@ object FirewallHealthPresenter {
         }
     }
 
-    /** The one useful thing to offer, or null when there is nothing the user can do from here. */
     fun action(health: FirewallHealth): FirewallHealthAction? = when (health) {
         is FirewallHealth.Healthy -> null
 
-        // Protection is intact, so there is nothing to fix
         is FirewallHealth.SwitchedToVpn -> null
 
         is FirewallHealth.StopFailed -> FirewallHealthAction.RETRY_STOP

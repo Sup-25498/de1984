@@ -125,49 +125,39 @@ class BackendMonitoringService : Service() {
     }
 
     private fun startMonitoring() {
-        // Register Shizuku listeners if not already registered
         shizukuManager.registerListeners()
 
-        // Start foreground service with initial notification
         val initialNotification = createWaitingNotification(shizukuManager.shizukuStatus.value)
         startForeground(Constants.BackendMonitoring.NOTIFICATION_ID, initialNotification)
 
-        // Monitor Shizuku status changes
         monitoringJob = serviceScope.launch {
             shizukuManager.shizukuStatus.collect { status ->
                 AppLogger.d(TAG, "Shizuku status changed: $status")
                 
                 when (status) {
                     ShizukuStatus.RUNNING_WITH_PERMISSION -> {
-                        // Shizuku is ready! Try to switch backend
                         if (!isAttemptingSwitch) {
                             attemptBackendSwitch()
                         }
                     }
                     ShizukuStatus.INSTALLED_NOT_RUNNING,
                     ShizukuStatus.RUNNING_NO_PERMISSION -> {
-                        // Update notification to reflect current status
                         updateWaitingNotification(status)
                     }
                     ShizukuStatus.NOT_INSTALLED -> {
-                        // Shizuku not installed - start timeout
                         startTimeoutTimer()
                     }
                     ShizukuStatus.CHECKING -> {
-                        // Status being checked, wait
                     }
                 }
             }
         }
 
-        // Monitor active backend type changes
         backendMonitoringJob = serviceScope.launch {
             firewallManager.activeBackendType.collect { backendType ->
                 AppLogger.d(TAG, "Active backend changed: $backendType")
 
-                // Don't stop during backend switch attempt - let attemptBackendSwitch() handle it
                 if (!isAttemptingSwitch) {
-                    // Check if we should continue monitoring
                     if (!shouldContinueMonitoring()) {
                         AppLogger.d(TAG, "Monitoring no longer needed. Stopping service.")
                         stopSelf()
@@ -178,7 +168,6 @@ class BackendMonitoringService : Service() {
             }
         }
 
-        // Start timeout if Shizuku not installed
         if (shizukuManager.shizukuStatus.value == ShizukuStatus.NOT_INSTALLED) {
             startTimeoutTimer()
         }
@@ -218,7 +207,6 @@ class BackendMonitoringService : Service() {
         isAttemptingSwitch = true
         AppLogger.d(TAG, "Attempting backend switch...")
 
-        // Update notification to show switching state
         updateSwitchingNotification()
 
         try {
@@ -228,11 +216,8 @@ class BackendMonitoringService : Service() {
                 AppLogger.d(TAG, "Backend switch result: $backendType")
                 
                 if (backendType != FirewallBackendType.VPN) {
-                    // Success! Switched away from VPN
                     handleSwitchSuccess(backendType)
                 } else {
-                    // Still VPN - Shizuku available but backend didn't switch
-                    // This can happen if Shizuku permission was revoked
                     handleSwitchFailure()
                 }
             }.onFailure { error ->
@@ -253,13 +238,10 @@ class BackendMonitoringService : Service() {
 
         AppLogger.d(TAG, "Backend switch successful: $backendType")
 
-        // Show toast
         Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
 
-        // Update notification
         showSuccessNotification(notificationText)
 
-        // Stop service after delay
         delay(Constants.BackendMonitoring.SUCCESS_NOTIFICATION_DURATION_MS)
         stopSelf()
     }
@@ -267,10 +249,8 @@ class BackendMonitoringService : Service() {
     private fun handleSwitchFailure() {
         AppLogger.e(TAG, "Backend switch failed")
 
-        // Show toast
         Toast.makeText(this, getString(R.string.backend_toast_failed), Toast.LENGTH_SHORT).show()
 
-        // Update notification
         showFailureNotification()
     }
 
@@ -341,7 +321,6 @@ class BackendMonitoringService : Service() {
         withRetryAction: Boolean,
         autoCancel: Boolean = false
     ): Notification {
-        // Tap notification to open app
         val tapIntent = Intent(this, MainActivity::class.java)
         val tapPendingIntent = PendingIntent.getActivity(
             this,
@@ -359,7 +338,6 @@ class BackendMonitoringService : Service() {
             .setPriority(priority)
             .setAutoCancel(autoCancel)
 
-        // Add retry action button if requested
         if (withRetryAction) {
             val retryIntent = Intent(this, BackendMonitoringService::class.java).apply {
                 action = Constants.BackendMonitoring.ACTION_RETRY
@@ -372,7 +350,7 @@ class BackendMonitoringService : Service() {
             )
 
             builder.addAction(
-                R.drawable.ic_signal_cellular_off,  // Reuse existing icon
+                R.drawable.ic_signal_cellular_off,
                 getString(R.string.backend_action_button_retry),
                 retryPendingIntent
             )

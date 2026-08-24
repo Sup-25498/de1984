@@ -33,7 +33,6 @@ class PermissionSetupViewModel constructor(
             val advancedPermissions = getAdvancedPermissionInfo()
             val batteryOptimizationInfo = getBatteryOptimizationInfo()
 
-            // Get current backend type to determine if VPN permission is needed
             val currentBackendType = firewallManager?.getActiveBackendType()
             val isUsingPrivilegedBackend = currentBackendType != null &&
                 currentBackendType != io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.VPN

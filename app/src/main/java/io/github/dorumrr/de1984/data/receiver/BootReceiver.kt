@@ -27,17 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/**
- * Broadcast receiver that restores firewall state after device boot or app update.
- *
- * On Android 12+ (API 31+), this receiver schedules a WorkManager job to handle
- * firewall restoration, as direct foreground service starts from boot receivers
- * are restricted.
- *
- * On Android 11 and below, this receiver directly starts the firewall.
- *
- * Per FIREWALL.md: Firewall must survive device restarts.
- */
 class BootReceiver : BroadcastReceiver() {
 
     companion object {
@@ -78,8 +67,6 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 AppLogger.d(TAG, "📦 App package replaced - checking if firewall should be restored")
 
-                // For app updates, we can directly restore on all Android versions
-                // as the app is already in foreground context
                 restoreFirewallState(context, "PACKAGE_REPLACED")
             }
             else -> {
@@ -89,11 +76,6 @@ class BootReceiver : BroadcastReceiver() {
 
     }
 
-    /**
-     * Schedule a WorkManager job to restore firewall state.
-     * This is the Android 12+ compatible way to handle boot persistence.
-     * Falls back to direct restoration if WorkManager is not initialized.
-     */
     private fun scheduleBootWorker(context: Context) {
         try {
             AppLogger.d(TAG, "Scheduling BootWorker...")
@@ -132,18 +114,14 @@ class BootReceiver : BroadcastReceiver() {
             if (wasEnabled) {
                 AppLogger.d(TAG, "✅ Firewall was enabled - proceeding with restoration")
 
-                // Get FirewallManager from application
                 val app = context.applicationContext as? De1984Application
                 if (app != null) {
                     val firewallManager = app.dependencies.firewallManager
                     val shizukuManager = app.dependencies.shizukuManager
                     val rootManager = app.dependencies.rootManager
 
-                    // Use goAsync() to keep receiver alive while coroutine runs
                     val pendingResult = goAsync()
 
-                    // Use app's coroutine scope instead of creating orphaned scope
-                    // This ensures proper cancellation and resource cleanup
                     app.dependencies.applicationScope.launch(Dispatchers.IO) {
                         try {
                             // CRITICAL: Request root permission FIRST to wake up Magisk
@@ -153,7 +131,6 @@ class BootReceiver : BroadcastReceiver() {
                             AppLogger.d(TAG, "Requesting root permission to wake up Magisk...")
                             rootManager.forceRecheckRootStatus()
 
-                            // Small delay to allow Magisk to process the permission request
                             kotlinx.coroutines.delay(500)
 
                             // Wait for Shizuku to be initialized before starting firewall
@@ -162,7 +139,6 @@ class BootReceiver : BroadcastReceiver() {
                             AppLogger.d(TAG, "Checking Shizuku status before starting firewall...")
                             shizukuManager.checkShizukuStatus()
 
-                            // Small delay to ensure Shizuku is fully ready
                             kotlinx.coroutines.delay(500)
 
                             AppLogger.d(TAG, "🚀 Starting firewall after $trigger...")
@@ -189,14 +165,10 @@ class BootReceiver : BroadcastReceiver() {
                                     AppLogger.e(TAG, "❌ Exception while lifting boot protection block", e)
                                 }
 
-                                // Check if we fell back to VPN and should start monitoring service
                                 if (backendType == FirewallBackendType.VPN) {
                                     val currentMode = firewallManager.getCurrentMode()
                                     val shizukuStatus = shizukuManager.shizukuStatus.value
 
-                                    // Only start monitoring if:
-                                    // 1. Mode is AUTO (not manually selected VPN)
-                                    // 2. Shizuku is installed but not running or no permission
                                     val shouldMonitor = currentMode == FirewallMode.AUTO &&
                                         (shizukuStatus == ShizukuStatus.INSTALLED_NOT_RUNNING ||
                                          shizukuStatus == ShizukuStatus.RUNNING_NO_PERMISSION)
@@ -230,19 +202,15 @@ class BootReceiver : BroadcastReceiver() {
                                     AppLogger.e(TAG, "Failed to lift boot protection block", e)
                                 }
 
-                                // Show notification asking user to open app
-                                // (VPN permission likely needs to be re-granted)
                                 showBootFailureNotification(context)
                             }
                         } finally {
-                            // Signal that async work is complete
                             pendingResult.finish()
                         }
                     }
                 } else {
                     AppLogger.e(TAG, "❌ FAILED TO GET APPLICATION INSTANCE | Cannot restore firewall - application context not available")
 
-                    // Fallback to VPN service for backward compatibility
                     AppLogger.d(TAG, "Attempting fallback to VPN service...")
                     val serviceIntent = Intent(context, FirewallVpnService::class.java).apply {
                         action = FirewallVpnService.ACTION_START
@@ -281,15 +249,10 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    /**
-     * Show notification asking user to open the app when firewall fails to start at boot.
-     * This typically happens when VPN permission needs to be re-granted.
-     */
     private fun showBootFailureNotification(context: Context) {
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Create notification channel (required for Android 8.0+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
                     Constants.BootFailure.CHANNEL_ID,
@@ -302,7 +265,6 @@ class BootReceiver : BroadcastReceiver() {
                 notificationManager.createNotificationChannel(channel)
             }
 
-            // Create intent to open the app and trigger firewall recovery
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 action = Constants.Notifications.ACTION_BOOT_FAILURE_RECOVERY
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -314,7 +276,6 @@ class BootReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Build notification
             val notification = NotificationCompat.Builder(context, Constants.BootFailure.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Firewall failed to start")
@@ -334,11 +295,6 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    /**
-     * Forget that iptables chains were ever installed. See the call site for why a reboot means
-     * they cannot exist. Uses commit(), not apply(): the process may be torn down at any moment
-     * during boot, and a lost write puts the stale record straight back.
-     */
     private fun clearIptablesChainRecord(context: Context) {
         try {
             context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)

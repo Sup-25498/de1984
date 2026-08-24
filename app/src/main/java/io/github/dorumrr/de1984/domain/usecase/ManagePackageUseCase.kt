@@ -4,12 +4,6 @@ import io.github.dorumrr.de1984.domain.model.ReinstallBatchResult
 import io.github.dorumrr.de1984.domain.model.UninstallBatchResult
 import io.github.dorumrr.de1984.domain.repository.PackageRepository
 
-/**
- * Use case for managing packages (enable/disable, uninstall, reinstall, force stop).
- *
- * All methods require both packageName AND userId to properly support
- * multi-user/work profile environments.
- */
 class ManagePackageUseCase constructor(
     private val packageRepository: PackageRepository
 ) {

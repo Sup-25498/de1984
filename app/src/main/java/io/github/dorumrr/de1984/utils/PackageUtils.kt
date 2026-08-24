@@ -31,14 +31,9 @@ object PackageUtils {
         }
     }
     
-    /**
-     * Get package icon with multi-user support.
-     * @param userId The user ID (0 for personal profile, 10+ for work/clone profiles)
-     */
     fun getPackageIcon(context: Context, packageName: String, userId: Int = 0): Drawable? {
         return try {
             val packageManager = context.packageManager
-            // Use HiddenApiHelper for multi-user support
             val appInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getApplicationInfoAsUser(
                 context, packageName, 0, userId
             )

@@ -6,10 +6,6 @@ import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Manages boot protection by creating/deleting Magisk boot scripts.
- * Boot protection blocks all network traffic during device startup until De1984 firewall activates.
- */
 class BootProtectionManager(
     private val context: Context,
     private val rootManager: RootManager,
@@ -31,10 +27,6 @@ class BootProtectionManager(
         private const val MAX_JUMP_REMOVALS = 16
     }
 
-    /**
-     * Check if boot script support is available by verifying the post-fs-data.d directory exists.
-     * This directory is supported by Magisk, KernelSU, and APatch.
-     */
     suspend fun isBootScriptSupportAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
             AppLogger.d(TAG, "Checking if boot script support is available...")
@@ -52,9 +44,6 @@ class BootProtectionManager(
         }
     }
 
-    /**
-     * Check if boot protection is currently enabled by verifying the script file exists.
-     */
     suspend fun isBootProtectionEnabled(): Boolean = isBootProtectionInstalled() == true
 
     /**
@@ -89,12 +78,6 @@ class BootProtectionManager(
         }
     }
 
-    /**
-     * Enable or disable boot protection.
-     * 
-     * @param enabled true to enable boot protection, false to disable
-     * @return Result with Unit on success, or error message on failure
-     */
     suspend fun setBootProtection(enabled: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             AppLogger.d(TAG, "${if (enabled) "ENABLING" else "DISABLING"} BOOT PROTECTION")
@@ -110,9 +93,6 @@ class BootProtectionManager(
         }
     }
 
-    /**
-     * Create the boot protection script in Magisk's post-fs-data.d directory.
-     */
     private suspend fun createBootScript(): Result<Unit> {
         AppLogger.d(TAG, "Creating boot protection script...")
 
@@ -223,7 +203,6 @@ link_if_sane ip6tables
 ) &
 """
 
-        // Create the script file
         val createCommand = "echo '${scriptContent.replace("'", "'\\''")}' > ${Constants.BootProtection.BOOT_SCRIPT_PATH}"
         val createResult = executeCommand(createCommand)
 
@@ -247,7 +226,6 @@ link_if_sane ip6tables
 
         AppLogger.d(TAG, "✅ Boot script content verified")
 
-        // Set executable permissions (755)
         val chmodCommand = "chmod ${Constants.BootProtection.BOOT_SCRIPT_PERMISSIONS} ${Constants.BootProtection.BOOT_SCRIPT_PATH}"
         val chmodResult = executeCommand(chmodCommand)
 
@@ -291,9 +269,6 @@ link_if_sane ip6tables
         }
     }
 
-    /**
-     * Delete the boot protection script.
-     */
     private suspend fun deleteBootScript(): Result<Unit> {
         AppLogger.d(TAG, "Deleting boot protection script...")
 
@@ -365,13 +340,6 @@ link_if_sane ip6tables
         return resetIptablesPolicies()
     }
 
-    /**
-     * Remove boot protection iptables rules after firewall starts.
-     * This is called after boot when boot protection was enabled.
-     *
-     * We remove the custom boot protection chain that was created by the boot script.
-     * This allows De1984's firewall to take over network control cleanly.
-     */
     suspend fun resetIptablesPolicies(): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
@@ -413,7 +381,7 @@ link_if_sane ip6tables
                     val code = executeCommand("$table $XT_WAIT -C OUTPUT -j de1984_boot").first
                     when (code) {
                         0 -> unresolved += "$table (jump still linked)"
-                        1, 2 -> Unit // rule or chain absent - this is what success looks like
+                        1, 2 -> Unit
                         else -> unresolved += "$table (could not verify, exit $code)"
                     }
                 }
@@ -444,9 +412,6 @@ link_if_sane ip6tables
         rootManager.hasRootPermission ||
             (shizukuManager.hasShizukuPermission && shizukuManager.isShizukuRootMode())
 
-    /**
-     * Execute command using root or Shizuku.
-     */
     private suspend fun executeCommand(command: String): Pair<Int, String> {
         return if (rootManager.hasRootPermission) {
             rootManager.executeRootCommand(command)

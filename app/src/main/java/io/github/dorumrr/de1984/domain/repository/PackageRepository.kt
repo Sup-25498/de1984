@@ -6,12 +6,6 @@ import io.github.dorumrr.de1984.domain.model.ReinstallBatchResult
 import io.github.dorumrr.de1984.domain.model.UninstallBatchResult
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Repository interface for package management operations.
- *
- * All methods that operate on a specific package require both packageName AND userId
- * to properly support multi-user/work profile environments.
- */
 interface PackageRepository {
 
     fun getPackages(): Flow<List<Package>>

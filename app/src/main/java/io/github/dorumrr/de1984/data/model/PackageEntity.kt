@@ -6,18 +6,9 @@ import io.github.dorumrr.de1984.domain.model.PackageCriticality
 import io.github.dorumrr.de1984.domain.model.PackageType
 import io.github.dorumrr.de1984.utils.Constants
 
-/**
- * Data layer entity for package information.
- *
- * @property packageName The package name of the app
- * @property userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
- * @property uid Absolute UID: userId * 100000 + appId
- */
 data class PackageEntity(
     val packageName: String,
-    /** Android user profile ID (0 = personal, 10+ = work/clone profiles) */
     val userId: Int = 0,
-    /** Absolute UID: userId * 100000 + appId */
     val uid: Int = 0,
     val name: String,
     val icon: String,
@@ -39,9 +30,7 @@ data class PackageEntity(
     val criticality: PackageCriticality? = null,
     val category: String? = null,
     val affects: List<String> = emptyList(),
-    /** True if this package belongs to a work profile (managed profile) */
     val isWorkProfile: Boolean = false,
-    /** True if this package belongs to a clone profile */
     val isCloneProfile: Boolean = false
 )
 

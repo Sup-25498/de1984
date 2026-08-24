@@ -48,9 +48,6 @@ fun Boolean.toEnabledString(): String {
     return if (this) Constants.Packages.STATE_ENABLED else Constants.Packages.STATE_DISABLED
 }
 
-/**
- * Open Android system settings page for a specific app.
- */
 fun Context.openAppSettings(packageName: String) {
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = Uri.fromParts("package", packageName, null)
@@ -59,9 +56,6 @@ fun Context.openAppSettings(packageName: String) {
     startActivity(intent)
 }
 
-/**
- * Copy text to clipboard and show a toast message.
- */
 fun Context.copyToClipboard(text: String, label: String = "De1984") {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText(label, text)
@@ -69,13 +63,6 @@ fun Context.copyToClipboard(text: String, label: String = "De1984") {
     Toast.makeText(this, getString(io.github.dorumrr.de1984.R.string.toast_copied_to_clipboard), Toast.LENGTH_SHORT).show()
 }
 
-/**
- * Set a debounced click listener on a View to prevent multiple rapid clicks.
- * Uses SystemClock.elapsedRealtime() for accurate timing that's not affected by time changes.
- *
- * @param debounceTime Time in milliseconds to wait before allowing another click (default: 500ms)
- * @param action The action to perform on click
- */
 fun View.setOnClickListenerDebounced(debounceTime: Long = 500L, action: (View) -> Unit) {
     var lastClickTime = 0L
     setOnClickListener { view ->

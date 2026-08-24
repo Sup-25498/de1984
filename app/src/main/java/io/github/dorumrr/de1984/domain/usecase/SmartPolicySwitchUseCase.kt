@@ -6,19 +6,6 @@ import android.content.pm.PackageManager
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.utils.Constants
 
-/**
- * Smart policy switching use case that handles switching between "Allow All" and "Block All"
- * default firewall policies while respecting user preferences for system-critical packages.
- *
- * When allowCriticalPackageFirewall is ON:
- * - Preserves existing user preferences for critical packages (if they've explicitly configured them)
- * - Defaults critical packages to ALLOW (if no user preference exists) to ensure system stability
- * - Applies normal policy to non-critical packages
- * - Critical packages include SYSTEM_WHITELIST packages AND VPN apps
- *
- * When allowCriticalPackageFirewall is OFF:
- * - Uses standard blockAllApps/allowAllApps (critical packages are protected by backend logic anyway)
- */
 class SmartPolicySwitchUseCase(
     private val firewallRepository: FirewallRepository,
     private val context: Context
@@ -27,9 +14,6 @@ class SmartPolicySwitchUseCase(
         private const val TAG = "SmartPolicySwitchUseCase"
     }
 
-    /**
-     * Switch to "Block All" policy with smart handling of critical packages.
-     */
     suspend fun switchToBlockAll() {
         AppLogger.d(TAG, "switchToBlockAll() called")
 
@@ -42,28 +26,22 @@ class SmartPolicySwitchUseCase(
         AppLogger.d(TAG, "allowCriticalPackageFirewall: $allowCritical")
 
         if (!allowCritical) {
-            // Standard behavior - critical packages are protected by backend logic
             AppLogger.d(TAG, "Using standard blockAllApps (critical packages protected by backends)")
             firewallRepository.blockAllApps()
             return
         }
 
-        // Smart behavior - preserve user preferences for critical packages
         AppLogger.d(TAG, "Using smart policy switching for critical packages")
 
-        // Get all existing rules BEFORE blockAllApps (snapshot)
         val allRules = firewallRepository.getAllRulesSync()
         AppLogger.d(TAG, "Found ${allRules.size} existing rules")
 
-        // Get all critical package names (SYSTEM_WHITELIST + VPN apps)
         val criticalPackages = getCriticalPackageNames()
         AppLogger.d(TAG, "Critical packages: ${criticalPackages.size} (SYSTEM_WHITELIST + VPN apps)")
 
-        // Block all apps (this updates existing rules to blocked)
         firewallRepository.blockAllApps()
         AppLogger.d(TAG, "Blocked all apps (including critical packages)")
 
-        // Now restore critical packages to their previous state
         var preservedCount = 0
         var defaultedCount = 0
 
@@ -86,9 +64,6 @@ class SmartPolicySwitchUseCase(
         AppLogger.d(TAG, "Smart policy switch complete: preserved=$preservedCount, defaulted=$defaultedCount")
     }
 
-    /**
-     * Switch to "Allow All" policy with smart handling of critical packages.
-     */
     suspend fun switchToAllowAll() {
         AppLogger.d(TAG, "switchToAllowAll() called")
 
@@ -101,28 +76,22 @@ class SmartPolicySwitchUseCase(
         AppLogger.d(TAG, "allowCriticalPackageFirewall: $allowCritical")
 
         if (!allowCritical) {
-            // Standard behavior - critical packages are protected by backend logic
             AppLogger.d(TAG, "Using standard allowAllApps (critical packages protected by backends)")
             firewallRepository.allowAllApps()
             return
         }
 
-        // Smart behavior - preserve user preferences for critical packages
         AppLogger.d(TAG, "Using smart policy switching for critical packages")
 
-        // Get all existing rules BEFORE allowAllApps (snapshot)
         val allRules = firewallRepository.getAllRulesSync()
         AppLogger.d(TAG, "Found ${allRules.size} existing rules")
 
-        // Get all critical package names (SYSTEM_WHITELIST + VPN apps)
         val criticalPackages = getCriticalPackageNames()
         AppLogger.d(TAG, "Critical packages: ${criticalPackages.size} (SYSTEM_WHITELIST + VPN apps)")
 
-        // Allow all apps (this updates existing rules to allowed)
         firewallRepository.allowAllApps()
         AppLogger.d(TAG, "Allowed all apps (including critical packages)")
 
-        // Now restore critical packages to their previous state
         var preservedCount = 0
 
         for (packageName in criticalPackages) {
@@ -134,22 +103,16 @@ class SmartPolicySwitchUseCase(
                 firewallRepository.updateRule(existingRule.copy(updatedAt = System.currentTimeMillis()))
                 preservedCount++
             }
-            // If no existing rule, the package will be allowed (which is what we want)
         }
 
         AppLogger.d(TAG, "Smart policy switch complete: preserved=$preservedCount")
     }
 
-    /**
-     * Get all critical package names: SYSTEM_WHITELIST + dynamically detected VPN apps
-     */
     private fun getCriticalPackageNames(): Set<String> {
         val criticalPackages = mutableSetOf<String>()
 
-        // Add SYSTEM_WHITELIST packages
         criticalPackages.addAll(Constants.Firewall.SYSTEM_WHITELIST)
 
-        // Add VPN apps (detected dynamically) from ALL user profiles
         try {
             val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
             val installedPackages = userProfiles.flatMap { profile ->

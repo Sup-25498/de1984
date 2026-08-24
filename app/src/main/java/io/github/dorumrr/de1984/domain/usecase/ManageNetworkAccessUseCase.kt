@@ -2,12 +2,6 @@ package io.github.dorumrr.de1984.domain.usecase
 
 import io.github.dorumrr.de1984.domain.repository.NetworkPackageRepository
 
-/**
- * Use case for managing network access for packages.
- *
- * All methods require both packageName AND userId to properly support
- * multi-user/work profile environments.
- */
 class ManageNetworkAccessUseCase constructor(
     private val networkPackageRepository: NetworkPackageRepository
 ) {

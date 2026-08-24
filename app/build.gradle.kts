@@ -8,14 +8,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.20"
 }
 
-// Load keystore.properties if it exists (standard Android approach)
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// Disable baseline profiles for reproducible builds (F-Droid compatibility)
 tasks.whenTaskAdded {
     if (name.contains("compileReleaseArtProfile") ||
         name.contains("mergeReleaseArtProfile") ||
@@ -36,7 +34,6 @@ android {
         versionCode = 33
         versionName = "2.6.2"
 
-        // Specify supported languages (reduces APK size by excluding unused translations)
         resourceConfigurations += listOf("en", "ro", "pt", "zh", "it", "fr", "ru")
 
         vectorDrawables {
@@ -59,7 +56,6 @@ android {
             create("release") {
                 val storeFilePath = keystoreProperties.getProperty("storeFile")
                 if (storeFilePath != null && storeFilePath.isNotEmpty()) {
-                    // Path is relative to rootProject directory
                     storeFile = rootProject.file(storeFilePath)
                     storePassword = keystoreProperties.getProperty("storePassword")
                     keyAlias = keystoreProperties.getProperty("keyAlias") ?: "de1984-release-key"
@@ -71,7 +67,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false  // Disabled due to R8 base.jar issue
+            isMinifyEnabled = false
             isShrinkResources = false
             isCrunchPngs = false
             proguardFiles(
@@ -88,14 +84,12 @@ android {
                 null
             }
 
-            // Add deterministic BuildConfig fields for reproducible builds
             buildConfigField("String", "BUILD_TIME", "\"1970-01-01T00:00:00Z\"")
             buildConfigField("boolean", "REPRODUCIBLE_BUILD", "true")
         }
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
-            // Debug builds use the default debug keystore automatically
         }
     }
 
@@ -108,19 +102,15 @@ android {
         jvmTarget = "17"
         freeCompilerArgs += listOf(
             "-Xsuppress-version-warnings",
-            // Add reproducible build flags to fix classes.dex differences
             "-Xno-param-assertions",
             "-Xno-call-assertions",
             "-Xno-receiver-assertions"
         )
     }
 
-    // KSP configuration for reproducible builds
     ksp {
-        // Ensure deterministic processing order for Room
         arg("room.incremental", "true")
         arg("room.expandProjection", "true")
-        // Create schemas directory for deterministic Room schema generation
         arg("room.schemaLocation", "$projectDir/schemas")
     }
 
@@ -132,7 +122,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            // Additional excludes for reproducible builds
             excludes += "/META-INF/versions/**"
             excludes += "**/kotlin_builtins"
             pickFirsts += listOf("META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties")
@@ -156,7 +145,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // XML Views dependencies
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
@@ -165,24 +153,18 @@ dependencies {
     implementation("androidx.navigation:navigation-ui-ktx:2.7.6")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
 
-    // Room database
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // WorkManager for boot persistence (Android 12+ compatibility)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // Shizuku
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 
-    // libsu for proper root access
     implementation("com.github.topjohnwu.libsu:core:6.0.0")
 
-    // JSON serialization for backup/restore
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
 
-    // HiddenApiBypass for multi-user/work profile support
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
 }

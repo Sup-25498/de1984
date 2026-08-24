@@ -18,20 +18,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * iptables-based firewall backend.
- *
- * Uses iptables owner module to block apps by UID.
- * Requires root or Shizuku access.
- * Frees up VPN slot for real VPN services.
- *
- * Features:
- * - Per-app blocking using UID matching
- * - Network type-specific rules (WiFi/Mobile/Roaming)
- * - Screen state-specific rules
- * - IPv4 and IPv6 support
- * - Custom chain for rule isolation
- */
 class IptablesFirewallBackend(
     private val context: Context,
     private val rootManager: RootManager,
@@ -47,11 +33,9 @@ class IptablesFirewallBackend(
         // (locally generated packets). INPUT chain cannot match by UID.
         private const val CHAIN_OUTPUT = "de1984_output"
 
-        // Commands
         private const val IPTABLES = "iptables"
         private const val IP6TABLES = "ip6tables"
 
-        // Tokens the teardown probe echoes. See probeChain for why the probe reports this way.
         private const val PROBE_PRESENT = "DE1984_CHAIN_PRESENT"
         private const val PROBE_ABSENT = "DE1984_CHAIN_ABSENT"
         private const val PROBE_NOPRIV = "DE1984_CHAIN_NOPRIV"
@@ -59,22 +43,15 @@ class IptablesFirewallBackend(
     
     private val mutex = Mutex()
 
-    // Track currently blocked UIDs to avoid redundant operations
     private val blockedUids = mutableSetOf<Int>()
 
-    // Track currently LAN-blocked UIDs to avoid redundant operations
     private val blockedLanUids = mutableSetOf<Int>()
 
-    /**
-     * Start the firewall by starting the PrivilegedFirewallService.
-     * The service will call startInternal() to actually create iptables chains.
-     */
     override suspend fun start(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "=== IptablesFirewallBackend.start() ===")
             AppLogger.d(TAG, "Starting PrivilegedFirewallService with iptables backend")
 
-            // Start the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_START
                 putExtra(PrivilegedFirewallService.EXTRA_BACKEND_TYPE, "IPTABLES")
@@ -90,19 +67,14 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Internal method called by PrivilegedFirewallService to actually create iptables chains.
-     */
     suspend fun startInternal(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "startInternal: Creating iptables chains")
 
-            // Check availability first
             checkAvailability().getOrElse { error ->
                 return Result.failure(error)
             }
 
-            // Create custom chains
             createCustomChains().getOrElse { error ->
                 return Result.failure(error)
             }
@@ -123,16 +95,11 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Stop the firewall by stopping the PrivilegedFirewallService.
-     * The service will call stopInternal() to actually delete iptables chains.
-     */
     override suspend fun stop(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "Stopping iptables firewall backend")
             AppLogger.d(TAG, "Stopping PrivilegedFirewallService")
 
-            // Stop the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_STOP
                 // Name the backend. The service holds ONE currentBackend, so an unqualified stop
@@ -151,21 +118,16 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Internal method called by PrivilegedFirewallService to actually delete iptables chains.
-     */
     suspend fun stopInternal(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "stopInternal: Deleting iptables chains")
 
             val chainsWereInstalled = wereChainsInstalled()
 
-            // Remove all rules
             clearAllRules().getOrElse { error ->
                 AppLogger.w(TAG, "Failed to clear rules during stop: ${error.message}")
             }
 
-            // Delete custom chains
             deleteCustomChains().getOrElse { error ->
                 AppLogger.w(TAG, "Failed to delete chains during stop: ${error.message}")
             }
@@ -222,24 +184,15 @@ class IptablesFirewallBackend(
         }
     }
 
-    /** What we can actually prove about the de1984 chains after a teardown. */
     private enum class TeardownProof {
-        /** Both probes ran and neither chain exists. */
         CLEAN,
 
-        /** A probe ran and found a chain still installed. Rules may still be dropping traffic. */
         RESIDUE,
 
         /** The probe itself could not run, so nothing is proven either way. */
         UNVERIFIABLE
     }
 
-    /**
-     * Ask iptables and ip6tables whether the de1984 chain still exists.
-     *
-     * RESIDUE beats UNVERIFIABLE: one confirmed live chain is a failed teardown regardless of what
-     * the other family reports.
-     */
     private suspend fun probeChains(): TeardownProof {
         val v4 = probeChain(IPTABLES)
         val v6 = probeChain(IP6TABLES)
@@ -261,7 +214,6 @@ class IptablesFirewallBackend(
         val v6Answered = v6 != TeardownProof.UNVERIFIABLE
 
         return when {
-            // One confirmed live chain is a failed teardown, whatever the other family says.
             v4 == TeardownProof.RESIDUE || v6 == TeardownProof.RESIDUE -> TeardownProof.RESIDUE
 
             // Neither family answered: the shell itself could not look. Genuinely unverifiable.
@@ -313,12 +265,10 @@ class IptablesFirewallBackend(
         }
     }
 
-    /** Reads the "there are chains in the kernel" record. See KEY_IPTABLES_CHAINS_INSTALLED. */
     private fun wereChainsInstalled(): Boolean =
         context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(Constants.Settings.KEY_IPTABLES_CHAINS_INSTALLED, false)
 
-    /** Writes the record synchronously - the kernel state it mirrors is already live. */
     private fun setChainsInstalled(installed: Boolean) {
         context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
@@ -335,9 +285,7 @@ class IptablesFirewallBackend(
         return try {
             AppLogger.d(TAG, "🔥 [TIMING] IptablesBackend.applyRules START: ${rules.size} rules, network=$networkType, screenOn=$screenOn")
 
-            // Note: No need to check isActive() here - service will only call this when active
 
-            // Get default policy
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val defaultPolicy = prefs.getString(
                 Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
@@ -345,7 +293,6 @@ class IptablesFirewallBackend(
             ) ?: Constants.Settings.DEFAULT_FIREWALL_POLICY
             val isBlockAllDefault = defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL
 
-            // Determine which apps should be blocked based on current state
             val uidsToBlock = mutableSetOf<Int>()
 
             // Group rules by UID to handle shared UIDs correctly
@@ -353,17 +300,13 @@ class IptablesFirewallBackend(
             // For security, we use the most restrictive rule (block if ANY app with that UID should be blocked)
             val rulesByUid = rules.filter { it.enabled }.groupBy { it.uid }
 
-            // If default policy is "Block All", we need to get all installed packages
-            // and block those without explicit "allow" rules
             if (isBlockAllDefault) {
-                // Get packages from ALL user profiles for multi-user support
                 val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
                 val allPackages = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
                     .getPackagesWithNetworkPermissions(context)
 
                 AppLogger.d(TAG, "Block All mode: found ${allPackages.size} packages with network permissions across ${userProfiles.size} profiles")
 
-                // Get critical package protection setting once (outside the loop)
                 val allowCritical = prefs.getBoolean(
                     Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
                     Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
@@ -394,8 +337,6 @@ class IptablesFirewallBackend(
                     val rulesForUid = rulesByUid[uid]
 
                     val shouldBlock = if (rulesForUid != null && rulesForUid.isNotEmpty()) {
-                        // Has explicit rules - use as-is (absolute blocking state)
-                        // Check if ANY rule says to block (most restrictive)
                         val blockDecision = rulesForUid.any { rule ->
                             when {
                                 !screenOn && rule.blockWhenBackground -> true
@@ -418,7 +359,6 @@ class IptablesFirewallBackend(
                             }
                             false
                         } else {
-                            // Normal non-critical package/UID - apply default policy (block all)
                             AppLogger.d(TAG, "  $packageName (UID $uid): no rule, blocking by default")
                             true
                         }
@@ -429,10 +369,7 @@ class IptablesFirewallBackend(
                     }
                 }
             } else {
-                // Default policy is "Allow All" - only block apps with explicit block rules
-                // For shared UIDs, block if ANY app with that UID should be blocked
 
-                // Get all installed packages from ALL user profiles (needed to check for shared UIDs with system-critical/VPN apps)
                 val userProfilesForAllowAll = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
                 val allPackages = userProfilesForAllowAll.flatMap { profile ->
                     io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
@@ -448,11 +385,8 @@ class IptablesFirewallBackend(
                     }
 
                     val shouldBlock = rulesForUid.any { rule ->
-                        // Has explicit rule - use as-is (absolute blocking state)
                         when {
-                            // Screen off blocking takes precedence
                             !screenOn && rule.blockWhenBackground -> true
-                            // Network-specific blocking
                             rule.isBlockedOn(networkType) -> true
                             else -> false
                         }
@@ -464,7 +398,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // Calculate diff: what to add, what to remove
             val uidsToAdd = uidsToBlock - blockedUids
             val uidsToRemove = blockedUids - uidsToBlock
 
@@ -478,8 +411,6 @@ class IptablesFirewallBackend(
                 AppLogger.d(TAG, "🔥 [TIMING] UIDs to REMOVE (unblock): $uidsToRemove")
             }
 
-            // Apply block/unblock rules in a single batched shell command for performance
-            // This dramatically reduces execution time by avoiding per-UID shell overhead
             val ruleStartTime = System.currentTimeMillis()
             if (uidsToRemove.isNotEmpty() || uidsToAdd.isNotEmpty()) {
                 applyRulesBatch(uidsToAdd, uidsToRemove).getOrElse { error ->
@@ -488,11 +419,7 @@ class IptablesFirewallBackend(
                 AppLogger.d(TAG, "🔥 [TIMING] Batched rules (unblock=${uidsToRemove.size}, block=${uidsToAdd.size}) took ${System.currentTimeMillis() - ruleStartTime}ms")
             }
 
-            // =============================================================================================
-            // LAN Blocking Logic
-            // =============================================================================================
 
-            // Get all installed packages from ALL user profiles (needed to check for shared UIDs with system-critical/VPN apps)
             val userProfilesForLan = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
             val allPackagesForLan = userProfilesForLan.flatMap { profile ->
                 io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
@@ -500,12 +427,9 @@ class IptablesFirewallBackend(
                 )
             }
 
-            // Calculate LAN blocking diff
             val uidsToBlockLan = mutableSetOf<Int>()
 
-            // Determine which apps should have LAN blocked
             for ((uid, rulesForUid) in rulesByUid) {
-                // Never block UIDs that contain system-critical packages or VPN apps
                 if (isUidExempted(uid, allPackagesForLan)) {
                     continue
                 }
@@ -521,7 +445,6 @@ class IptablesFirewallBackend(
 
             AppLogger.d(TAG, "LAN blocking diff: add=${uidsToAddLan.size}, remove=${uidsToRemoveLan.size}, keep=${blockedLanUids.intersect(uidsToBlockLan).size}")
 
-            // Apply LAN block/unblock rules in a single batched shell command
             val lanStartTime = System.currentTimeMillis()
             if (uidsToRemoveLan.isNotEmpty() || uidsToAddLan.isNotEmpty()) {
                 applyLanRulesBatch(uidsToAddLan, uidsToRemoveLan).getOrElse { error ->
@@ -541,13 +464,11 @@ class IptablesFirewallBackend(
     }
     
     override fun isActive(): Boolean {
-        // Check if PrivilegedFirewallService is running with iptables backend
         return try {
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val isServiceRunning = prefs.getBoolean(Constants.Settings.KEY_PRIVILEGED_SERVICE_RUNNING, false)
             val backendType = prefs.getString(Constants.Settings.KEY_PRIVILEGED_BACKEND_TYPE, null)
 
-            // If SharedPreferences says service is not running, it's definitely not active
             if (!isServiceRunning || backendType != "IPTABLES") {
                 return false
             }
@@ -564,7 +485,6 @@ class IptablesFirewallBackend(
                     service.service.className == serviceClassName
                 }
 
-                // If service is not actually running, clear the SharedPreferences flags
                 if (!isServiceActuallyRunning) {
                     AppLogger.w(TAG, "SharedPreferences says privileged service is running, but service is not actually running. Clearing flags.")
                     prefs.edit()
@@ -577,7 +497,6 @@ class IptablesFirewallBackend(
                 return true
             }
 
-            // Fallback: if we can't check running services, trust SharedPreferences
             return true
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to check if iptables firewall is active", e)
@@ -589,7 +508,6 @@ class IptablesFirewallBackend(
     
     override suspend fun checkAvailability(): Result<Unit> {
         return try {
-            // Check if we have root or Shizuku access
             val hasRoot = rootManager.hasRootPermission
             val hasShizuku = shizukuManager.hasShizukuPermission
             val hasAccess = hasRoot || hasShizuku
@@ -599,7 +517,6 @@ class IptablesFirewallBackend(
                 return Result.failure(error)
             }
 
-            // If using Shizuku, check if it's running in root mode
             if (hasShizuku && !hasRoot) {
                 val isRootMode = shizukuManager.isShizukuRootMode()
 
@@ -612,7 +529,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // Check if iptables is available
             val (exitCode, _) = executeCommand("$IPTABLES --version")
 
             if (exitCode != 0) {
@@ -625,11 +541,9 @@ class IptablesFirewallBackend(
 
             Result.success(Unit)
         } catch (e: java.util.concurrent.CancellationException) {
-            // Re-throw cancellation exceptions to allow coroutine cancellation to propagate
             AppLogger.d(TAG, "checkAvailability cancelled")
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // Re-throw cancellation exceptions to allow coroutine cancellation to propagate
             AppLogger.d(TAG, "checkAvailability cancelled")
             throw e
         } catch (e: Exception) {
@@ -645,16 +559,12 @@ class IptablesFirewallBackend(
      */
     private suspend fun createCustomChains(): Result<Unit> {
         return try {
-            // IPv4 chain
             executeCommand("$IPTABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
 
-            // Link chain to OUTPUT
             executeCommand("$IPTABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IPTABLES -I OUTPUT -j $CHAIN_OUTPUT")
 
-            // IPv6 chain
             executeCommand("$IP6TABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
 
-            // Link chain to OUTPUT
             executeCommand("$IP6TABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IP6TABLES -I OUTPUT -j $CHAIN_OUTPUT")
 
             AppLogger.d(TAG, "Custom chains created successfully")
@@ -666,17 +576,12 @@ class IptablesFirewallBackend(
         }
     }
     
-    /**
-     * Delete custom chains.
-     */
     private suspend fun deleteCustomChains(): Result<Unit> {
         return try {
-            // IPv4: Unlink and delete chain
             executeCommand("$IPTABLES -D OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || true")
             executeCommand("$IPTABLES -F $CHAIN_OUTPUT 2>/dev/null || true")
             executeCommand("$IPTABLES -X $CHAIN_OUTPUT 2>/dev/null || true")
 
-            // IPv6: Unlink and delete chain
             executeCommand("$IP6TABLES -D OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || true")
             executeCommand("$IP6TABLES -F $CHAIN_OUTPUT 2>/dev/null || true")
             executeCommand("$IP6TABLES -X $CHAIN_OUTPUT 2>/dev/null || true")
@@ -702,13 +607,11 @@ class IptablesFirewallBackend(
         return@withContext try {
             AppLogger.d(TAG, "=== Blocking UID $uid ===")
 
-            // IPv4: Block OUTPUT for this UID
             val ipv4Command = "$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP"
             AppLogger.d(TAG, "Executing IPv4 command: $ipv4Command")
             val (ipv4ExitCode, ipv4Output) = executeCommand(ipv4Command)
             AppLogger.d(TAG, "IPv4 result: exitCode=$ipv4ExitCode, output='$ipv4Output'")
 
-            // IPv6: Block OUTPUT for this UID
             val ipv6Command = "$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP"
             AppLogger.d(TAG, "Executing IPv6 command: $ipv6Command")
             val (ipv6ExitCode, ipv6Output) = executeCommand(ipv6Command)
@@ -729,17 +632,10 @@ class IptablesFirewallBackend(
         }
     }
     
-    /**
-     * Block LAN access for an app by UID.
-     * Uses destination IP filtering to block private IP ranges.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun blockAppLan(uid: Int): Result<Unit> = withContext(NonCancellable) {
         return@withContext try {
             AppLogger.d(TAG, "=== Blocking LAN for UID $uid ===")
 
-            // IPv4: Block private IP ranges
             val ipv4Ranges = listOf("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
             for (range in ipv4Ranges) {
                 val command = "$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP"
@@ -752,7 +648,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // IPv6: Block private IP ranges
             val ipv6Ranges = listOf("fc00::/7", "fe80::/10")
             for (range in ipv6Ranges) {
                 val command = "$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP"
@@ -775,17 +670,10 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Unblock an app by UID.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun unblockApp(uid: Int): Result<Unit> = withContext(NonCancellable) {
         return@withContext try {
-            // IPv4: Remove DROP rule for this UID
             executeCommand("$IPTABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP 2>/dev/null || true")
 
-            // IPv6: Remove DROP rule for this UID
             executeCommand("$IP6TABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP 2>/dev/null || true")
 
             blockedUids.remove(uid)
@@ -798,20 +686,13 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Unblock LAN access for an app by UID.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun unblockAppLan(uid: Int): Result<Unit> = withContext(NonCancellable) {
         return@withContext try {
-            // IPv4: Remove DROP rules for private IP ranges
             val ipv4Ranges = listOf("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
             for (range in ipv4Ranges) {
                 executeCommand("$IPTABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP 2>/dev/null || true")
             }
 
-            // IPv6: Remove DROP rules for private IP ranges
             val ipv6Ranges = listOf("fc00::/7", "fe80::/10")
             for (range in ipv6Ranges) {
                 executeCommand("$IP6TABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP 2>/dev/null || true")
@@ -827,14 +708,8 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Clear all firewall rules.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun clearAllRules(): Result<Unit> = withContext(NonCancellable) {
         return@withContext try {
-            // Flush custom chains (removes all rules)
             executeCommand("$IPTABLES -F $CHAIN_OUTPUT 2>/dev/null || true")
             executeCommand("$IP6TABLES -F $CHAIN_OUTPUT 2>/dev/null || true")
 
@@ -849,12 +724,6 @@ class IptablesFirewallBackend(
         }
     }
     
-    /**
-     * Apply block/unblock rules in a single batched shell command for performance.
-     * Dramatically reduces execution time by avoiding per-UID shell overhead.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun applyRulesBatch(
         uidsToBlock: Set<Int>,
         uidsToUnblock: Set<Int>
@@ -862,13 +731,11 @@ class IptablesFirewallBackend(
         return@withContext try {
             val script = StringBuilder()
 
-            // Unblock commands first (delete rules that are no longer needed)
             for (uid in uidsToUnblock) {
                 script.appendLine("$IPTABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP 2>/dev/null || true")
                 script.appendLine("$IP6TABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP 2>/dev/null || true")
             }
 
-            // Block commands (add new rules)
             for (uid in uidsToBlock) {
                 script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP")
                 script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP")
@@ -882,7 +749,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // Update tracking sets
             blockedUids.removeAll(uidsToUnblock)
             blockedUids.addAll(uidsToBlock)
 
@@ -895,11 +761,6 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Apply LAN block/unblock rules in a single batched shell command for performance.
-     *
-     * CRITICAL: Runs in NonCancellable context to prevent interruption.
-     */
     private suspend fun applyLanRulesBatch(
         uidsToBlock: Set<Int>,
         uidsToUnblock: Set<Int>
@@ -907,11 +768,9 @@ class IptablesFirewallBackend(
         return@withContext try {
             val script = StringBuilder()
 
-            // IPv4 and IPv6 private ranges for LAN blocking
             val ipv4Ranges = listOf("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
             val ipv6Ranges = listOf("fc00::/7", "fe80::/10")
 
-            // Unblock LAN commands first (delete rules)
             for (uid in uidsToUnblock) {
                 for (range in ipv4Ranges) {
                     script.appendLine("$IPTABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP 2>/dev/null || true")
@@ -921,7 +780,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // Block LAN commands (add new rules)
             for (uid in uidsToBlock) {
                 for (range in ipv4Ranges) {
                     script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP")
@@ -938,7 +796,6 @@ class IptablesFirewallBackend(
                 }
             }
 
-            // Update tracking sets
             blockedLanUids.removeAll(uidsToUnblock)
             blockedLanUids.addAll(uidsToBlock)
 
@@ -951,9 +808,6 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Execute command using root or Shizuku.
-     */
     private suspend fun executeCommand(command: String): Pair<Int, String> {
         return if (rootManager.hasRootPermission) {
             rootManager.executeRootCommand(command)
@@ -964,7 +818,7 @@ class IptablesFirewallBackend(
         }
     }
 
-    override fun supportsGranularControl(): Boolean = true  // Supports WiFi/Mobile/Roaming separately
+    override fun supportsGranularControl(): Boolean = true
 
     /**
      * Check if an app has a VPN service by looking for services with BIND_VPN_SERVICE permission.
@@ -986,7 +840,6 @@ class IptablesFirewallBackend(
                 userId
             ) ?: return false
 
-            // Check if any service has BIND_VPN_SERVICE permission
             packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false
@@ -995,31 +848,15 @@ class IptablesFirewallBackend(
         }
     }
 
-    /**
-     * Check if a UID should be exempted from blocking.
-     * A UID is exempted if ANY package with that UID is:
-     * - System-critical (in SYSTEM_WHITELIST)
-     * - A VPN app (has BIND_VPN_SERVICE permission)
-     *
-     * This prevents shared UID bypass vulnerability where a non-critical app
-     * (e.g., Gboard) shares a UID with a system-critical package.
-     *
-     * @param uid The UID to check
-     * @param allPackages List of all installed applications
-     * @return true if the UID should be exempted from blocking
-     */
     private fun isUidExempted(uid: Int, allPackages: List<android.content.pm.ApplicationInfo>): Boolean {
-        // Check if critical package protection is disabled
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val allowCritical = prefs.getBoolean(
             Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
             Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
         )
 
-        // Get all packages with this UID
         val packagesWithUid = allPackages.filter { it.uid == uid }
 
-        // Check if ANY package with this UID is system-critical or a VPN app (unless setting is enabled)
         return packagesWithUid.any { appInfo ->
             (!allowCritical && Constants.Firewall.isSystemCritical(appInfo.packageName)) ||
             (!allowCritical && hasVpnService(appInfo.packageName, appInfo.uid / 100000))

@@ -22,18 +22,13 @@ class FirewallRepositoryImpl(
     }
 
     private fun notifyRulesChanged() {
-        // Send broadcast for VPN/privileged firewall services
         val intent = android.content.Intent("io.github.dorumrr.de1984.FIREWALL_RULES_CHANGED")
         intent.setPackage(context.packageName)
         context.sendBroadcast(intent)
         
-        // Notify ViewModels via SharedFlow callback
         onDataChanged?.invoke()
     }
     
-    // =============================================================================================
-    // Read operations - All users
-    // =============================================================================================
 
     override fun getAllRules(): Flow<List<FirewallRule>> {
         return firewallRuleDao.getAllRules().map { entities ->
@@ -73,9 +68,6 @@ class FirewallRepositoryImpl(
         return firewallRuleDao.getBlockedCount()
     }
 
-    // =============================================================================================
-    // Read operations - By user profile
-    // =============================================================================================
 
     override fun getRulesByUserId(userId: Int): Flow<List<FirewallRule>> {
         return firewallRuleDao.getRulesByUserId(userId).map { entities ->
@@ -87,9 +79,6 @@ class FirewallRepositoryImpl(
         return firewallRuleDao.getRulesByUserIdSync(userId).toDomain()
     }
 
-    // =============================================================================================
-    // Read operations - By package (require userId for composite key)
-    // =============================================================================================
 
     override fun getRuleByPackage(packageName: String, userId: Int): Flow<FirewallRule?> {
         return firewallRuleDao.getRuleByPackage(packageName, userId).map { entity ->
@@ -102,7 +91,6 @@ class FirewallRepositoryImpl(
     }
     
     override suspend fun insertRule(rule: FirewallRule) {
-        // Log Chrome rules for debugging
         if (rule.packageName.contains("chrome", ignoreCase = true)) {
             AppLogger.d(TAG, "insertRule: ${rule.packageName} - wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, roaming=${rule.blockWhenRoaming}")
             AppLogger.d(TAG, "  Stack trace:", Exception("insertRule called"))
@@ -112,7 +100,6 @@ class FirewallRepositoryImpl(
     }
 
     override suspend fun insertRules(rules: List<FirewallRule>) {
-        // Log Chrome rules for debugging
         rules.filter { it.packageName.contains("chrome", ignoreCase = true) }.forEach { rule ->
             AppLogger.d(TAG, "insertRules: ${rule.packageName} - wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, roaming=${rule.blockWhenRoaming}")
         }
@@ -121,7 +108,6 @@ class FirewallRepositoryImpl(
     }
 
     override suspend fun updateRule(rule: FirewallRule) {
-        // Log Chrome rules for debugging
         if (rule.packageName.contains("chrome", ignoreCase = true)) {
             AppLogger.d(TAG, "updateRule: ${rule.packageName} - wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, roaming=${rule.blockWhenRoaming}")
             AppLogger.d(TAG, "  Stack trace:", Exception("updateRule called"))
@@ -145,25 +131,17 @@ class FirewallRepositoryImpl(
         notifyRulesChanged()
     }
 
-    // =============================================================================================
-    // Bulk operations - All users
-    // =============================================================================================
 
     override suspend fun blockAllApps() {
-        // Exclude system-recommended packages to preserve their "allow all" rules
         firewallRuleDao.blockAllApps(Constants.Firewall.SYSTEM_RECOMMENDED_ALLOW.toList())
         notifyRulesChanged()
     }
 
     override suspend fun allowAllApps() {
-        // Exclude system-recommended packages to avoid unnecessary updates
         firewallRuleDao.allowAllApps(Constants.Firewall.SYSTEM_RECOMMENDED_ALLOW.toList())
         notifyRulesChanged()
     }
 
-    // =============================================================================================
-    // Atomic field updates (require userId for composite key)
-    // =============================================================================================
 
     override suspend fun updateWifiBlocking(packageName: String, userId: Int, blocked: Boolean) {
         firewallRuleDao.updateWifiBlocking(packageName, userId, blocked)

@@ -63,13 +63,10 @@ class FirewallVpnService : VpnService() {
     private var lastAppliedNetworkType: NetworkType = NetworkType.NONE
     private var lastAppliedScreenState: Boolean = true
 
-    // Track blocked count to distinguish zero-app optimization from failures
     private var lastBlockedCount: Int = 0
 
-    // Track consecutive VPN interface failures for notification debouncing
     private var consecutiveFailures: Int = 0
 
-    // Track retry attempts for exponential backoff
     private var retryAttempt: Int = 0
 
     private val rulesChangedReceiver = object : android.content.BroadcastReceiver() {
@@ -95,7 +92,6 @@ class FirewallVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize dependencies manually
         val app = application as De1984Application
         val deps = app.dependencies
         firewallRepository = deps.firewallRepository
@@ -152,7 +148,6 @@ class FirewallVpnService : VpnService() {
         try {
             unregisterReceiver(rulesChangedReceiver)
         } catch (e: Exception) {
-            // Failed to unregister broadcast receiver
         }
 
         super.onDestroy()
@@ -173,11 +168,9 @@ class FirewallVpnService : VpnService() {
         // - Intent: VPN permission NOT granted (another VPN active) → user chose different VPN
         val prepareIntent = VpnService.prepare(this@FirewallVpnService)
         if (prepareIntent != null) {
-            // Permission NOT granted - another VPN is active
             AppLogger.w(TAG, "Another VPN app is active - will not auto-restart")
             wasExplicitlyStopped = true
         } else {
-            // Permission still granted - likely airplane mode or network issue
             AppLogger.w(TAG, "VPN permission still available - will allow auto-restart when network restored")
             wasExplicitlyStopped = false
         }
@@ -193,7 +186,6 @@ class FirewallVpnService : VpnService() {
     }
 
     private fun checkBatteryOptimization() {
-        // Battery optimization is available on all supported API levels (26+)
     }
 
     private fun startMonitoring() {
@@ -243,7 +235,7 @@ class FirewallVpnService : VpnService() {
         )
         prefs.edit()
             .putBoolean(io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_SERVICE_RUNNING, true)
-            .putBoolean(io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_INTERFACE_ACTIVE, false)  // Will be set to true when interface established
+            .putBoolean(io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_INTERFACE_ACTIVE, false)
             .commit()
         AppLogger.d(TAG, "Updated SharedPreferences: VPN_SERVICE_RUNNING=true, VPN_INTERFACE_ACTIVE=false (pending)")
 
@@ -264,13 +256,10 @@ class FirewallVpnService : VpnService() {
                 }
 
                 if (vpnInterface == null) {
-                    // Distinguish between zero-app optimization and failure
                     if (lastBlockedCount > 0) {
-                        // This is a FAILURE - we expected VPN but establish() returned null
                         AppLogger.e(TAG, "startVpn: VPN interface FAILED (blockedCount=$lastBlockedCount)")
                         handleVpnInterfaceFailure()
                     } else {
-                        // This is zero-app optimization - expected behavior
                         AppLogger.w(TAG, "VPN interface is null - no apps to block (zero-app optimization)")
                         consecutiveFailures = 0
                         retryAttempt = 0
@@ -287,7 +276,6 @@ class FirewallVpnService : VpnService() {
                 } else {
                     AppLogger.d(TAG, "VPN interface established successfully")
 
-                    // Track successful VPN establishment
                     onVpnInterfaceSuccess()
 
                     startPacketDropping()
@@ -350,18 +338,14 @@ class FirewallVpnService : VpnService() {
                             oldVpnInterface?.close()
                             vpnInterface = null
 
-                            // Distinguish between zero-app optimization and failure
                             if (lastBlockedCount > 0) {
-                                // This is a FAILURE - we expected VPN but establish() returned null
                                 AppLogger.e(TAG, "restartVpn: VPN interface FAILED (blockedCount=$lastBlockedCount)")
                                 handleVpnInterfaceFailure()
                             } else {
-                                // This is zero-app optimization - expected behavior
                                 AppLogger.d(TAG, "restartVpn: No apps to block (zero-app optimization)")
                                 consecutiveFailures = 0
                                 retryAttempt = 0
 
-                                // IMPORTANT: Set KEY_VPN_INTERFACE_ACTIVE = true even for zero-app optimization
                                 val prefs = getSharedPreferences(
                                     io.github.dorumrr.de1984.utils.Constants.Settings.PREFS_NAME,
                                     Context.MODE_PRIVATE
@@ -375,11 +359,9 @@ class FirewallVpnService : VpnService() {
 
                             lastAppliedBlockedApps = emptySet()
                         } else {
-                            // Close old VPN AFTER new one is established
                             oldVpnInterface?.close()
                             vpnInterface = newVpnInterface
 
-                            // Track successful VPN establishment
                             onVpnInterfaceSuccess()
 
                             AppLogger.d(TAG, "restartVpn: VPN interface established, starting packet dropping")
@@ -406,7 +388,6 @@ class FirewallVpnService : VpnService() {
 
         AppLogger.e(TAG, "handleVpnInterfaceFailure: consecutiveFailures=$consecutiveFailures")
 
-        // Update SharedPreferences to indicate VPN interface is down
         val prefs = getSharedPreferences(
             io.github.dorumrr.de1984.utils.Constants.Settings.PREFS_NAME,
             Context.MODE_PRIVATE
@@ -416,22 +397,20 @@ class FirewallVpnService : VpnService() {
             false
         ).commit()
 
-        // Show notification after 2 consecutive failures (debouncing)
         if (consecutiveFailures >= 2) {
             showVpnFailureNotification()
         }
 
-        // Schedule retry with exponential backoff
         scheduleVpnRetry()
     }
 
     private fun scheduleVpnRetry() {
         serviceScope.launch {
             val delay = when (retryAttempt) {
-                0 -> 1000L      // 1 second
-                1 -> 2000L      // 2 seconds
-                2 -> 5000L      // 5 seconds
-                else -> 30000L  // 30 seconds (steady state)
+                0 -> 1000L
+                1 -> 2000L
+                2 -> 5000L
+                else -> 30000L
             }
 
             retryAttempt++
@@ -447,11 +426,9 @@ class FirewallVpnService : VpnService() {
     }
 
     private fun onVpnInterfaceSuccess() {
-        // Reset failure tracking
         consecutiveFailures = 0
         retryAttempt = 0
 
-        // Update SharedPreferences
         val prefs = getSharedPreferences(
             io.github.dorumrr.de1984.utils.Constants.Settings.PREFS_NAME,
             Context.MODE_PRIVATE
@@ -461,7 +438,6 @@ class FirewallVpnService : VpnService() {
             true
         ).commit()
 
-        // Dismiss failure notification
         dismissVpnFailureNotification()
     }
 
@@ -511,12 +487,10 @@ class FirewallVpnService : VpnService() {
         AppLogger.d(TAG, "getBlockedAppsForCurrentState: defaultPolicy=$defaultPolicy, isBlockAllDefault=$isBlockAllDefault")
 
         val allRules = firewallRepository.getAllRules().first()
-        // Use (packageName:userId) as key for multi-user support
         val rulesMap = allRules.associateBy { "${it.packageName}:${it.userId}" }
 
         AppLogger.d(TAG, "getBlockedAppsForCurrentState: loaded ${allRules.size} rules from database")
 
-        // Get packages from ALL user profiles for multi-user support
         val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(this)
         val allPackages = userProfiles.flatMap { profile ->
             io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
@@ -540,7 +514,6 @@ class FirewallVpnService : VpnService() {
 
         AppLogger.d(TAG, "getBlockedAppsForCurrentState: found ${allPackages.size} packages across ${userProfiles.size} profiles")
 
-        // Get critical package protection setting once (outside the loop)
         val prefs = getSharedPreferences(io.github.dorumrr.de1984.utils.Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val allowCritical = prefs.getBoolean(
             io.github.dorumrr.de1984.utils.Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
@@ -561,7 +534,6 @@ class FirewallVpnService : VpnService() {
         for (appInfo in allPackages) {
             val packageName = appInfo.packageName
             val uid = appInfo.uid
-            // Derive userId from UID for rule lookup
             val userId = uid / 100000
 
             // Never block our own app
@@ -569,17 +541,14 @@ class FirewallVpnService : VpnService() {
                 continue
             }
 
-            // Never block system-critical packages (unless setting is enabled)
             if (io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) && !allowCritical) {
                 continue
             }
 
-            // Never block VPN apps to prevent VPN reconnection issues (unless setting is enabled)
             if (hasVpnService(packageName, userId) && !allowCritical) {
                 continue
             }
 
-            // Look up rule by (packageName:userId) composite key
             val rule = rulesMap["$packageName:$userId"]
 
             val shouldBlock = if (rule != null && rule.enabled) {
@@ -591,15 +560,12 @@ class FirewallVpnService : VpnService() {
                     else -> rule.isBlockedOn(currentNetworkType)
                 }
             } else {
-                // No rule - apply default policy
-                // EXCEPT: When allowCritical is ON and UID contains critical package, default to ALLOW for stability
-                // IMPORTANT: Check at UID level because Android's network permissions are UID-based
                 if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
                     val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName, userId)
                     if (!isSelfCritical) {
                         AppLogger.d(TAG, "  $packageName (UID $uid): no rule, shares UID with critical package → allowing")
                     }
-                    false  // Allow UIDs with critical packages without rules for system stability
+                    false
                 } else {
                     isBlockAllDefault
                 }
@@ -646,7 +612,7 @@ class FirewallVpnService : VpnService() {
             AppLogger.d(TAG, "buildVpnInterface: ipv6Captured=$ipv6Captured")
 
             val blockedCount = applyFirewallRules(builder)
-            lastBlockedCount = blockedCount  // Track for failure detection
+            lastBlockedCount = blockedCount
             AppLogger.d(TAG, "buildVpnInterface: blockedCount=$blockedCount")
 
             // If blockedCount is -1, it means no apps need to be blocked
@@ -656,10 +622,8 @@ class FirewallVpnService : VpnService() {
                 return null
             }
 
-            // Check if VPN permission is granted
             val prepareIntent = VpnService.prepare(this@FirewallVpnService)
             if (prepareIntent != null) {
-                // VPN permission not granted - stop the service and update firewall state
                 AppLogger.e(TAG, "VPN permission not granted - cannot establish VPN interface")
 
                 // Update SharedPreferences to indicate VPN service is not running
@@ -673,7 +637,6 @@ class FirewallVpnService : VpnService() {
                     .putBoolean(io.github.dorumrr.de1984.utils.Constants.Settings.KEY_VPN_SERVICE_RUNNING, false)
                     .apply()
 
-                // Stop the service
                 stopSelf()
                 return null
             }
@@ -708,7 +671,6 @@ class FirewallVpnService : VpnService() {
             val isBlockAllDefault = defaultPolicy == io.github.dorumrr.de1984.utils.Constants.Settings.POLICY_BLOCK_ALL
             AppLogger.d(TAG, "applyFirewallRules: defaultPolicy=$defaultPolicy, isBlockAllDefault=$isBlockAllDefault")
 
-            // Check if critical package protection is disabled (read once, not in loop)
             val allowCritical = prefs.getBoolean(
                 io.github.dorumrr.de1984.utils.Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
                 io.github.dorumrr.de1984.utils.Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
@@ -717,7 +679,6 @@ class FirewallVpnService : VpnService() {
             val rulesList = firewallRepository.getAllRules().first()
             AppLogger.d(TAG, "applyFirewallRules: loaded ${rulesList.size} rules from database")
 
-            // Get packages from ALL user profiles for multi-user support
             val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(this@FirewallVpnService)
             val allPackages = userProfiles.flatMap { profile ->
                 io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
@@ -740,8 +701,6 @@ class FirewallVpnService : VpnService() {
             }.map { (appInfo, _) -> appInfo }
             AppLogger.d(TAG, "applyFirewallRules: found ${allPackages.size} packages across ${userProfiles.size} profiles")
 
-            // Pre-compute UIDs that contain critical packages (for UID-level exemption checks)
-            // Even though VPN backend operates per-package, Android's network permissions are UID-based
             val uidsWithCritical = if (allowCritical) {
                 allPackages
                     .filter { io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName, it.uid / 100000) }
@@ -756,7 +715,6 @@ class FirewallVpnService : VpnService() {
             var defaultPolicyCount = 0
             var failedCount = 0
 
-            // Use (packageName:userId) as key for multi-user support
             val rulesMap = rulesList.associateBy { "${it.packageName}:${it.userId}" }
 
             // SIMPLE STRATEGY: Always use addAllowedApplication() for blocked apps
@@ -770,51 +728,41 @@ class FirewallVpnService : VpnService() {
             allPackages.forEach { appInfo ->
                 val packageName = appInfo.packageName
                 val uid = appInfo.uid
-                // Derive userId from UID for rule lookup
                 val userId = uid / 100000
 
-                // Never block system-critical packages (unless setting is enabled)
                 if (io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) && !allowCritical) {
                     allowedCount++
                     return@forEach
                 }
 
-                // Never block VPN apps to prevent VPN reconnection issues (unless setting is enabled)
                 if (hasVpnService(packageName, userId) && !allowCritical) {
                     allowedCount++
                     return@forEach
                 }
 
-                // Look up rule by (packageName:userId) composite key
                 val rule = rulesMap["$packageName:$userId"]
 
                 val shouldBlock = if (rule != null && rule.enabled) {
-                    // Has explicit rule - determine blocking based on rule configuration
                     val blocked = when {
                         !isScreenOn && rule.blockWhenBackground -> true
-                        // NetworkType.NONE is handled inside isBlockedOn now - see FirewallRule.
                         else -> rule.isBlockedOn(currentNetworkType)
                     }
                     AppLogger.d(TAG, "  $packageName (user $userId): explicit rule, shouldBlock=$blocked (wifi=${rule.wifiBlocked}, mobile=${rule.mobileBlocked}, currentNetwork=$currentNetworkType)")
                     blocked
                 } else {
-                    // No explicit rule - use default policy
-                    // EXCEPT: When allowCritical is ON and UID contains critical package, default to ALLOW for stability
-                    // IMPORTANT: Check at UID level because Android's network permissions are UID-based
                     defaultPolicyCount++
                     if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
                         val isSelfCritical = io.github.dorumrr.de1984.utils.Constants.Firewall.isSystemCritical(packageName) || hasVpnService(packageName, userId)
                         if (!isSelfCritical) {
                             AppLogger.d(TAG, "  $packageName (UID $uid): no rule, shares UID with critical package → allowing")
                         }
-                        false  // Allow UIDs with critical packages without rules for system stability
+                        false
                     } else {
                         isBlockAllDefault
                     }
                 }
 
                 if (shouldBlock) {
-                    // Add to VPN to block
                     try {
                         builder.addAllowedApplication(packageName)
                         blockedCount++
@@ -860,8 +808,6 @@ class FirewallVpnService : VpnService() {
             .commit()
         AppLogger.d(TAG, "Updated SharedPreferences: VPN_SERVICE_RUNNING=false, VPN_INTERFACE_ACTIVE=false")
 
-        // Dismiss failure notification if it's showing
-        // This prevents notification from persisting after manual stop
         dismissVpnFailureNotification()
         AppLogger.d(TAG, "Dismissed VPN failure notification (if any)")
 
@@ -875,7 +821,6 @@ class FirewallVpnService : VpnService() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         } catch (e: Exception) {
-            // Exception in stopVpn
         }
     }
     
@@ -921,7 +866,7 @@ class FirewallVpnService : VpnService() {
         packetForwardingJob = serviceScope.launch {
             try {
                 val inputStream = java.io.FileInputStream(vpn.fileDescriptor)
-                val buffer = ByteArray(32767) // Max IP packet size
+                val buffer = ByteArray(32767)
 
                 AppLogger.d(TAG, "startPacketDropping: Started reading packets to drop them")
 
@@ -929,10 +874,7 @@ class FirewallVpnService : VpnService() {
                     try {
                         val length = inputStream.read(buffer)
                         if (length > 0) {
-                            // Packet read successfully - just drop it (don't forward)
-                            // This effectively blocks the app's network access
                         } else if (length < 0) {
-                            // End of stream - VPN closed
                             AppLogger.d(TAG, "startPacketDropping: End of stream, stopping")
                             break
                         }
@@ -971,7 +913,6 @@ class FirewallVpnService : VpnService() {
                 userId
             ) ?: return false
 
-            // Check if any service has BIND_VPN_SERVICE permission
             packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == io.github.dorumrr.de1984.utils.Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false

@@ -20,26 +20,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Method
 
-/**
- * Firewall backend using Android's NetworkPolicyManager API via Shizuku.
- *
- * This is a LEGACY backend for Android 12 and below. On Android 13+, use
- * ConnectivityManager backend instead as it blocks all networks reliably.
- *
- * This backend:
- * - Works with Shizuku in ADB mode (UID 2000) - no root required
- * - Does NOT show VPN icon
- * - Does NOT occupy VPN slot
- * - Uses system-level network policies
- *
- * Limitations:
- * - May not block WiFi on some devices (only Mobile/Roaming)
- * - Less granular than iptables (per-app only, not per-network-type)
- * - Uses hidden Android API (may break in future Android versions)
- * - Requires Shizuku to be running
- *
- * Recommendation: Use ConnectivityManager on Android 13+ for reliable blocking.
- */
 class NetworkPolicyManagerFirewallBackend(
     private val context: Context,
     private val shizukuManager: ShizukuManager,
@@ -49,7 +29,6 @@ class NetworkPolicyManagerFirewallBackend(
     companion object {
         private const val TAG = "NetworkPolicyManagerFirewall"
         
-        // NetworkPolicyManager constants
         private const val POLICY_NONE = 0x0
         private const val POLICY_REJECT_METERED_BACKGROUND = 0x1
 
@@ -64,7 +43,6 @@ class NetworkPolicyManagerFirewallBackend(
         // the value and reading it back - see calibrateBlockingPolicy.
         private const val POLICY_REJECT_ALL = 0x40000
 
-        // System service name
         private const val SERVICE_NAME = "netpolicy"
 
         // Android packs a UID as userId * 100000 + appId, and only an appId in this range is
@@ -91,8 +69,6 @@ class NetworkPolicyManagerFirewallBackend(
 
     private val mutex = Mutex()
 
-    // Track applied policies to avoid redundant reflection calls (memory leak fix)
-    // Maps UID -> isBlocked (boolean, not policy constant to avoid mismatch issues)
     private val appliedPolicies = mutableMapOf<Int, Boolean>()
 
     // Track which policy constant works on this device
@@ -101,23 +77,17 @@ class NetworkPolicyManagerFirewallBackend(
     private var blockingPolicy: Int = POLICY_REJECT_METERED_BACKGROUND
     private var policyTested: Boolean = false
 
-    // Cached reflection objects
     private var networkPolicyManagerClass: Class<*>? = null
     private var stubClass: Class<*>? = null
     private var asInterfaceMethod: Method? = null
     private var setUidPolicyMethod: Method? = null
     private var getUidPolicyMethod: Method? = null
 
-    /**
-     * Start the firewall by starting the PrivilegedFirewallService.
-     * The service will call startInternal() to initialize reflection.
-     */
     override suspend fun start(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "=== NetworkPolicyManagerFirewallBackend.start() ===")
             AppLogger.d(TAG, "Starting PrivilegedFirewallService with NetworkPolicyManager backend")
 
-            // Start the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_START
                 putExtra(PrivilegedFirewallService.EXTRA_BACKEND_TYPE, "NETWORK_POLICY_MANAGER")
@@ -132,14 +102,10 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Internal method called by PrivilegedFirewallService to initialize reflection.
-     */
     suspend fun startInternal(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "startInternal: Initializing reflection")
 
-            // Initialize reflection if needed
             if (!initializeReflection()) {
                 val error = errorHandler.handleError(
                     Exception("Failed to initialize reflection for NetworkPolicyManager"),
@@ -157,15 +123,11 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Stop the firewall by stopping the PrivilegedFirewallService.
-     */
     override suspend fun stop(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "Stopping NetworkPolicyManager firewall backend")
             AppLogger.d(TAG, "Stopping PrivilegedFirewallService")
 
-            // Stop the privileged firewall service
             val intent = Intent(context, PrivilegedFirewallService::class.java).apply {
                 action = PrivilegedFirewallService.ACTION_STOP
                 // Name the backend. The service holds ONE currentBackend, so an unqualified stop
@@ -183,9 +145,6 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Internal method called by PrivilegedFirewallService to cleanup.
-     */
     suspend fun stopInternal(): Result<Unit> = mutex.withLock {
         return try {
             AppLogger.d(TAG, "stopInternal: Cleaning up")
@@ -329,11 +288,6 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * UIDs this backend has written to, mapped to the policy that was in place before the first
-     * write. Mirrored on disk as "uid:policy" strings so a fresh process can still put them back -
-     * after a crash or a backend switch the in-memory state is gone but the system policies remain.
-     */
     private fun loadOriginalPolicies(): Map<Int, Int> {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
@@ -385,9 +339,7 @@ class NetworkPolicyManagerFirewallBackend(
                 AppLogger.d(TAG, "=== NetworkPolicyManagerFirewallBackend.applyRules() ===")
             AppLogger.d(TAG, "Rules count: ${rules.size}, networkType: $networkType, screenOn: $screenOn")
 
-            // Note: No need to check isActive() here - service will only call this when active
 
-                // Get NetworkPolicyManager instance
                 val networkPolicyManager = getNetworkPolicyManager()
                 if (networkPolicyManager == null) {
                     val error = errorHandler.handleError(
@@ -397,7 +349,6 @@ class NetworkPolicyManagerFirewallBackend(
                     return@withContext Result.failure(error)
                 }
 
-            // Get default policy from SharedPreferences
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val defaultPolicy = prefs.getString(
                 Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
@@ -405,7 +356,6 @@ class NetworkPolicyManagerFirewallBackend(
             ) ?: Constants.Settings.DEFAULT_FIREWALL_POLICY
             val isBlockAllDefault = defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL
 
-            // Get critical package protection setting once (outside the loop)
             val allowCritical = prefs.getBoolean(
                 Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
                 Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
@@ -416,10 +366,8 @@ class NetworkPolicyManagerFirewallBackend(
             var appliedCount = 0
             var errorCount = 0
 
-            // Create a map of rules by UID for quick lookup
             val rulesByUid = rules.filter { it.enabled }.groupBy { it.uid }
 
-            // Get all installed packages with network permissions from ALL user profiles
             val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
             val allPackages = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
                 .getPackagesWithNetworkPermissions(context)
@@ -438,9 +386,7 @@ class NetworkPolicyManagerFirewallBackend(
                 emptySet()
             }
 
-            // First pass: Calculate desired policies for all UIDs
-            // This is done separately to enable differential application (memory leak fix)
-            val desiredPolicies = mutableMapOf<Int, Boolean>()  // uid -> shouldBlock
+            val desiredPolicies = mutableMapOf<Int, Boolean>()
 
             allPackages.forEach { appInfo ->
                 val uid = appInfo.uid
@@ -468,20 +414,13 @@ class NetworkPolicyManagerFirewallBackend(
                         }
                     }
                 } else {
-                    // No rule - apply default policy
-                    // Per FIREWALL.md lines 220-230:
-                    // - Block All mode: Apps without rules are blocked on all networks
-                    // - Allow All mode: Apps without rules are allowed on all networks
-                    // EXCEPT: When allowCritical is ON and UID contains critical package, default to ALLOW for stability
-                    // IMPORTANT: Check at UID level because we block by UID, not by package
                     if (isBlockAllDefault && allowCritical && uidsWithCritical.contains(uid)) {
-                        // Log shared UID scenario for debugging
                         val packagesInUid = allPackages.filter { it.uid == uid }.map { it.packageName }
                         val criticalInUid = packagesInUid.filter { Constants.Firewall.isSystemCritical(it) || hasVpnService(it, uid / 100000) }
                         if (criticalInUid.isNotEmpty() && packagesInUid.size > 1) {
                             AppLogger.d(TAG, "  UID $uid: allowing (shares UID with critical: ${criticalInUid.joinToString()})")
                         }
-                        false  // Allow UIDs with critical packages without rules for system stability
+                        false
                     } else {
                         isBlockAllDefault
                     }
@@ -490,8 +429,6 @@ class NetworkPolicyManagerFirewallBackend(
                 desiredPolicies[uid] = shouldBlock
             }
 
-            // Second pass: Only apply changes for UIDs whose policy changed
-            // This drastically reduces reflection calls (memory leak fix)
             var skippedCount = 0
             var untouchedCount = 0
 
@@ -530,7 +467,6 @@ class NetworkPolicyManagerFirewallBackend(
                 desiredPolicies.forEach { (uid, shouldBlock) ->
                     val currentPolicy = appliedPolicies[uid]
 
-                    // Skip if policy hasn't changed
                     if (currentPolicy == shouldBlock) {
                         skippedCount++
                         return@forEach
@@ -582,7 +518,7 @@ class NetworkPolicyManagerFirewallBackend(
                             originalPolicies.remove(uid)
                         }
 
-                        appliedPolicies[uid] = shouldBlock  // Track applied policy
+                        appliedPolicies[uid] = shouldBlock
                         appliedCount++
 
                         val policyName = when (blockingPolicy) {
@@ -594,7 +530,6 @@ class NetworkPolicyManagerFirewallBackend(
                         val rulesForUid = rulesByUid[uid]
                         val ruleStatus = if (rulesForUid != null) "has rule" else "no rule (default policy)"
 
-                        // Find package name for logging (may be multiple packages with same UID)
                         val packageName = allPackages.find { it.uid == uid }?.packageName ?: "UID $uid"
 
                         AppLogger.d(TAG, "Applied policy for $packageName (UID $uid, $ruleStatus): " +
@@ -622,13 +557,11 @@ class NetworkPolicyManagerFirewallBackend(
     }
 
     override fun isActive(): Boolean {
-        // Check if PrivilegedFirewallService is running with NetworkPolicyManager backend
         return try {
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val isServiceRunning = prefs.getBoolean(Constants.Settings.KEY_PRIVILEGED_SERVICE_RUNNING, false)
             val backendType = prefs.getString(Constants.Settings.KEY_PRIVILEGED_BACKEND_TYPE, null)
 
-            // If SharedPreferences says service is not running, it's definitely not active
             if (!isServiceRunning || backendType != "NETWORK_POLICY_MANAGER") {
                 return false
             }
@@ -645,7 +578,6 @@ class NetworkPolicyManagerFirewallBackend(
                     service.service.className == serviceClassName
                 }
 
-                // If service is not actually running, clear the SharedPreferences flags
                 if (!isServiceActuallyRunning) {
                     AppLogger.w(TAG, "SharedPreferences says privileged service is running, but service is not actually running. Clearing flags.")
                     prefs.edit()
@@ -658,7 +590,6 @@ class NetworkPolicyManagerFirewallBackend(
                 return true
             }
 
-            // Fallback: if we can't check running services, trust SharedPreferences
             return true
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to check if NetworkPolicyManager firewall is active", e)
@@ -672,14 +603,12 @@ class NetworkPolicyManagerFirewallBackend(
         return try {
             AppLogger.d(TAG, "=== NetworkPolicyManagerFirewallBackend.checkAvailability() ===")
             
-            // Check if Shizuku is available
             if (!shizukuManager.hasShizukuPermission) {
                 AppLogger.d(TAG, "❌ NetworkPolicyManager not available: No Shizuku permission")
                 val error = errorHandler.createRootRequiredError("NetworkPolicyManager firewall")
                 return Result.failure(error)
             }
             
-            // Initialize reflection
             if (!initializeReflection()) {
                 AppLogger.e(TAG, "❌ NetworkPolicyManager not available: Failed to initialize reflection")
                 val error = errorHandler.createUnsupportedDeviceError(
@@ -689,7 +618,6 @@ class NetworkPolicyManagerFirewallBackend(
                 return Result.failure(error)
             }
             
-            // Try to get NetworkPolicyManager instance
             val networkPolicyManager = getNetworkPolicyManager()
             if (networkPolicyManager == null) {
                 AppLogger.e(TAG, "❌ NetworkPolicyManager not available: Failed to get service instance")
@@ -708,12 +636,7 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Initialize reflection objects for NetworkPolicyManager API.
-     * This is done once and cached for performance.
-     */
     private fun initializeReflection(): Boolean {
-        // Return true if already initialized
         if (networkPolicyManagerClass != null && 
             stubClass != null && 
             asInterfaceMethod != null && 
@@ -725,30 +648,25 @@ class NetworkPolicyManagerFirewallBackend(
         return try {
             AppLogger.d(TAG, "Initializing reflection for NetworkPolicyManager...")
             
-            // Get INetworkPolicyManager class
             networkPolicyManagerClass = Class.forName("android.net.INetworkPolicyManager")
             AppLogger.d(TAG, "✅ Found INetworkPolicyManager class")
             
-            // Get INetworkPolicyManager.Stub class
             stubClass = Class.forName("android.net.INetworkPolicyManager\$Stub")
             AppLogger.d(TAG, "✅ Found INetworkPolicyManager.Stub class")
             
-            // Get asInterface method
             asInterfaceMethod = stubClass?.getMethod("asInterface", IBinder::class.java)
             AppLogger.d(TAG, "✅ Found asInterface method")
             
-            // Get setUidPolicy method
             setUidPolicyMethod = networkPolicyManagerClass?.getMethod(
                 "setUidPolicy",
-                Int::class.javaPrimitiveType,  // uid
-                Int::class.javaPrimitiveType   // policy
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
             )
             AppLogger.d(TAG, "✅ Found setUidPolicy method")
             
-            // Get getUidPolicy method (for debugging)
             getUidPolicyMethod = networkPolicyManagerClass?.getMethod(
                 "getUidPolicy",
-                Int::class.javaPrimitiveType   // uid
+                Int::class.javaPrimitiveType
             )
             AppLogger.d(TAG, "✅ Found getUidPolicy method")
             
@@ -765,19 +683,14 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Get NetworkPolicyManager instance via Shizuku.
-     */
     private suspend fun getNetworkPolicyManager(): Any? = withContext(Dispatchers.IO) {
         try {
-            // Get system service binder via Shizuku
             val serviceBinder = shizukuManager.getSystemServiceBinder(SERVICE_NAME)
             if (serviceBinder == null) {
                 AppLogger.e(TAG, "Failed to get system service binder for: $SERVICE_NAME")
                 return@withContext null
             }
             
-            // Convert binder to INetworkPolicyManager interface
             val networkPolicyManager = asInterfaceMethod?.invoke(null, serviceBinder)
             if (networkPolicyManager == null) {
                 AppLogger.e(TAG, "Failed to convert binder to INetworkPolicyManager")
@@ -877,12 +790,8 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    override fun supportsGranularControl(): Boolean = false  // Only Mobile/Roaming (WiFi doesn't work on stock Android)
+    override fun supportsGranularControl(): Boolean = false
 
-    /**
-     * Clear the applied policies cache.
-     * This should be called when the default policy changes to force re-evaluation of all packages.
-     */
     fun clearAppliedPoliciesCache() {
         appliedPolicies.clear()
         AppLogger.d(TAG, "Cleared applied policies cache (forced)")
@@ -908,7 +817,6 @@ class NetworkPolicyManagerFirewallBackend(
                 userId
             ) ?: return false
 
-            // Check if any service has BIND_VPN_SERVICE permission
             packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false
@@ -917,31 +825,15 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Check if a UID should be exempted from blocking.
-     * A UID is exempted if ANY package with that UID is:
-     * - System-critical (in SYSTEM_WHITELIST)
-     * - A VPN app (has BIND_VPN_SERVICE permission)
-     *
-     * This prevents shared UID bypass vulnerability where a non-critical app
-     * (e.g., Gboard) shares a UID with a system-critical package.
-     *
-     * @param uid The UID to check
-     * @param allPackages List of all installed applications
-     * @return true if the UID should be exempted from blocking
-     */
     private fun isUidExempted(uid: Int, allPackages: List<android.content.pm.ApplicationInfo>): Boolean {
-        // Check if critical package protection is disabled
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val allowCritical = prefs.getBoolean(
             Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
             Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
         )
 
-        // Get all packages with this UID
         val packagesWithUid = allPackages.filter { it.uid == uid }
 
-        // Check if ANY package with this UID is system-critical or a VPN app (unless setting is enabled)
         return packagesWithUid.any { appInfo ->
             (!allowCritical && Constants.Firewall.isSystemCritical(appInfo.packageName)) ||
             (!allowCritical && hasVpnService(appInfo.packageName, appInfo.uid / 100000))

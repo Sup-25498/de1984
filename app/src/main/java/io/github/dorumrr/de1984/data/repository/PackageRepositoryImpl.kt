@@ -56,7 +56,6 @@ class PackageRepositoryImpl(
         return try {
             val success = packageDataSource.setPackageEnabled(packageName, userId, enabled)
             if (success) {
-                // Notify observers that package data changed
                 onDataChanged?.invoke()
                 Result.success(Unit)
             } else {

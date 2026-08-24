@@ -67,10 +67,6 @@ class SettingsViewModel(
     private val _uiState = MutableStateFlow(loadInitialSettings())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
-    /**
-     * Load initial settings synchronously to avoid emitting default values first.
-     * This prevents observers from seeing a "change" when the actual values are loaded.
-     */
     private fun loadInitialSettings(): SettingsUiState {
         val prefs = context.getSharedPreferences("de1984_prefs", Context.MODE_PRIVATE)
         val firewallModeString = prefs.getString(
@@ -114,13 +110,10 @@ class SettingsViewModel(
         requestRootPermission()
         requestShizukuPermission()
 
-        // Observe root/Shizuku status changes and re-check boot protection availability
-        // These use viewModelScope which automatically cancels when ViewModel is cleared
         viewModelScope.launch {
             rootStatus.collect {
                 AppLogger.d(TAG, "Root status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
-                // Update captive portal privileges when root status changes
                 updateCaptivePortalPrivileges()
             }
         }
@@ -129,13 +122,10 @@ class SettingsViewModel(
             shizukuStatus.collect {
                 AppLogger.d(TAG, "Shizuku status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
-                // Update captive portal privileges when Shizuku status changes
                 updateCaptivePortalPrivileges()
             }
         }
 
-        // Observe firewall mode changes from FirewallManager
-        // This updates UI when mode changes due to VPN conflict or privilege change
         viewModelScope.launch {
             firewallManager.currentMode.collect { mode ->
                 AppLogger.d(TAG, "🔄 Firewall mode changed externally: $mode")
@@ -152,9 +142,6 @@ class SettingsViewModel(
         AppLogger.d(TAG, "SettingsViewModel cleared - all coroutines will be cancelled")
     }
 
-    /**
-     * Update captive portal privileges in UI state based on current root/Shizuku status.
-     */
     private fun updateCaptivePortalPrivileges() {
         _uiState.value = _uiState.value.copy(
             captivePortalHasPrivileges = captivePortalManager.hasPrivileges()
@@ -189,12 +176,7 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Explicitly grant Shizuku permission - called from Settings UI.
-     * This resets the denial flag to allow re-prompting.
-     */
     fun grantShizukuPermission() {
-        // Reset denial flag - user explicitly wants to try again
         shizukuManager.resetPermissionDenial()
         shizukuManager.requestShizukuPermission()
     }
@@ -236,11 +218,6 @@ class SettingsViewModel(
         }
     }
     
-    /**
-     * @param durable write synchronously with commit() instead of apply(). Use it when the caller is
-     * about to reboot the device: apply() hands the write to a background thread, and nothing
-     * guarantees that thread finishes before the kernel goes down.
-     */
     private fun saveSetting(key: String, value: Any, durable: Boolean = false) {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
@@ -302,7 +279,6 @@ class SettingsViewModel(
         val oldPolicy = _uiState.value.defaultFirewallPolicy
         AppLogger.d(TAG, "setDefaultFirewallPolicy: oldPolicy=$oldPolicy, newPolicy=$newPolicy")
 
-        // If policy is the same, do nothing
         if (oldPolicy == newPolicy) {
             AppLogger.d(TAG, "setDefaultFirewallPolicy: Policy unchanged, skipping")
             return
@@ -317,7 +293,6 @@ class SettingsViewModel(
                 saveSetting(Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY, newPolicy)
                 AppLogger.d(TAG, "setDefaultFirewallPolicy: uiState updated to: ${_uiState.value.defaultFirewallPolicy}")
 
-                // Apply smart policy switching to reset rules with critical package handling
                 AppLogger.d(TAG, "setDefaultFirewallPolicy: Applying smart policy switch")
                 when (newPolicy) {
                     Constants.Settings.POLICY_BLOCK_ALL -> {
@@ -419,7 +394,6 @@ class SettingsViewModel(
                     (shizukuManager.hasShizukuPermission && shizukuManager.isShizukuRootMode())
                 AppLogger.d(TAG, "hasPrivileges: $hasPrivileges (root=${rootManager.hasRootPermission}, shizuku=${shizukuManager.hasShizukuPermission})")
 
-                // Check if boot script support is available (Magisk/KernelSU/APatch)
                 val hasBootScriptSupport = if (hasPrivileges) {
                     AppLogger.d(TAG, "Checking boot script support availability...")
                     bootProtectionManager.isBootScriptSupportAvailable()
@@ -490,15 +464,9 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(requiresRestart = false)
     }
 
-    /**
-     * Check if switching to the given mode would require disconnecting another VPN.
-     * Returns true if user should be warned before proceeding.
-     */
     fun wouldDisconnectOtherVpn(mode: FirewallMode): Boolean {
-        // Only VPN mode can conflict with other VPN apps
         if (mode != FirewallMode.VPN) return false
         
-        // Check if another VPN is currently active
         return firewallManager.isAnotherVpnActive()
     }
 
@@ -506,17 +474,11 @@ class SettingsViewModel(
         AppLogger.i(TAG, "👆 USER ACTION: setFirewallMode($mode, forceEvenIfOtherVpnActive=$forceEvenIfOtherVpnActive)")
         AppLogger.d(TAG, "   Current UI state: mode=${_uiState.value.firewallMode}, activeBackend=${firewallManager.activeBackendType.value}")
         
-        // Dismiss VPN conflict notification since user is taking action
         firewallManager.dismissVpnConflictSwitchNotification()
         
-        // If switching to VPN mode and another VPN is active, the UI should have
-        // already shown a warning dialog. If forceEvenIfOtherVpnActive is false,
-        // we skip the restart to let the UI handle it.
         val wouldDisconnectVpn = wouldDisconnectOtherVpn(mode)
         if (wouldDisconnectVpn && !forceEvenIfOtherVpnActive) {
             AppLogger.d(TAG, "   Another VPN is active and user hasn't confirmed - showing warning")
-            // Just update the mode preference, but don't restart yet
-            // The UI will call this again with forceEvenIfOtherVpnActive=true if user confirms
             _uiState.value = _uiState.value.copy(
                 pendingModeChange = mode,
                 showVpnConflictWarning = true
@@ -526,7 +488,6 @@ class SettingsViewModel(
         
         AppLogger.i(TAG, "   Updating mode to $mode and restarting firewall")
         
-        // Clear any pending mode change
         _uiState.value = _uiState.value.copy(
             firewallMode = mode,
             pendingModeChange = null,
@@ -570,10 +531,6 @@ class SettingsViewModel(
         return shizukuManager.isShizukuRootMode()
     }
 
-    /**
-     * Check if switching to VPN mode requires VPN permission.
-     * Returns the prepare intent if permission is needed, null otherwise.
-     */
     fun checkVpnPermissionNeeded(): android.content.Intent? {
         val mode = _uiState.value.firewallMode
         if (mode != FirewallMode.VPN) return null
@@ -581,9 +538,6 @@ class SettingsViewModel(
         return android.net.VpnService.prepare(context)
     }
 
-    /**
-     * Called after VPN permission is granted to complete the mode switch.
-     */
     fun onVpnPermissionGranted() {
         viewModelScope.launch {
             restartFirewallIfRunning()
@@ -599,12 +553,10 @@ class SettingsViewModel(
                 return
             }
 
-            // For VPN mode, check if permission is granted first
             val newMode = _uiState.value.firewallMode
             if (newMode == FirewallMode.VPN) {
                 val prepareIntent = android.net.VpnService.prepare(context)
                 if (prepareIntent != null) {
-                    // VPN permission not granted - notify UI to request it
                     _uiState.value = _uiState.value.copy(
                         vpnPermissionRequired = true
                     )
@@ -641,7 +593,6 @@ class SettingsViewModel(
                 // We want to preserve user intent so handlePrivilegeChange() can attempt recovery.
                 // FirewallManager will set isFirewallDown=true to track the error state.
 
-                // Show error to user
                 _uiState.value = _uiState.value.copy(
                     error = context.getString(io.github.dorumrr.de1984.R.string.error_firewall_restart_failed, error.message ?: context.getString(io.github.dorumrr.de1984.R.string.error_unknown))
                 )
@@ -678,15 +629,11 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(error = null)
     }
 
-    /**
-     * Backup firewall rules to a JSON file.
-     */
     fun backupRules(uri: Uri) {
         viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true, error = null, message = null)
 
-                // Get all rules
                 val rules = firewallRepository.getAllRules().first()
 
                 if (rules.isEmpty()) {
@@ -697,7 +644,6 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Create backup object
                 val backup = FirewallRulesBackup(
                     version = 1,
                     exportDate = System.currentTimeMillis(),
@@ -706,10 +652,8 @@ class SettingsViewModel(
                     rules = rules
                 )
 
-                // Serialize to JSON
                 val json = Json.encodeToString(FirewallRulesBackup.serializer(), backup)
 
-                // Write to file
                 writeToUri(uri, json)
 
                 _uiState.value = _uiState.value.copy(
@@ -726,23 +670,15 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Restore firewall rules from a JSON file.
-     * @param uri URI of the backup file
-     * @param replaceExisting If true, delete all existing rules before restoring
-     */
     fun restoreRules(uri: Uri, replaceExisting: Boolean) {
         viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true, error = null, message = null)
 
-                // Read JSON from file
                 val json = readFromUri(uri)
 
-                // Parse JSON
                 val backup = Json.decodeFromString<FirewallRulesBackup>(json)
 
-                // Validate version
                 if (backup.version > 1) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -751,7 +687,6 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Validate rules
                 if (backup.rules.isEmpty()) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -760,12 +695,10 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Replace existing rules if requested
                 if (replaceExisting) {
                     firewallRepository.deleteAllRules()
                 }
 
-                // Insert rules (REPLACE strategy handles duplicates)
                 firewallRepository.insertRules(backup.rules)
 
                 val action = if (replaceExisting) "restored" else "merged"
@@ -789,9 +722,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Parse a backup file and return its contents for preview.
-     */
     suspend fun parseBackupFile(uri: Uri): Result<FirewallRulesBackup> {
         return withContext(Dispatchers.IO) {
             try {
@@ -805,36 +735,23 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Write content to a URI using ContentResolver.
-     */
     private suspend fun writeToUri(uri: Uri, content: String) = withContext(Dispatchers.IO) {
         context.contentResolver.openOutputStream(uri)?.use { outputStream ->
             outputStream.write(content.toByteArray())
         } ?: throw IOException("Failed to open output stream")
     }
 
-    /**
-     * Read content from a URI using ContentResolver.
-     */
     private suspend fun readFromUri(uri: Uri): String = withContext(Dispatchers.IO) {
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
             inputStream.bufferedReader().readText()
         } ?: throw IOException("Failed to open input stream")
     }
 
-    /**
-     * Get current date in yyyy-MM-dd format for backup filenames.
-     */
     fun getCurrentDate(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return sdf.format(Date())
     }
 
-    /**
-     * One-time cleanup of orphaned update-related preferences.
-     * This method removes preferences that are no longer used after update system removal.
-     */
     private fun cleanupOrphanedPreferences() {
         val prefs = context.getSharedPreferences("de1984_prefs", Context.MODE_PRIVATE)
         prefs.edit()
@@ -848,20 +765,13 @@ class SettingsViewModel(
             .apply()
     }
 
-    // =============================================================================================
-    // Export/Import Uninstalled Apps
-    // =============================================================================================
 
-    /**
-     * Export uninstalled system packages to a text file.
-     */
     fun exportUninstalledApps(uri: Uri) {
         viewModelScope.launch {
             try {
                 AppLogger.d(TAG, "📤 EXPORT: Starting export of uninstalled apps")
                 _uiState.value = _uiState.value.copy(isLoading = true, error = null, message = null)
 
-                // Check privileges
                 AppLogger.d(TAG, "📤 EXPORT: Privilege check - root=${rootManager.hasRootPermission}, shizuku=${shizukuManager.hasShizukuPermission}")
                 if (!rootManager.hasRootPermission && !shizukuManager.hasShizukuPermission) {
                     _uiState.value = _uiState.value.copy(
@@ -871,7 +781,6 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Get uninstalled system packages
                 val result = packageRepository.getUninstalledSystemPackages()
                 val packages = result.getOrNull()
 
@@ -886,10 +795,8 @@ class SettingsViewModel(
 
                 AppLogger.d(TAG, "📤 EXPORT: Found ${packages.size} uninstalled system packages")
 
-                // Create export content with metadata
                 val content = createExportContent(packages)
 
-                // Write to file
                 AppLogger.d(TAG, "📤 EXPORT: Writing to file: $uri")
                 writeToUri(uri, content)
 
@@ -908,9 +815,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Create export file content with metadata.
-     */
     private fun createExportContent(packages: List<Package>): String {
         return buildString {
             appendLine("# De1984 Uninstalled Apps Export")
@@ -924,16 +828,12 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Import uninstalled apps from a text file and validate.
-     */
     fun importUninstalledApps(uri: Uri) {
         viewModelScope.launch {
             try {
                 AppLogger.d(TAG, "📥 IMPORT: Starting import from file: $uri")
                 _uiState.value = _uiState.value.copy(isLoading = true, error = null, message = null)
 
-                // Check privileges
                 AppLogger.d(TAG, "📥 IMPORT: Privilege check - root=${rootManager.hasRootPermission}, shizuku=${shizukuManager.hasShizukuPermission}")
                 if (!rootManager.hasRootPermission && !shizukuManager.hasShizukuPermission) {
                     _uiState.value = _uiState.value.copy(
@@ -943,7 +843,6 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Read and parse file
                 val content = readFromUri(uri)
                 val packageNames = parseUninstalledAppsFile(content)
 
@@ -957,29 +856,24 @@ class SettingsViewModel(
                     return@launch
                 }
 
-                // Get currently installed packages to validate
                 val installedPackages = packageRepository.getPackages().first()
                 val installedPackageNames = installedPackages.map { it.packageName }.toSet()
 
                 val packagesToUninstallNames = packageNames.filter { it in installedPackageNames }
                 val packagesNotFound = packageNames.filter { it !in installedPackageNames }
 
-                // Convert to Pair<packageName, userId> - default to userId=0 (personal profile) for imports
                 val packagesToUninstall = packagesToUninstallNames.map { it to 0 }
 
                 AppLogger.d(TAG, "📥 IMPORT: Validation - ${packagesToUninstall.size} found, ${packagesNotFound.size} not found")
 
-                // Handle different scenarios
                 when {
                     packagesToUninstall.isEmpty() -> {
-                        // ALL packages not found
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             error = context.getString(io.github.dorumrr.de1984.R.string.dialog_import_all_not_found, packagesNotFound.size)
                         )
                     }
                     else -> {
-                        // Show preview (with or without warning)
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             importUninstalledPreview = ImportUninstalledPreview(
@@ -1006,9 +900,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Parse uninstalled apps file content.
-     */
     private fun parseUninstalledAppsFile(content: String): List<String> {
         return content.lines()
             .map { it.trim() }
@@ -1018,9 +909,6 @@ class SettingsViewModel(
             .distinct()
     }
 
-    /**
-     * Confirm and execute batch uninstall of imported packages.
-     */
     fun confirmImportUninstall() {
         viewModelScope.launch {
             val preview = _uiState.value.importUninstalledPreview ?: return@launch
@@ -1052,28 +940,15 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Clear import preview state.
-     */
     fun clearImportPreview() {
         _uiState.value = _uiState.value.copy(importUninstalledPreview = null)
     }
 
-    /**
-     * Clear batch uninstall result.
-     */
     fun clearBatchUninstallResult() {
         _uiState.value = _uiState.value.copy(batchUninstallResult = null)
     }
 
-    // =============================================================================================
-    // Captive Portal Controller
-    // =============================================================================================
 
-    /**
-     * Load current captive portal settings from the system.
-     * Also captures original settings if not already captured.
-     */
     fun loadCaptivePortalSettings() {
         viewModelScope.launch {
             try {
@@ -1082,12 +957,10 @@ class SettingsViewModel(
                     captivePortalError = null
                 )
 
-                // Capture original settings if not already captured
                 if (!captivePortalManager.hasOriginalSettings()) {
                     captivePortalManager.captureOriginalSettings()
                 }
 
-                // Load current settings
                 val result = captivePortalManager.getCurrentSettings()
                 if (result.isSuccess) {
                     _uiState.value = _uiState.value.copy(
@@ -1113,9 +986,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Apply a captive portal server preset.
-     */
     fun applyCaptivePortalPreset(preset: CaptivePortalPreset) {
         viewModelScope.launch {
             try {
@@ -1126,7 +996,6 @@ class SettingsViewModel(
 
                 val result = captivePortalManager.applyPreset(preset)
                 if (result.isSuccess) {
-                    // Reload settings to reflect changes
                     loadCaptivePortalSettings()
                     _uiState.value = _uiState.value.copy(
                         message = context.getString(io.github.dorumrr.de1984.R.string.captive_portal_preset_applied, preset.getDisplayName(context))
@@ -1147,9 +1016,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Set captive portal detection mode.
-     */
     fun setCaptivePortalDetectionMode(mode: CaptivePortalMode) {
         viewModelScope.launch {
             try {
@@ -1160,7 +1026,6 @@ class SettingsViewModel(
 
                 val result = captivePortalManager.setDetectionMode(mode)
                 if (result.isSuccess) {
-                    // Reload settings to reflect changes
                     loadCaptivePortalSettings()
                     _uiState.value = _uiState.value.copy(
                         message = context.getString(io.github.dorumrr.de1984.R.string.captive_portal_mode_set, mode.getDisplayName(context))
@@ -1181,9 +1046,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Set custom captive portal URLs.
-     */
     fun setCustomCaptivePortalUrls(httpUrl: String, httpsUrl: String) {
         viewModelScope.launch {
             try {
@@ -1194,7 +1056,6 @@ class SettingsViewModel(
 
                 val result = captivePortalManager.setCustomUrls(httpUrl, httpsUrl)
                 if (result.isSuccess) {
-                    // Reload settings to reflect changes
                     loadCaptivePortalSettings()
                     _uiState.value = _uiState.value.copy(
                         message = context.getString(io.github.dorumrr.de1984.R.string.success_custom_urls_applied)
@@ -1215,9 +1076,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Restore original captive portal settings.
-     */
     fun restoreOriginalCaptivePortalSettings() {
         viewModelScope.launch {
             try {
@@ -1228,7 +1086,6 @@ class SettingsViewModel(
 
                 val result = captivePortalManager.restoreOriginalSettings()
                 if (result.isSuccess) {
-                    // Reload settings to reflect changes
                     loadCaptivePortalSettings()
                     _uiState.value = _uiState.value.copy(
                         message = context.getString(io.github.dorumrr.de1984.R.string.success_original_settings_restored)
@@ -1249,9 +1106,6 @@ class SettingsViewModel(
         }
     }
 
-    /**
-     * Reset to Google's default captive portal settings.
-     */
     fun resetCaptivePortalToGoogleDefaults() {
         viewModelScope.launch {
             try {
@@ -1262,7 +1116,6 @@ class SettingsViewModel(
 
                 val result = captivePortalManager.resetToGoogleDefaults()
                 if (result.isSuccess) {
-                    // Reload settings to reflect changes
                     loadCaptivePortalSettings()
                     _uiState.value = _uiState.value.copy(
                         message = context.getString(io.github.dorumrr.de1984.R.string.success_reset_to_google_defaults)
@@ -1356,18 +1209,15 @@ data class SettingsUiState(
     val hasEnhancedPermissions: Boolean = false,
     val hasAdvancedPermissions: Boolean = false,
 
-    // Captive Portal Controller
     val captivePortalSettings: CaptivePortalSettings? = null,
     val captivePortalOriginalCaptured: Boolean = false,
     val captivePortalHasPrivileges: Boolean = false,
     val captivePortalLoading: Boolean = false,
     val captivePortalError: String? = null,
 
-    // Export/Import Uninstalled Apps
     val importUninstalledPreview: ImportUninstalledPreview? = null,
     val batchUninstallResult: UninstallBatchResult? = null,
 
-    // VPN conflict warning when switching to VPN mode
     val pendingModeChange: FirewallMode? = null,
     val showVpnConflictWarning: Boolean = false,
     val vpnPermissionRequired: Boolean = false
@@ -1383,7 +1233,7 @@ data class SystemInfo(
 
 data class ImportUninstalledPreview(
     val totalPackages: Int,
-    val packagesToUninstall: List<Pair<String, Int>>,  // Pair<packageName, userId>
+    val packagesToUninstall: List<Pair<String, Int>>,
     val packagesNotFound: List<String>
 )
 

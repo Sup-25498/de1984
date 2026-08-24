@@ -2,9 +2,6 @@ package io.github.dorumrr.de1984.domain.model
 
 import android.content.Context
 
-/**
- * Represents the current captive portal configuration on the device.
- */
 data class CaptivePortalSettings(
     val mode: CaptivePortalMode,
     val httpUrl: String?,
@@ -13,26 +10,17 @@ data class CaptivePortalSettings(
     val otherFallbackUrls: String?,
     val useHttps: Boolean
 ) {
-    /**
-     * Check if settings match a known preset.
-     */
     fun matchesPreset(preset: CaptivePortalPreset): Boolean {
         if (preset == CaptivePortalPreset.CUSTOM) return false
         return httpUrl == preset.httpUrl && httpsUrl == preset.httpsUrl
     }
 
-    /**
-     * Get the preset that matches these settings, or CUSTOM if no match.
-     */
     fun getMatchingPreset(): CaptivePortalPreset {
         return CaptivePortalPreset.values().find { it != CaptivePortalPreset.CUSTOM && matchesPreset(it) }
             ?: CaptivePortalPreset.CUSTOM
     }
 }
 
-/**
- * Captive portal detection mode (API 26+).
- */
 enum class CaptivePortalMode(val value: Int) {
     FORCED_OFF(-1),
     DISABLED(0),
@@ -72,9 +60,6 @@ enum class CaptivePortalMode(val value: Int) {
     fun toStorageString(): String = value.toString()
 }
 
-/**
- * Predefined captive portal server presets.
- */
 enum class CaptivePortalPreset(
     val httpUrl: String,
     val httpsUrl: String

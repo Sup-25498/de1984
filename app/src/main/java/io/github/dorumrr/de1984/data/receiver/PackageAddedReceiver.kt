@@ -28,13 +28,10 @@ class PackageAddedReceiver : BroadcastReceiver() {
         io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.clearInstalledAppsCache()
 
         try {
-            // Initialize dependencies
             val app = context.applicationContext as De1984Application
             val handleNewAppInstallUseCase = app.dependencies.provideHandleNewAppInstallUseCase()
             val newAppNotificationManager = app.dependencies.newAppNotificationManager
 
-            // Extract UID from intent FIRST for multi-user support
-            // UID format: userId * 100000 + appId
             val uid = intent?.getIntExtra(Intent.EXTRA_UID, -1)?.takeIf { it >= 0 }
             val userId = uid?.let { it / 100000 } ?: 0
 
@@ -48,11 +45,8 @@ class PackageAddedReceiver : BroadcastReceiver() {
             // notifications off a reinstalled app kept a uid that matched nothing and was never
             // actually blocked. Only the notification is optional; the rule is not.
 
-            // Use goAsync() to keep receiver alive while coroutine runs
             val pendingResult = goAsync()
 
-            // Use app's coroutine scope instead of creating orphaned scope
-            // This ensures proper cancellation and resource cleanup
             app.dependencies.applicationScope.launch(Dispatchers.IO) {
                 try {
                     handleNewAppInstallUseCase.execute(packageName, uid)
@@ -62,15 +56,12 @@ class PackageAddedReceiver : BroadcastReceiver() {
                             }
                         }
                 } catch (e: Exception) {
-                    // Error processing new app
                 } finally {
-                    // Signal that async work is complete
                     pendingResult.finish()
                 }
             }
 
         } catch (e: Exception) {
-            // Error in PackageAddedReceiver
         }
     }
     

@@ -60,7 +60,6 @@ class NewAppNotificationManager(
             val appInfo = getAppInfo(packageName) ?: return
             val appName = appInfo.name
 
-            // Get default policy to determine which button to show
             val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
             val defaultPolicy = prefs.getString(
                 Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
@@ -70,7 +69,6 @@ class NewAppNotificationManager(
 
             val de1984Icon = ContextCompat.getDrawable(context, R.drawable.de1984_icon)
 
-            // Build notification with smart button (opposite of default policy)
             val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_de1984)
                 .setLargeIcon(de1984Icon?.let { drawable -> drawableToBitmap(drawable) })
@@ -82,12 +80,9 @@ class NewAppNotificationManager(
                 .setAutoCancel(true)
                 .setContentIntent(createOpenFirewallIntent(packageName))
 
-            // Add smart button: show opposite of default policy
             if (isBlockAllDefault) {
-                // Default is "Block All" → show "Allow All" button
                 notificationBuilder.addAction(createAllowAllAction(packageName))
             } else {
-                // Default is "Allow All" → show "Block All" button
                 notificationBuilder.addAction(createBlockAllAction(packageName))
             }
 
@@ -97,7 +92,6 @@ class NewAppNotificationManager(
             notificationManager.notify(notificationId, notification)
 
         } catch (e: Exception) {
-            // Failed to show notification
         }
     }
     

@@ -28,7 +28,6 @@ class GetPackagesUseCase constructor(
     }
 
     fun getFilteredByState(filterState: PackageFilterState): Flow<List<Package>> {
-        // Special case: Uninstalled filter
         if (filterState.packageState?.lowercase() == Constants.Packages.STATE_UNINSTALLED.lowercase()) {
             return flow {
                 val result = packageRepository.getUninstalledSystemPackages()
@@ -42,11 +41,10 @@ class GetPackagesUseCase constructor(
         val baseFlow = when (filterState.packageType.lowercase()) {
             Constants.Packages.TYPE_USER -> getByType(PackageType.USER)
             Constants.Packages.TYPE_SYSTEM -> getByType(PackageType.SYSTEM)
-            Constants.Packages.TYPE_ALL -> invoke()  // Return all packages
-            else -> invoke()   // Default to all packages
+            Constants.Packages.TYPE_ALL -> invoke()
+            else -> invoke()
         }
 
-        // Apply profile filter (All, Personal, Work, Clone)
         val profileFilteredFlow = baseFlow.map { packages ->
             when (filterState.profileFilter.lowercase()) {
                 "personal" -> packages.filter { !it.isWorkProfile && !it.isCloneProfile }

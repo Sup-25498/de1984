@@ -2,19 +2,10 @@ package io.github.dorumrr.de1984.domain.model
 
 import kotlinx.serialization.Serializable
 
-/**
- * Domain model for firewall rules.
- *
- * @property packageName The package name of the app
- * @property userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
- * @property uid Absolute UID: userId * 100000 + appId
- */
 @Serializable
 data class FirewallRule(
     val packageName: String,
-    /** Android user profile ID (0 = personal, 10+ = work/clone profiles) */
     val userId: Int = 0,
-    /** Absolute UID: userId * 100000 + appId */
     val uid: Int,
     val appName: String,
     val wifiBlocked: Boolean = false,
@@ -30,7 +21,6 @@ data class FirewallRule(
 ) {
     fun isFullyBlocked(): Boolean = wifiBlocked && mobileBlocked
     
-    /** Nothing blocked at all - LAN included. See NetworkPackage.isFullyAllowed. */
     fun isFullyAllowed(): Boolean = !wifiBlocked && !mobileBlocked && !blockWhenRoaming && !lanBlocked
     
     fun isPartiallyBlocked(): Boolean = (wifiBlocked || mobileBlocked) && !isFullyBlocked()

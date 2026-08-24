@@ -5,12 +5,6 @@ import io.github.dorumrr.de1984.domain.model.PackageType
 import io.github.dorumrr.de1984.domain.model.NetworkAccessState
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Repository interface for network/firewall package operations.
- *
- * All methods that operate on a specific package require both packageName AND userId
- * to properly support multi-user/work profile environments.
- */
 interface NetworkPackageRepository {
 
     fun getNetworkPackages(): Flow<List<NetworkPackage>>

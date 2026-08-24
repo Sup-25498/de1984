@@ -49,13 +49,6 @@ class RootManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_ROOT_PERMISSION_REQUESTED, true).apply()
     }
 
-    /**
-     * Public root status check used by UI and privilege banners.
-     *
-     * Optimized to avoid hammering Magisk/Shizuku once we have a stable
-     * ROOTED_WITH_PERMISSION state. Other states are re-checked so the app
-     * can recover when a user later grants permission.
-     */
     suspend fun checkRootStatus() {
         checkRootStatusInternalWithCaching(forceRecheck = false)
     }
@@ -93,17 +86,6 @@ class RootManager(private val context: Context) {
         AppLogger.d(TAG, "Root status check complete: $newStatus")
     }
 
-    /**
-     * Verify root access is still valid using an existing cached shell.
-     * 
-     * This method runs a lightweight command on the EXISTING shell session,
-     * which does NOT spawn a new `su` process and therefore does NOT trigger
-     * Magisk's "superuser granted" toast notification.
-     * 
-     * Use this for periodic health checks to avoid toast spam.
-     * 
-     * @return true if root is still valid, false if revoked or shell died
-     */
     private fun verifyRootWithCachedShell(): Boolean {
         val cachedShell = Shell.getCachedShell()
         if (cachedShell == null) {
@@ -147,8 +129,6 @@ class RootManager(private val context: Context) {
         try {
             AppLogger.d(TAG, "🔍 CHECKING ROOT STATUS (using libsu)")
 
-            // STEP 1: Try to verify using cached shell first (NO TOAST)
-            // This is the preferred path for health checks and periodic verification
             if (verifyRootWithCachedShell()) {
                 AppLogger.d(TAG, "✅ Root verified via cached shell (no toast triggered)")
                 return@withContext RootStatus.ROOTED_WITH_PERMISSION
@@ -195,13 +175,10 @@ class RootManager(private val context: Context) {
         }
 
         try {
-            // Use libsu to execute root commands
             val result = Shell.cmd(command).exec()
 
-            // Get the output (stdout + stderr combined)
             val output = result.out.joinToString("\n")
 
-            // Return exit code and output
             Pair(result.code, output)
         } catch (e: Exception) {
             Pair(-1, e.message ?: "Unknown error")

@@ -51,7 +51,6 @@ class PackageChangedReceiver : BroadcastReceiver() {
             // stale one would mean a newly installed app is not blocked.
             io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.clearInstalledAppsCache()
 
-            // Extract package name
             val data = intent.data
             if (data == null || data.scheme != "package") {
                 AppLogger.d(TAG, "Invalid intent data: scheme=${data?.scheme}")
@@ -64,14 +63,11 @@ class PackageChangedReceiver : BroadcastReceiver() {
                 return
             }
 
-            // Ignore changes to de1984 itself
             if (Constants.App.isOwnApp(packageName)) {
                 AppLogger.d(TAG, "Ignoring package change for de1984 itself")
                 return
             }
 
-            // Extract UID for multi-user support
-            // UID format: userId * 100000 + appId
             val uid = intent.getIntExtra(Intent.EXTRA_UID, -1).takeIf { it >= 0 }
             val userId = uid?.let { it / 100000 } ?: 0
 
@@ -81,7 +77,6 @@ class PackageChangedReceiver : BroadcastReceiver() {
             // This is critical for work profile apps where enabled state can change externally
             io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.clearDisabledPackagesCache()
 
-            // Notify observers that package data changed
             val app = context.applicationContext as De1984Application
             app.dependencies.notifyPackageDataChanged()
 

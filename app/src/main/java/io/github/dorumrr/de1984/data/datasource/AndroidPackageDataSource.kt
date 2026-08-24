@@ -37,10 +37,6 @@ private data class BlockingState(
     val lanBlocked: Boolean
 )
 
-/**
- * Cached package metadata retrieved in a single system call.
- * This eliminates redundant calls to getPackageInfoAsUser() for each field.
- */
 private data class PackageMetadata(
     val permissions: List<String>,
     val isVpnApp: Boolean,
@@ -59,12 +55,11 @@ class AndroidPackageDataSource(
 
     private val packageManager = context.packageManager
 
-    // SharedFlow to deduplicate concurrent getPackages() calls
     private val packagesFlow = MutableSharedFlow<List<PackageEntity>>(replay = 1)
     private val loadMutex = Mutex()
     private var isLoading = false
     private var lastLoadTime = 0L
-    private val CACHE_TTL = 1000L // 1 second cache to prevent rapid successive loads
+    private val CACHE_TTL = 1000L
 
     companion object {
         private const val TAG = "AndroidPackageDataSource"
@@ -72,13 +67,11 @@ class AndroidPackageDataSource(
     
     override fun getPackages(): Flow<List<PackageEntity>> = packagesFlow
         .onStart {
-            // Only load if not already loading or cache expired
             val now = System.currentTimeMillis()
             val cacheExpired = (now - lastLoadTime) > CACHE_TTL
             
             if (!isLoading && (packagesFlow.replayCache.isEmpty() || cacheExpired)) {
                 loadMutex.withLock {
-                    // Double-check inside lock
                     if (!isLoading && (packagesFlow.replayCache.isEmpty() || (now - lastLoadTime) > CACHE_TTL)) {
                         isLoading = true
                         try {
@@ -108,11 +101,9 @@ class AndroidPackageDataSource(
         val flowStartTime = System.currentTimeMillis()
         AppLogger.i(TAG, "⏱️ TIMING: getPackages START at $flowStartTime")
         try {
-            // Clear caches to ensure fresh data for work profiles
             HiddenApiHelper.clearDisabledPackagesCache()
             HiddenApiHelper.clearInstalledAppsCache()
 
-            // Get all user profiles (personal, work, clone, etc.)
             val getUsersStart = System.currentTimeMillis()
             val userProfiles = HiddenApiHelper.getUsers(context)
             val getUsersEnd = System.currentTimeMillis()
@@ -123,7 +114,6 @@ class AndroidPackageDataSource(
                 val firewallRules = firewallRepository.getAllRules().first()
                 val rulesEnd = System.currentTimeMillis()
                 AppLogger.i(TAG, "⏱️ TIMING: getAllRules().first() took ${rulesEnd - rulesStart}ms, returned ${firewallRules.size} rules")
-                // Key by (packageName, userId) for multi-user support
                 val rulesByKey = firewallRules.associateBy { "${it.packageName}:${it.userId}" }
 
                 val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
@@ -137,10 +127,8 @@ class AndroidPackageDataSource(
                     Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
                 )
 
-                // Collect packages from all user profiles
                 val allPackages = mutableListOf<PackageEntity>()
 
-                // Log profile summary for debugging
                 AppLogger.i(TAG, "📱 MULTI-USER SUMMARY: ${userProfiles.size} profiles detected:")
                 for (profile in userProfiles) {
                     AppLogger.i(TAG, "   → userId=${profile.userId}, name=${profile.displayName}, isWork=${profile.isWorkProfile}, isClone=${profile.isCloneProfile}")
@@ -159,15 +147,12 @@ class AndroidPackageDataSource(
 
                     AppLogger.d(TAG, "📦 User ${profile.userId} (${profile.displayName}): ${installedPackages.size} packages")
 
-                    // Log first few apps from each non-personal profile for debugging
                     if (profile.userId != 0 && installedPackages.isNotEmpty()) {
                         val sampleApps = installedPackages.take(5).map { it.packageName }
                         AppLogger.i(TAG, "📦 MULTI-USER: Sample apps from ${profile.displayName} profile: $sampleApps")
                     }
 
-                    // OPTIMIZATION: Process packages in parallel chunks for better performance
-                    // Using chunked processing to balance parallelism with memory usage
-                    val chunkSize = 25 // Process 25 packages concurrently
+                    val chunkSize = 25
                     val packageChunks = installedPackages
                         .filter { !Constants.App.isOwnApp(it.packageName) }
                         .chunked(chunkSize)
@@ -182,10 +167,8 @@ class AndroidPackageDataSource(
                                 // This reduces ~1400+ system calls to ~200 for typical device
                                 val metadata = getPackageMetadataBatch(appInfo.packageName, profile.userId)
 
-                                // Calculate absolute UID for multi-user support
                                 val absoluteUid = appInfo.uid
 
-                                // Debug logging for VPN apps
                                 if (metadata.isVpnApp) {
                                     AppLogger.d(TAG, "🔍 VPN APP DETECTED: ${appInfo.packageName} (user ${profile.userId}), hasRule=${rule != null}")
                                 }
@@ -230,7 +213,6 @@ class AndroidPackageDataSource(
                                     )
                                 }
 
-                                // Load safety data for this package (already cached after first load)
                                 val criticality = PackageSafetyLoader.getCriticality(context, appInfo.packageName)
                                 val category = PackageSafetyLoader.getCategory(context, appInfo.packageName)
                                 val affects = PackageSafetyLoader.getAffects(context, appInfo.packageName)
@@ -269,13 +251,11 @@ class AndroidPackageDataSource(
                     }
                 }
 
-                // Log final summary for debugging
                 val personalCount = allPackages.count { !it.isWorkProfile && !it.isCloneProfile }
                 val workCount = allPackages.count { it.isWorkProfile }
                 val cloneCount = allPackages.count { it.isCloneProfile }
                 AppLogger.i(TAG, "📊 MULTI-USER FINAL: Total ${allPackages.size} packages (Personal: $personalCount, Work: $workCount, Clone: $cloneCount)")
 
-                // Log some work/clone profile apps for verification
                 val workApps = allPackages.filter { it.isWorkProfile }.take(5).map { it.packageName }
                 val cloneApps = allPackages.filter { it.isCloneProfile }.take(5).map { it.packageName }
                 if (workApps.isNotEmpty()) {
@@ -304,7 +284,6 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext null
@@ -324,7 +303,6 @@ class AndroidPackageDataSource(
                     Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
                 )
 
-                // Debug logging for VPN apps
                 if (isVpnApp) {
                     AppLogger.d(TAG, "🔍 VPN APP DETECTED (getPackage): $packageName, hasRule=${rule != null}, isSystemCritical=${Constants.Firewall.isSystemCritical(packageName)}")
                 }
@@ -343,7 +321,6 @@ class AndroidPackageDataSource(
                         lanBlocked = false
                     )
                 } else if (rule != null && rule.enabled) {
-                    // Has explicit rule - use it as-is (absolute blocking state)
                     BlockingState(
                         isNetworkBlocked = rule.wifiBlocked || rule.mobileBlocked,
                         wifiBlocked = rule.wifiBlocked,
@@ -353,8 +330,6 @@ class AndroidPackageDataSource(
                         lanBlocked = rule.lanBlocked
                     )
                 } else if (isCriticalPackage && allowCritical) {
-                    // Setting ON + No explicit rule: Critical packages default to ALLOW
-                    // User can manually change them, but they're not affected by Block All / Allow All
                     AppLogger.d(TAG, "✅ $packageName: Critical package (setting ON, no rule) → DEFAULT ALLOW")
                     BlockingState(
                         isNetworkBlocked = false,
@@ -365,23 +340,20 @@ class AndroidPackageDataSource(
                         lanBlocked = false
                     )
                 } else {
-                    // No explicit rule - use default policy (only for non-critical packages)
                     BlockingState(
                         isNetworkBlocked = isBlockAllDefault,
                         wifiBlocked = isBlockAllDefault,
                         mobileBlocked = isBlockAllDefault,
                         roamingBlocked = isBlockAllDefault,
-                        backgroundBlocked = false,  // Conservative: OFF by default
-                        lanBlocked = isBlockAllDefault  // LAN blocking follows default policy
+                        backgroundBlocked = false,
+                        lanBlocked = isBlockAllDefault
                     )
                 }
 
-                // Load safety data for this package
                 val criticality = PackageSafetyLoader.getCriticality(context, appInfo.packageName)
                 val category = PackageSafetyLoader.getCategory(context, appInfo.packageName)
                 val affects = PackageSafetyLoader.getAffects(context, appInfo.packageName)
 
-                // Determine work/clone profile status based on userId
                 val isWorkProfile = userId in 10..99
                 val isCloneProfile = userId >= 100
 
@@ -437,23 +409,17 @@ class AndroidPackageDataSource(
                 )
                 return@withContext true
             } catch (e: SecurityException) {
-                // PackageManager method failed (expected)
             } catch (e: Exception) {
-                // PackageManager method failed
             }
 
-            // Try Shizuku
             if (shizukuManager.isShizukuAvailable()) {
-                // Request permission if not granted yet
                 if (!shizukuManager.hasShizukuPermission) {
                     shizukuManager.requestShizukuPermission()
-                    // Wait a bit for permission dialog
                     kotlinx.coroutines.delay(500)
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
                     try {
-                        // Use --user flag for multi-user/work profile support
                         val command = if (enabled) {
                             "pm enable --user $userId $packageName"
                         } else {
@@ -462,19 +428,15 @@ class AndroidPackageDataSource(
 
                         val (exitCode, _) = shizukuManager.executeShellCommand(command)
                         if (exitCode == 0) {
-                            // Clear cache since package state changed
                             HiddenApiHelper.clearDisabledPackagesCache()
                             return@withContext true
                         }
                     } catch (e: Exception) {
-                        // Shizuku method failed
                     }
                 }
             }
 
-            // Try root shell
             try {
-                // Use --user flag for multi-user/work profile support
                 val command = if (enabled) {
                     "pm enable --user $userId $packageName"
                 } else {
@@ -483,7 +445,6 @@ class AndroidPackageDataSource(
 
                 val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
 
-                // Drain both streams to prevent blocking
                 process.inputStream.bufferedReader().use { it.readText() }
                 process.errorStream.bufferedReader().use { it.readText() }
 
@@ -491,12 +452,10 @@ class AndroidPackageDataSource(
                 process.destroy()
 
                 if (exitCode == 0) {
-                    // Clear cache since package state changed
                     HiddenApiHelper.clearDisabledPackagesCache()
                     return@withContext true
                 }
             } catch (e: Exception) {
-                // Root shell method failed
             }
 
             false
@@ -506,7 +465,6 @@ class AndroidPackageDataSource(
     override suspend fun getUninstalledSystemPackages(): List<PackageEntity> {
         return withContext(Dispatchers.IO) {
             try {
-                // Get all system packages (including uninstalled) using -s flag
                 val allSystemPackagesOutput = if (shizukuManager.isShizukuAvailable() && shizukuManager.hasShizukuPermission) {
                     val (exitCode, output) = shizukuManager.executeShellCommand("pm list packages -u -s")
                     if (exitCode == 0) output else ""
@@ -514,7 +472,7 @@ class AndroidPackageDataSource(
                     try {
                         val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -u -s"))
                         val output = process.inputStream.bufferedReader().use { it.readText() }
-                        process.errorStream.bufferedReader().use { it.readText() } // Drain error stream
+                        process.errorStream.bufferedReader().use { it.readText() }
                         process.waitFor()
                         process.destroy()
                         output
@@ -523,7 +481,6 @@ class AndroidPackageDataSource(
                     }
                 }
 
-                // Get currently installed system packages
                 val installedSystemPackagesOutput = if (shizukuManager.isShizukuAvailable() && shizukuManager.hasShizukuPermission) {
                     val (exitCode, output) = shizukuManager.executeShellCommand("pm list packages -s")
                     if (exitCode == 0) output else ""
@@ -531,7 +488,7 @@ class AndroidPackageDataSource(
                     try {
                         val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -s"))
                         val output = process.inputStream.bufferedReader().use { it.readText() }
-                        process.errorStream.bufferedReader().use { it.readText() } // Drain error stream
+                        process.errorStream.bufferedReader().use { it.readText() }
                         process.waitFor()
                         process.destroy()
                         output
@@ -540,7 +497,6 @@ class AndroidPackageDataSource(
                     }
                 }
 
-                // Parse package names
                 val allSystemPackages = allSystemPackagesOutput.lines()
                     .filter { it.startsWith("package:") }
                     .map { it.removePrefix("package:").trim() }
@@ -551,7 +507,6 @@ class AndroidPackageDataSource(
                     .map { it.removePrefix("package:").trim() }
                     .toSet()
 
-                // Find uninstalled system packages (difference between the two sets)
                 val uninstalledSystemPackages = allSystemPackages - installedSystemPackages
 
                 // Map to PackageEntity (no need for isSystemPackage() check - already filtered by -s flag)
@@ -564,11 +519,11 @@ class AndroidPackageDataSource(
                     .map { packageName ->
                         PackageEntity(
                             packageName = packageName,
-                            userId = 0,  // Default to personal profile
-                            uid = 0,     // UID unknown for uninstalled packages
-                            name = packageName, // Use package name as display name
-                            icon = "⚙️", // System app icon
-                            isEnabled = false, // Uninstalled packages are disabled
+                            userId = 0,
+                            uid = 0,
+                            name = packageName,
+                            icon = "⚙️",
+                            isEnabled = false,
                             type = Constants.Packages.TYPE_SYSTEM,
                             versionName = null,
                             versionCode = null,
@@ -603,12 +558,9 @@ class AndroidPackageDataSource(
         }
 
         return withContext(Dispatchers.IO) {
-            // Try Shizuku
             if (shizukuManager.isShizukuAvailable()) {
-                // Request permission if not granted yet
                 if (!shizukuManager.hasShizukuPermission) {
                     shizukuManager.requestShizukuPermission()
-                    // Wait a bit for permission dialog
                     kotlinx.coroutines.delay(500)
                 }
 
@@ -620,17 +572,14 @@ class AndroidPackageDataSource(
                             return@withContext true
                         }
                     } catch (e: Exception) {
-                        // Shizuku method failed
                     }
                 }
             }
 
-            // Try root shell
             try {
                 val command = "pm uninstall --user $userId $packageName"
                 val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
 
-                // Drain both streams to prevent blocking
                 process.inputStream.bufferedReader().use { it.readText() }
                 process.errorStream.bufferedReader().use { it.readText() }
 
@@ -641,7 +590,6 @@ class AndroidPackageDataSource(
                     return@withContext true
                 }
             } catch (e: Exception) {
-                // Root shell method failed
             }
 
             false
@@ -654,36 +602,28 @@ class AndroidPackageDataSource(
         }
 
         return withContext(Dispatchers.IO) {
-            // Try Shizuku
             if (shizukuManager.isShizukuAvailable()) {
-                // Request permission if not granted yet
                 if (!shizukuManager.hasShizukuPermission) {
                     shizukuManager.requestShizukuPermission()
-                    // Wait a bit for permission dialog
                     kotlinx.coroutines.delay(500)
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
                     try {
-                        // Use --user flag for multi-user/work profile support
                         val command = "cmd package install-existing --user $userId $packageName"
                         val (exitCode, _) = shizukuManager.executeShellCommand(command)
                         if (exitCode == 0) {
                             return@withContext true
                         }
                     } catch (e: Exception) {
-                        // Shizuku method failed
                     }
                 }
             }
 
-            // Try root shell
             try {
-                // Use --user flag for multi-user/work profile support
                 val command = "cmd package install-existing --user $userId $packageName"
                 val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
 
-                // Drain both streams to prevent blocking
                 process.inputStream.bufferedReader().use { it.readText() }
                 process.errorStream.bufferedReader().use { it.readText() }
 
@@ -694,7 +634,6 @@ class AndroidPackageDataSource(
                     return@withContext true
                 }
             } catch (e: Exception) {
-                // Root shell method failed
             }
 
             false
@@ -707,36 +646,28 @@ class AndroidPackageDataSource(
         }
 
         return withContext(Dispatchers.IO) {
-            // Try Shizuku
             if (shizukuManager.isShizukuAvailable()) {
-                // Request permission if not granted yet
                 if (!shizukuManager.hasShizukuPermission) {
                     shizukuManager.requestShizukuPermission()
-                    // Wait a bit for permission dialog
                     kotlinx.coroutines.delay(500)
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
                     try {
-                        // Use --user flag for multi-user/work profile support
                         val command = "am force-stop --user $userId $packageName"
                         val (exitCode, _) = shizukuManager.executeShellCommand(command)
                         if (exitCode == 0) {
                             return@withContext true
                         }
                     } catch (e: Exception) {
-                        // Shizuku method failed
                     }
                 }
             }
 
-            // Try root shell
             try {
-                // Use --user flag for multi-user/work profile support
                 val command = "am force-stop --user $userId $packageName"
                 val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
 
-                // Drain both streams to prevent blocking
                 process.inputStream.bufferedReader().use { it.readText() }
                 process.errorStream.bufferedReader().use { it.readText() }
 
@@ -747,15 +678,12 @@ class AndroidPackageDataSource(
                     return@withContext true
                 }
             } catch (e: Exception) {
-                // Root shell method failed
             }
 
-            // Try ActivityManager (limited effectiveness)
             try {
                 val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                 activityManager.killBackgroundProcesses(packageName)
             } catch (e: Exception) {
-                // ActivityManager method failed
             }
 
             false
@@ -778,18 +706,8 @@ class AndroidPackageDataSource(
         return (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
     }
 
-    /**
-     * Get all package metadata in a SINGLE system call instead of 7 separate calls.
-     * This is a major performance optimization - reduces ~1400+ calls to ~200 calls
-     * for a typical device with 200 packages.
-     *
-     * Combined flags: GET_PERMISSIONS | GET_SERVICES
-     * - GET_PERMISSIONS: for requestedPermissions (used for hasNetworkAccess)
-     * - GET_SERVICES: for services (used for VPN detection)
-     */
     private fun getPackageMetadataBatch(packageName: String, userId: Int): PackageMetadata {
         return try {
-            // Single call with combined flags to get all needed info
             val packageInfo = HiddenApiHelper.getPackageInfoAsUser(
                 context,
                 packageName,
@@ -798,7 +716,6 @@ class AndroidPackageDataSource(
             )
 
             if (packageInfo == null) {
-                // Return default metadata if package info unavailable
                 return PackageMetadata(
                     permissions = emptyList(),
                     isVpnApp = false,
@@ -810,22 +727,18 @@ class AndroidPackageDataSource(
                 )
             }
 
-            // Extract all data from the single PackageInfo result
             val permissions = packageInfo.requestedPermissions?.toList() ?: emptyList()
 
-            // Check for VPN service
             val isVpnApp = packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false
 
-            // Check for network permissions
             val hasNetworkAccess = permissions.any { permission ->
                 permission == "android.permission.INTERNET" ||
                 permission == "android.permission.ACCESS_NETWORK_STATE" ||
                 permission == "android.permission.ACCESS_WIFI_STATE"
             }
 
-            // Version info
             val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 packageInfo.longVersionCode
             } else {
@@ -931,7 +844,6 @@ class AndroidPackageDataSource(
                 userId
             ) ?: return false
 
-            // Check if any service has BIND_VPN_SERVICE permission
             val isVpn = packageInfo.services?.any { serviceInfo ->
                 serviceInfo.permission == Constants.Firewall.VPN_SERVICE_PERMISSION
             } ?: false
@@ -973,7 +885,6 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
@@ -1027,17 +938,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic update to prevent race conditions
                     firewallRepository.updateWifiBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with default policy for other network types
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY
@@ -1050,7 +958,7 @@ class AndroidPackageDataSource(
                         uid = appInfo.uid,
                         appName = getAppName(appInfo),
                         wifiBlocked = blocked,
-                        mobileBlocked = isBlockAllDefault, // Inherit default policy for mobile
+                        mobileBlocked = isBlockAllDefault,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
                         hasInternetPermission = hasNetworkPermissions(packageName, userId)
@@ -1082,17 +990,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic update to prevent race conditions
                     firewallRepository.updateMobileBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with default policy for other network types
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY
@@ -1104,7 +1009,7 @@ class AndroidPackageDataSource(
                         userId = userId,
                         uid = appInfo.uid,
                         appName = getAppName(appInfo),
-                        wifiBlocked = isBlockAllDefault, // Inherit default policy for WiFi
+                        wifiBlocked = isBlockAllDefault,
                         mobileBlocked = blocked,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
@@ -1137,17 +1042,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic update to prevent race conditions
                     firewallRepository.updateRoamingBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with default policy for other network types
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY
@@ -1159,8 +1061,8 @@ class AndroidPackageDataSource(
                         userId = userId,
                         uid = appInfo.uid,
                         appName = getAppName(appInfo),
-                        wifiBlocked = isBlockAllDefault, // Inherit default policy for WiFi
-                        mobileBlocked = isBlockAllDefault, // Inherit default policy for mobile
+                        wifiBlocked = isBlockAllDefault,
+                        mobileBlocked = isBlockAllDefault,
                         blockWhenRoaming = blocked,
                         enabled = true,
                         isSystemApp = isSystemApp(appInfo),
@@ -1193,17 +1095,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic update to prevent race conditions
                     firewallRepository.updateBackgroundBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with default policy for other network types
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY
@@ -1249,17 +1148,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic update to prevent race conditions
                     firewallRepository.updateLanBlocking(packageName, userId, blocked)
                 } else {
-                    // Create new rule with default policy for other network types
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY
@@ -1306,14 +1202,12 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic batch update to prevent race conditions
                     firewallRepository.updateAllNetworkBlocking(packageName, userId, blocked)
                 } else {
                     // Create new rule with the three internet transports set to the same state.
@@ -1357,17 +1251,14 @@ class AndroidPackageDataSource(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Use HiddenApiHelper to get app info for the correct user profile
                 val appInfo = HiddenApiHelper.getApplicationInfoAsUser(
                     context, packageName, PackageManager.GET_META_DATA, userId
                 ) ?: return@withContext false
                 val existingRule = firewallRepository.getRuleByPackage(packageName, userId).first()
 
                 if (existingRule != null) {
-                    // Use atomic batch update to prevent race conditions
                     firewallRepository.updateMobileAndRoaming(packageName, userId, mobileBlocked, roamingBlocked)
                 } else {
-                    // Create new rule - inherit default policy for WiFi
                     val defaultPolicy = prefs.getString(
                         Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
                         Constants.Settings.DEFAULT_FIREWALL_POLICY

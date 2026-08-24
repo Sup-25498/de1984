@@ -22,7 +22,7 @@ class NetworkPackageRepositoryImpl(
                 entities
                     // Show ALL apps (including those without network permissions)
                     // This allows users to proactively block apps before they gain internet permission via updates
-                    .filter { it.isEnabled }  // Hide disabled apps from firewall screen
+                    .filter { it.isEnabled }
                     .map { entity ->
                         entity.toNetworkDomain().copy(
                             isSystemCritical = Constants.Firewall.isSystemCritical(entity.packageName)

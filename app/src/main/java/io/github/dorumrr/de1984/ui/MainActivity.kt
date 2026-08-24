@@ -44,9 +44,6 @@ import io.github.dorumrr.de1984.utils.Constants
 import io.github.dorumrr.de1984.utils.openAppSettings
 import kotlinx.coroutines.launch
 
-/**
- * Main activity for De1984 app
- */
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -66,7 +63,6 @@ class MainActivity : AppCompatActivity() {
         (application as De1984Application).dependencies.permissionManager
     }
 
-    // Shared ViewModels
     private val firewallViewModel: FirewallViewModel by viewModels {
         val deps = (application as De1984Application).dependencies
         FirewallViewModel.Factory(
@@ -105,12 +101,9 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    // Permission launchers
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
-        // Always setup UI regardless of permission result
-        // The app works without notification permission (notifications just won't show)
         onPermissionsComplete()
     }
 
@@ -118,34 +111,26 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            // Handle based on context
             when (vpnPermissionContext) {
                 VpnPermissionContext.FIREWALL_START -> {
-                    // Start firewall after VPN permission is granted
-                    // Battery optimization will be requested automatically via shouldRequestBatteryOptimization flag
                     firewallViewModel.onVpnPermissionGranted()
                 }
                 VpnPermissionContext.VPN_FALLBACK -> {
-                    // Start VPN fallback after permission granted
                     startVpnFallbackAfterPermission()
                 }
                 VpnPermissionContext.BOOT_FAILURE_RECOVERY -> {
-                    // Start firewall after boot failure recovery
                     startFirewallAfterBootFailure()
                 }
             }
         } else {
-            // Handle based on context
             when (vpnPermissionContext) {
                 VpnPermissionContext.FIREWALL_START -> {
                     firewallViewModel.onVpnPermissionDenied()
                 }
                 VpnPermissionContext.VPN_FALLBACK -> {
-                    // User denied VPN permission for fallback - nothing to do
                     AppLogger.w(TAG, "User denied VPN permission for fallback")
                 }
                 VpnPermissionContext.BOOT_FAILURE_RECOVERY -> {
-                    // User denied VPN permission for boot recovery
                     AppLogger.w(TAG, "User denied VPN permission for boot failure recovery")
                     Toast.makeText(this, "VPN permission required to start firewall", Toast.LENGTH_SHORT).show()
                 }
@@ -156,16 +141,13 @@ class MainActivity : AppCompatActivity() {
     private val batteryOptimizationLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
-        // Battery optimization result - no action needed
     }
 
-    // State
     private var currentTab: Tab = Tab.FIREWALL
     private var permissionsCompleted = false
     private var vpnPermissionContext: VpnPermissionContext = VpnPermissionContext.FIREWALL_START
     private var shouldShowFirewallStartDialog = false
 
-    // Fragment cache to preserve scroll state
     private var firewallFragment: FirewallFragmentViews? = null
     private var packagesFragment: PackagesFragmentViews? = null
     private var settingsFragment: SettingsFragmentViews? = null
@@ -175,17 +157,13 @@ class MainActivity : AppCompatActivity() {
 
         AppLogger.d(TAG, "📱 MAINACTIVITY CREATED | savedInstanceState: ${if (savedInstanceState == null) "null (first launch)" else "present (restored)"}")
 
-        // Enable edge-to-edge display
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Setup UI first (so user doesn't see white screen)
         setupMainUI(savedInstanceState)
 
-        // Start package monitoring service
         AppLogger.d(TAG, "🔄 Starting PackageMonitoringService")
         PackageMonitoringService.startMonitoring(this)
 
-        // Check if we need to request permissions (after UI is loaded)
         if (!permissionManager.hasNotificationPermission()) {
             AppLogger.d(TAG, "⚠️  Notification permission not granted, requesting...")
             requestNotificationPermission()
@@ -194,7 +172,6 @@ class MainActivity : AppCompatActivity() {
             onPermissionsComplete()
         }
 
-        // Handle intent (e.g., from notification)
         handleIntent(intent)
 
         AppLogger.d(TAG, "✅ MainActivity onCreate complete")
@@ -218,7 +195,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 Constants.Firewall.ACTION_REQUEST_VPN_PERMISSION -> {
                     AppLogger.d(TAG, "VPN permission request from widget/tile - starting firewall")
-                    // Start firewall, which will trigger VPN permission dialog if needed
                     firewallViewModel.startFirewall()
                 }
                 Constants.Firewall.ACTION_TOGGLE_FIREWALL -> {
@@ -230,17 +206,13 @@ class MainActivity : AppCompatActivity() {
                     AppLogger.d(TAG, "Actual firewall state from manager: isActive=$isActuallyActive")
                     
                     if (isActuallyActive) {
-                        // Firewall is ON - show stop confirmation dialog
                         AppLogger.d(TAG, "Showing stop confirmation dialog")
                         showFirewallStopDialog()
                     } else {
-                        // Firewall is somehow OFF - this shouldn't happen normally from widget
-                        // but handle it gracefully by just showing the app
                         AppLogger.d(TAG, "Firewall is OFF, no action needed - just showing app")
                     }
                 }
                 else -> {
-                    // Ignore unknown actions
                 }
             }
         }
@@ -268,7 +240,6 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val deps = (application as De1984Application).dependencies
 
-            // Check Shizuku first (preferred method)
             AppLogger.d(TAG, "Checking Shizuku status...")
             deps.shizukuManager.checkShizukuStatus()
 
@@ -312,14 +283,12 @@ class MainActivity : AppCompatActivity() {
     private fun onPermissionsComplete() {
         permissionsCompleted = true
 
-        // Check if we're handling a VPN fallback request - if so, don't show the dialog
         val isVpnFallbackRequest = intent?.action == Constants.Notifications.ACTION_ENABLE_VPN_FALLBACK
         if (isVpnFallbackRequest) {
             AppLogger.d(TAG, "onPermissionsComplete: Skipping firewall start dialog - handling VPN fallback request")
             return
         }
 
-        // Check if we should show the firewall start prompt
         val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val shouldShowPrompt = prefs.getBoolean(
             Constants.Settings.KEY_SHOW_FIREWALL_START_PROMPT,
@@ -332,10 +301,8 @@ class MainActivity : AppCompatActivity() {
 
         AppLogger.d(TAG, "onPermissionsComplete: shouldShowPrompt=$shouldShowPrompt, isFirewallEnabled=$isFirewallEnabled")
 
-        // Only show firewall start dialog if setting is enabled and firewall is not running
         shouldShowFirewallStartDialog = shouldShowPrompt && !isFirewallEnabled
 
-        // UI is already setup in onCreate, just show dialog if needed
         if (shouldShowFirewallStartDialog) {
             shouldShowFirewallStartDialog = false
             showFirewallStartDialog()
@@ -346,14 +313,11 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainViewsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Apply window insets to handle edge-to-edge properly
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
 
-            // Apply top padding for status bar to the toolbar
             binding.toolbar.setPadding(0, systemBars.top, 0, 0)
 
-            // Don't apply padding to root view
             view.setPadding(0, 0, 0, 0)
 
             insets
@@ -363,35 +327,28 @@ class MainActivity : AppCompatActivity() {
         setupBottomNavigation()
         observeFirewallState()
 
-        // Restore or load initial fragment
         if (savedInstanceState == null) {
-            // First time - load Firewall fragment
             loadFragment(Tab.FIREWALL)
         } else {
-            // Restoring from saved state - restore the current tab
             val tabOrdinal = savedInstanceState.getInt(KEY_CURRENT_TAB, Tab.FIREWALL.ordinal)
             currentTab = Tab.values()[tabOrdinal]
 
-            // Restore fragment references from FragmentManager
             firewallFragment = supportFragmentManager.findFragmentByTag("FIREWALL") as? FirewallFragmentViews
             packagesFragment = supportFragmentManager.findFragmentByTag("APPS") as? PackagesFragmentViews
             settingsFragment = supportFragmentManager.findFragmentByTag("SETTINGS") as? SettingsFragmentViews
 
             AppLogger.d(TAG, "setupMainUI: Restored fragments - firewall=${firewallFragment != null}, packages=${packagesFragment != null}, settings=${settingsFragment != null}")
 
-            // Ensure fragments are properly shown/hidden for current tab
             supportFragmentManager.commit {
                 firewallFragment?.let { if (currentTab != Tab.FIREWALL) hide(it) else show(it) }
                 packagesFragment?.let { if (currentTab != Tab.APPS) hide(it) else show(it) }
                 settingsFragment?.let { if (currentTab != Tab.SETTINGS) hide(it) else show(it) }
             }
 
-            // Update UI to match restored tab
             updateToolbar()
             updateBottomNavigationSelection()
         }
 
-        // Show firewall start dialog if needed
         if (shouldShowFirewallStartDialog) {
             shouldShowFirewallStartDialog = false
             showFirewallStartDialog()
@@ -402,9 +359,7 @@ class MainActivity : AppCompatActivity() {
         AppLogger.d(TAG, "📋 setupToolbar: Initializing toolbar")
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayShowTitleEnabled(false)
-        // No back button or home button needed for bottom navigation
 
-        // Setup firewall toggle (Material Switch)
         binding.firewallToggle.setOnCheckedChangeListener { _, isChecked ->
             AppLogger.d(TAG, "🔘 USER ACTION: Firewall toggle changed to: $isChecked")
             onFirewallToggleChanged(isChecked)
@@ -444,7 +399,6 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomNavigation.selectedItemId = R.id.firewallFragment
 
-        // Set icon colors based on dynamic colors setting
         applyBottomNavigationColors()
         AppLogger.d(TAG, "✅ setupBottomNavigation: Bottom navigation initialized")
     }
@@ -457,32 +411,30 @@ class MainActivity : AppCompatActivity() {
         )
 
         if (useDynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Dynamic colors enabled - use colorOnPrimaryContainer from Material 3's dynamic theme
             val typedValue = android.util.TypedValue()
             theme.resolveAttribute(com.google.android.material.R.attr.colorOnPrimaryContainer, typedValue, true)
             val onPrimaryContainer = typedValue.data
 
             val states = arrayOf(
-                intArrayOf(android.R.attr.state_checked),  // Selected
-                intArrayOf()  // Unselected
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf()
             )
             val colors = intArrayOf(
-                onPrimaryContainer,  // Selected - full opacity
-                applyAlpha(onPrimaryContainer, 0.6f)  // Unselected - 60% opacity
+                onPrimaryContainer,
+                applyAlpha(onPrimaryContainer, 0.6f)
             )
             val colorStateList = android.content.res.ColorStateList(states, colors)
             binding.bottomNavigation.itemIconTintList = colorStateList
             binding.bottomNavigation.itemTextColor = colorStateList
         } else {
-            // Dynamic colors disabled - use white for teal background
             val white = ContextCompat.getColor(this, R.color.text_white)
             val states = arrayOf(
-                intArrayOf(android.R.attr.state_checked),  // Selected
-                intArrayOf()  // Unselected
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf()
             )
             val colors = intArrayOf(
-                white,  // Selected - full opacity
-                applyAlpha(white, 0.6f)  // Unselected - 60% opacity
+                white,
+                applyAlpha(white, 0.6f)
             )
             val colorStateList = android.content.res.ColorStateList(states, colors)
             binding.bottomNavigation.itemIconTintList = colorStateList
@@ -490,12 +442,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Apply alpha (opacity) to a color
-     * @param color The original color
-     * @param alpha Alpha value from 0.0 (transparent) to 1.0 (opaque)
-     * @return Color with applied alpha
-     */
     private fun applyAlpha(color: Int, alpha: Float): Int {
         val alphaInt = (alpha * 255).toInt()
         return (color and 0x00FFFFFF) or (alphaInt shl 24)
@@ -507,12 +453,10 @@ class MainActivity : AppCompatActivity() {
         currentTab = tab
 
         supportFragmentManager.commit {
-            // Hide all existing fragments first
             firewallFragment?.let { hide(it) }
             packagesFragment?.let { hide(it) }
             settingsFragment?.let { hide(it) }
 
-            // Get or create only the fragment being shown (lazy creation)
             when (tab) {
                 Tab.FIREWALL -> {
                     val fragment = firewallFragment
@@ -564,18 +508,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBottomNavigationSelection() {
-        // Update bottom navigation selection to match current tab
         val itemId = when (currentTab) {
             Tab.FIREWALL -> R.id.firewallFragment
             Tab.APPS -> R.id.packagesFragment
             Tab.SETTINGS -> R.id.settingsFragment
         }
 
-        // Temporarily remove listener to avoid triggering navigation
         binding.bottomNavigation.setOnItemSelectedListener(null)
         binding.bottomNavigation.selectedItemId = itemId
 
-        // Restore listener
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.firewallFragment -> {
@@ -654,10 +595,8 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             firewallViewModel.uiState.collect { state ->
-                // Update custom switch appearance
                 updateSwitchAppearance(state.isFirewallEnabled)
 
-                // Request battery optimization if needed
                 if (state.shouldRequestBatteryOptimization) {
                     firewallViewModel.clearBatteryOptimizationRequest()
                     val batteryOptIntent = permissionManager.createBatteryOptimizationIntent()
@@ -732,16 +671,9 @@ class MainActivity : AppCompatActivity() {
         AppLogger.d(TAG, "Firewall health banner shown: $health")
     }
 
-    /**
-     * Run the one useful recovery step for this failure.
-     *
-     * Every branch reuses a path that already exists, so the banner button and the notification it
-     * mirrors always end up in the same place.
-     */
     private fun onFirewallHealthAction(action: FirewallHealthAction) {
         AppLogger.d(TAG, "Firewall health banner action tapped: $action")
         when (action) {
-            // navigateToSettings() is documented for exactly this - warning-banner navigation
             FirewallHealthAction.CHOOSE_BACKEND -> navigateToSettings()
 
             FirewallHealthAction.RETRY -> {
@@ -759,18 +691,11 @@ class MainActivity : AppCompatActivity() {
             // stop that failed, and asking again would be asking them to confirm a retry.
             FirewallHealthAction.RETRY_STOP -> firewallViewModel.stopFirewall()
 
-            // Both end at the same VPN permission flow the fallback notification uses
             FirewallHealthAction.ENABLE_VPN,
             FirewallHealthAction.REPLACE_VPN -> handleVpnFallbackRequest()
         }
     }
 
-    /**
-     * Send the user to this app's notification settings.
-     *
-     * ACTION_APP_NOTIFICATION_SETTINGS lands directly on the right screen. If a ROM does not carry
-     * it, fall back to the app details page, which every device has.
-     */
     private fun openNotificationSettings() {
         AppLogger.d(TAG, "Opening notification settings from the firewall health banner")
         try {
@@ -785,7 +710,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateSwitchAppearance(isEnabled: Boolean) {
-        // Update switch state without triggering the listener
         binding.firewallToggle.setOnCheckedChangeListener(null)
         binding.firewallToggle.isChecked = isEnabled
         binding.firewallToggle.setOnCheckedChangeListener { _, isChecked ->
@@ -802,7 +726,6 @@ class MainActivity : AppCompatActivity() {
                 vpnPermissionLauncher.launch(prepareIntent)
             }
         } else {
-            // Show confirmation dialog before stopping firewall
             showFirewallStopDialog()
         }
     }
@@ -839,7 +762,6 @@ class MainActivity : AppCompatActivity() {
             negativeButtonText = getString(R.string.dialog_cancel),
             onNegativeClick = {
                 AppLogger.d(TAG, "🔘 USER CANCELLED: Firewall stop cancelled - reverting toggle")
-                // User cancelled - revert the toggle back to ON
                 binding.firewallToggle.isChecked = true
             },
             cancelable = true,
@@ -854,49 +776,28 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    /**
-     * Navigate to Firewall screen and open dialog for specific app.
-     * Used for cross-navigation from notifications and other screens.
-     *
-     * @param packageName The package name of the app
-     * @param userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
-     */
     fun navigateToFirewallWithApp(packageName: String, userId: Int = 0) {
         AppLogger.d(TAG, "🔘 USER ACTION: Navigate to Firewall with app: $packageName (userId=$userId)")
         loadFragment(Tab.FIREWALL)
-        // Use postDelayed to ensure fragment is fully loaded before opening dialog
         binding.root.postDelayed({
             firewallFragment?.openAppDialog(packageName, userId)
         }, 100)
     }
 
-    /**
-     * Navigate to Packages screen and open dialog for specific app.
-     * Used for cross-navigation from Firewall screen.
-     *
-     * @param packageName The package name of the app
-     * @param userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
-     */
     fun navigateToPackagesWithApp(packageName: String, userId: Int = 0) {
         AppLogger.d(TAG, "🔘 USER ACTION: Navigate to Packages with app: $packageName (userId=$userId)")
         loadFragment(Tab.APPS)
-        // Use postDelayed to ensure fragment is fully loaded before opening dialog
         binding.root.postDelayed({
             packagesFragment?.openAppDialog(packageName, userId)
         }, 100)
     }
 
-    /**
-     * Navigate to Settings screen.
-     * Used for navigation from protection warning banners.
-     */
     fun navigateToSettings() {
         loadFragment(Tab.SETTINGS)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        // Save current tab so it can be restored after configuration changes
         outState.putInt(KEY_CURRENT_TAB, currentTab.ordinal)
     }
 
@@ -912,7 +813,6 @@ class MainActivity : AppCompatActivity() {
     private fun handleVpnFallbackRequest() {
         AppLogger.d(TAG, "Handling VPN fallback request from notification")
 
-        // Check if VPN permission is already granted
         val prepareIntent = try {
             android.net.VpnService.prepare(this)
         } catch (e: Exception) {
@@ -921,11 +821,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (prepareIntent != null) {
-            // VPN permission not granted - request it
             vpnPermissionContext = VpnPermissionContext.VPN_FALLBACK
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
-            // VPN permission already granted - start fallback immediately
             startVpnFallbackAfterPermission()
         }
     }
@@ -933,11 +831,9 @@ class MainActivity : AppCompatActivity() {
     private fun handleBootFailureRecovery() {
         AppLogger.d(TAG, "Handling boot failure recovery from notification")
 
-        // Dismiss the boot failure notification
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(Constants.BootFailure.NOTIFICATION_ID)
 
-        // Check if firewall is already running
         val firewallManager = (application as De1984Application).dependencies.firewallManager
         if (firewallManager.activeBackendType.value != null) {
             AppLogger.d(TAG, "Firewall already running, no recovery needed")
@@ -945,7 +841,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Check if VPN permission is needed and request it if necessary
         val prepareIntent = try {
             android.net.VpnService.prepare(this)
         } catch (e: Exception) {
@@ -959,12 +854,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (prepareIntent != null) {
-            // VPN permission not granted - request it
             AppLogger.d(TAG, "VPN permission not granted, requesting...")
             vpnPermissionContext = VpnPermissionContext.BOOT_FAILURE_RECOVERY
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
-            // VPN permission already granted - start firewall immediately
             AppLogger.d(TAG, "VPN permission already granted, starting firewall...")
             startFirewallAfterBootFailure()
         }
@@ -1011,7 +904,6 @@ class MainActivity : AppCompatActivity() {
                 AppLogger.d(TAG, "VPN fallback started successfully")
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to start VPN fallback", e)
-                // Show error to user
                 MaterialAlertDialogBuilder(this@MainActivity)
                     .setTitle(getString(R.string.vpn_fallback_failed_title))
                     .setMessage(getString(R.string.vpn_fallback_failed_message, e.message))

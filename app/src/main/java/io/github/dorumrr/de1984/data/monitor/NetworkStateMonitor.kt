@@ -56,9 +56,8 @@ class NetworkStateMonitor(
             }
         }
 
-        // Monitor ALL networks to catch VPN connections
         val request = NetworkRequest.Builder()
-            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)  // Include VPNs
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         connectivityManager.registerNetworkCallback(request, callback)
 
@@ -72,9 +71,6 @@ class NetworkStateMonitor(
         }
     }.distinctUntilChanged()
 
-    /**
-     * Check if any VPN is currently active on the device.
-     */
     fun isVpnActive(): Boolean {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -86,7 +82,6 @@ class NetworkStateMonitor(
                     }
                 }
             }
-            // Also check all networks (for cases where VPN isn't the "active" network)
             @Suppress("DEPRECATION")
             val allNetworks = connectivityManager.allNetworks
             for (network in allNetworks) {
@@ -114,7 +109,6 @@ class NetworkStateMonitor(
                 for (network in allNetworks) {
                     val capabilities = connectivityManager.getNetworkCapabilities(network)
                     if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-                        // Get VPN transport info to check session ID
                         val transportInfo = capabilities.transportInfo
                         if (transportInfo != null) {
                             val sessionId = getVpnSessionId(transportInfo)
@@ -144,13 +138,10 @@ class NetworkStateMonitor(
      */
     private fun getVpnSessionId(transportInfo: android.net.TransportInfo): String? {
         return try {
-            // VpnTransportInfo has a getSessionId() method
             val method = transportInfo.javaClass.getMethod("getSessionId")
             method.invoke(transportInfo) as? String
         } catch (e: Exception) {
-            // Fallback: try toString() which usually contains the session ID
             val str = transportInfo.toString()
-            // Parse "VpnTransportInfo{type=1, sessionId=ProtonTunnel, ...}"
             val match = Regex("sessionId=([^,}]+)").find(str)
             match?.groupValues?.getOrNull(1)
         }
@@ -207,12 +198,6 @@ class NetworkStateMonitor(
         return networkTypeOf(connectivityManager.getNetworkCapabilities(activeNetwork))
     }
 
-    /**
-     * The current network type, ignoring [lost].
-     *
-     * ConnectivityManager can still name a departing network as `activeNetwork` for a moment after
-     * `onLost`, so it is skipped explicitly and the remaining internet-capable networks are checked.
-     */
     private fun networkTypeExcluding(lost: Network?): NetworkType {
         return try {
             val active = connectivityManager.activeNetwork

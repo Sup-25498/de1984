@@ -12,17 +12,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/**
- * Handles notification action button clicks for new app notifications.
- * 
- * This receiver handles the "Block All" or "Allow All" button click from
- * new app installation notifications. It updates the firewall rule for the
- * package and dismisses the notification.
- * 
- * The button shown is smart - it shows the opposite of the default policy:
- * - If default policy is "Block All" → shows "Allow All" button
- * - If default policy is "Allow All" → shows "Block All" button
- */
 class NotificationActionReceiver : BroadcastReceiver() {
 
     companion object {
@@ -46,11 +35,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
             AppLogger.d(TAG, "Notification action: packageName=$packageName, blocked=$blocked")
 
-            // Initialize dependencies
             val app = context.applicationContext as De1984Application
             val manageNetworkAccessUseCase = app.dependencies.provideManageNetworkAccessUseCase()
 
-            // Use goAsync() to keep receiver alive while coroutine runs
             val pendingResult = goAsync()
 
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -69,7 +56,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         .onSuccess {
                             AppLogger.d(TAG, "Successfully updated network access for $packageName: blocked=$blocked")
 
-                            // Dismiss the notification
                             dismissNotification(context, packageName)
                         }
                         .onFailure { error ->
@@ -78,7 +64,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "Error processing notification action", e)
                 } finally {
-                    // Signal that async work is complete
                     pendingResult.finish()
                 }
             }

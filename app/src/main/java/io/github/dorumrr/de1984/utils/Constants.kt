@@ -3,7 +3,6 @@ package io.github.dorumrr.de1984.utils
 object Constants {
 
     object UI {
-        // Dropdown behavior
         const val DROPDOWN_DISMISSAL_DELAY_MS = 200L
 
         object Dialogs {
@@ -162,10 +161,8 @@ object Constants {
     }
 
     object CaptivePortal {
-        // SharedPreferences name (reuse same prefs file as Settings)
         const val PREFS_NAME = "de1984_prefs"
 
-        // Keys for original settings backup (stored in SharedPreferences)
         const val KEY_ORIGINAL_CAPTURED = "captive_portal_original_captured"
         const val KEY_ORIGINAL_MODE = "captive_portal_original_mode"
         // Raw snapshots: the exact string the system held, or absent if the key was never set.
@@ -187,7 +184,6 @@ object Constants {
         const val KEY_ORIGINAL_SDK_INT = "captive_portal_original_sdk_int"
         const val KEY_ORIGINAL_ROM_NAME = "captive_portal_original_rom_name"
 
-        // Android system settings keys (used with "settings get/put global")
         const val SYSTEM_KEY_MODE = "captive_portal_mode"
         const val SYSTEM_KEY_HTTP_URL = "captive_portal_http_url"
         const val SYSTEM_KEY_HTTPS_URL = "captive_portal_https_url"
@@ -195,8 +191,7 @@ object Constants {
         const val SYSTEM_KEY_OTHER_FALLBACK_URLS = "captive_portal_other_fallback_urls"
         const val SYSTEM_KEY_USE_HTTPS = "captive_portal_use_https"
 
-        // Default values (Google's defaults)
-        const val DEFAULT_MODE = 1  // ENABLED
+        const val DEFAULT_MODE = 1
         const val DEFAULT_HTTP_URL = "http://connectivitycheck.gstatic.com/generate_204"
         const val DEFAULT_HTTPS_URL = "https://www.google.com/generate_204"
         const val DEFAULT_USE_HTTPS = true
@@ -207,9 +202,9 @@ object Constants {
         // Start with fast checks, then slow down after BACKEND_HEALTH_CHECK_STABLE_THRESHOLD
         // consecutive successes. There are exactly two intervals and one step-up.
         // This provides fast failure detection initially while saving battery once backend is stable
-        const val BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS = 15_000L  // 15 seconds - fast detection
-        const val BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS = 60_000L  // 1 minute - battery savings
-        const val BACKEND_HEALTH_CHECK_STABLE_THRESHOLD = 10  // Consecutive successful checks before increasing interval
+        const val BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS = 15_000L
+        const val BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS = 60_000L
+        const val BACKEND_HEALTH_CHECK_STABLE_THRESHOLD = 10
     }
 
     object Permissions {
@@ -270,12 +265,10 @@ object Constants {
         const val STATE_ALLOWED = "Allowed"
         const val STATE_INTERNET = "Internet"
 
-        // Firewall actions
         const val ACTION_TOGGLE_FIREWALL = "io.github.dorumrr.de1984.TOGGLE_FIREWALL"
         const val ACTION_FIREWALL_STATE_CHANGED = "io.github.dorumrr.de1984.FIREWALL_STATE_CHANGED"
         const val ACTION_REQUEST_VPN_PERMISSION = "io.github.dorumrr.de1984.REQUEST_VPN_PERMISSION"
 
-        // Intent extras for firewall state broadcasts
         const val EXTRA_FIREWALL_STATE = "firewall_state"
         const val EXTRA_BACKEND_TYPE = "backend_type"
 
@@ -292,10 +285,6 @@ object Constants {
             "android.permission.CHANGE_WIFI_STATE"
         )
 
-        /**
-         * VPN permission used to identify VPN apps.
-         * Apps that declare this permission are VPN service providers.
-         */
         const val VPN_SERVICE_PERMISSION = "android.permission.BIND_VPN_SERVICE"
 
         const val SYSTEM_PACKAGE_WARNING = "⚠️ System Package Warning"
@@ -392,98 +381,72 @@ object Constants {
             "com.google.android.gms",              // Google Play Services - hosts FCM for push notifications
         )
 
-        /**
-         * Check if a package is system-critical and should never be blocked.
-         */
         fun isSystemCritical(packageName: String): Boolean {
             return SYSTEM_WHITELIST.contains(packageName)
         }
 
-        /**
-         * Check if a package is system-recommended and should be allowed by default.
-         */
         fun isSystemRecommendedAllow(packageName: String): Boolean {
             return SYSTEM_RECOMMENDED_ALLOW.contains(packageName)
         }
 
-        /**
-         * Check if a package is a VPN app based on its permissions.
-         * VPN apps should always be allowed to prevent VPN reconnection issues.
-         *
-         * @param permissions List of permissions declared by the app
-         * @return true if the app has BIND_VPN_SERVICE permission (is a VPN app)
-         */
         fun isVpnApp(permissions: List<String>): Boolean {
             return permissions.contains(VPN_SERVICE_PERMISSION)
         }
     }
 
     object Notifications {
-        // Notification actions
         const val ACTION_OPEN_FIREWALL = "io.github.dorumrr.de1984.OPEN_FIREWALL"
         const val ACTION_TOGGLE_NETWORK_ACCESS = "io.github.dorumrr.de1984.TOGGLE_NETWORK_ACCESS"
         const val ACTION_ENABLE_VPN_FALLBACK = "io.github.dorumrr.de1984.ENABLE_VPN_FALLBACK"
         const val ACTION_BOOT_FAILURE_RECOVERY = "io.github.dorumrr.de1984.BOOT_FAILURE_RECOVERY"
 
-        // Intent extras
         const val EXTRA_PACKAGE_NAME = "package_name"
         const val EXTRA_BLOCKED = "blocked"
     }
 
     object Navigation {
-        // Bottom Navigation Destinations
         const val DESTINATION_FIREWALL = "firewall"
         const val DESTINATION_PACKAGES = "packages"
         const val DESTINATION_SETTINGS = "settings"
 
-        // Navigation Labels
         const val LABEL_FIREWALL = "Firewall"
         const val LABEL_PACKAGES = "Packages"
         const val LABEL_SETTINGS = "Settings"
 
-        // Toolbar Titles (uppercase for consistency)
         const val TITLE_FIREWALL = "De1984 FIREWALL"
         const val TITLE_PACKAGES = "De1984 PACKAGES"
         const val TITLE_SETTINGS = "De1984 SETTINGS"
     }
 
     object PrivilegedAccessBanner {
-        // Banner Messages - Context-aware based on actual device capabilities
         const val MESSAGE_NO_ACCESS_AVAILABLE = "No privileged access available. Install Shizuku or root your device to enable package management."
         const val MESSAGE_SHIZUKU_NOT_RUNNING = "Shizuku is installed but not running. Start Shizuku or root your device to enable package management."
         const val MESSAGE_PERMISSION_REQUIRED = "Shizuku or root access required for package management"
 
-        // Button Text
         const val BUTTON_GO_TO_SETTINGS = "Go to Settings"
         const val BUTTON_GRANT = "Grant"
         const val BUTTON_DISMISS = "Dismiss"
     }
 
     object BackendMonitoring {
-        // Service Actions
         const val ACTION_START = "io.github.dorumrr.de1984.action.START_BACKEND_MONITORING"
         const val ACTION_STOP = "io.github.dorumrr.de1984.action.STOP_BACKEND_MONITORING"
         const val ACTION_RETRY = "io.github.dorumrr.de1984.action.RETRY_BACKEND_SWITCH"
 
-        // Intent Extras
         const val EXTRA_SHIZUKU_STATUS = "shizuku_status"
 
-        // Notification
         const val CHANNEL_ID = "backend_monitoring_channel"
         const val CHANNEL_NAME = "Backend Monitoring"
         const val NOTIFICATION_ID = 1003
 
-        // Timeouts
         const val TIMEOUT_NO_SHIZUKU_MS = 600_000L  // 10 minutes if Shizuku not installed
-        const val SUCCESS_NOTIFICATION_DURATION_MS = 3_000L  // 3 seconds
+        const val SUCCESS_NOTIFICATION_DURATION_MS = 3_000L
 
-        // Notification Titles
         const val NOTIFICATION_TITLE_WAITING = "De1984 Firewall Active (VPN Mode)"
         const val NOTIFICATION_TITLE_SWITCHING = "De1984 is switching backend..."
         const val NOTIFICATION_TITLE_SUCCESS = "De1984 Firewall backend switched"
         const val NOTIFICATION_TITLE_FAILED = "De1984 Firewall backend switch failed"
 
-        // Notification Texts
         const val NOTIFICATION_TEXT_SHIZUKU_NOT_RUNNING = "Waiting for Shizuku to start. Tap to retry."
         const val NOTIFICATION_TEXT_SHIZUKU_NO_PERMISSION = "Waiting for Shizuku permission. Tap to retry."
         const val NOTIFICATION_TEXT_SWITCHING = "Shizuku is now available. Switching to preferred backend..."
@@ -491,34 +454,28 @@ object Constants {
         const val NOTIFICATION_TEXT_SUCCESS_IPTABLES = "De1984 Firewall is now using iptables backend"
         const val NOTIFICATION_TEXT_FAILED = "De1984 Firewall failed to switch backend. Still using VPN."
 
-        // Action Button Text
         const val ACTION_BUTTON_RETRY = "Retry"
 
-        // Toast Messages
         const val TOAST_SUCCESS_CONNECTIVITY_MANAGER = "De1984 Firewall switched to ConnectivityManager"
         const val TOAST_SUCCESS_IPTABLES = "De1984 Firewall switched to iptables"
         const val TOAST_FAILED = "De1984 Firewall failed to switch backend"
     }
 
     object VpnFallback {
-        // Notification Channel
         const val CHANNEL_ID = "vpn_fallback_channel"
         const val CHANNEL_NAME = "VPN Fallback"
         const val NOTIFICATION_ID = 1004
 
-        // Notification Content
         const val NOTIFICATION_TITLE = "De1984 Firewall Down"
         const val NOTIFICATION_TEXT = "Privileged backend failed. Tap to enable VPN fallback and restore firewall protection."
         const val NOTIFICATION_ACTION_TEXT = "Enable VPN Fallback"
 
-        // Permission Tier
         const val TIER_TITLE = "VPN Fallback"
         const val TIER_DESCRIPTION = "Allows automatic fallback to VPN when privileged backends (iptables/ConnectivityManager) fail. Ensures firewall stays active."
         const val TIER_STATUS_GRANTED = "Completed"
         const val TIER_STATUS_NOT_GRANTED = "Permission Required"
         const val TIER_BUTTON_TEXT = "Grant VPN Permission"
 
-        // Permission Info
         const val PERMISSION_NAME = "VPN Permission"
         const val PERMISSION_DESCRIPTION = "Create VPN connection for firewall fallback"
     }
@@ -530,7 +487,6 @@ object Constants {
     }
 
     object BootFailure {
-        // Notification Channel
         const val CHANNEL_ID = "boot_failure_channel"
         const val CHANNEL_NAME = "Boot Failure"
         const val NOTIFICATION_ID = 1005
@@ -558,7 +514,6 @@ object Constants {
     }
 
     object VpnConflict {
-        // Notification Channel - shared with other firewall alerts
         const val CHANNEL_ID = "firewall_alerts_channel"
         const val CHANNEL_NAME = "Firewall Alerts"
         const val NOTIFICATION_ID = 1007

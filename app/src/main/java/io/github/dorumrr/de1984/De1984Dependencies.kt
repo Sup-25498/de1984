@@ -36,10 +36,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
-/**
- * ServiceLocator for managing application dependencies.
- * Replaces Hilt dependency injection with manual DI for better F-Droid reproducible builds.
- */
 class De1984Dependencies(private val context: Context) {
 
     companion object {
@@ -63,25 +59,10 @@ class De1984Dependencies(private val context: Context) {
         }
     }
 
-    // =============================================================================================
-    // Application Scope
-    // =============================================================================================
 
-    /**
-     * Application-level coroutine scope that lives for the entire application process.
-     * Use this for long-running operations that should survive beyond single components.
-     * Automatically cancels when the application process is killed by Android.
-     */
     val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // =============================================================================================
-    // Package Data Change Notifications
-    // =============================================================================================
 
-    /**
-     * SharedFlow to notify ViewModels when package data changes.
-     * This enables cross-screen refresh when packages are enabled/disabled or firewall rules change.
-     */
     private val _packageDataChanged = MutableSharedFlow<Unit>(
         replay = 0,
         extraBufferCapacity = 1,
@@ -89,28 +70,19 @@ class De1984Dependencies(private val context: Context) {
     )
     val packageDataChanged: SharedFlow<Unit> = _packageDataChanged.asSharedFlow()
 
-    /**
-     * Notify all observers that package data has changed and they should refresh.
-     */
     fun notifyPackageDataChanged() {
         _packageDataChanged.tryEmit(Unit)
     }
 
-    // =============================================================================================
-    // Database
-    // =============================================================================================
 
     private val MIGRATION_4_5 = object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            // Add lanBlocked column with default value false (0)
             db.execSQL("ALTER TABLE firewall_rules ADD COLUMN lanBlocked INTEGER NOT NULL DEFAULT 0")
         }
     }
 
     private val MIGRATION_5_6 = object : Migration(5, 6) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            // Add userId column for multi-user/work profile support
-            // Default 0 = personal profile (existing rules)
             db.execSQL("ALTER TABLE firewall_rules ADD COLUMN userId INTEGER NOT NULL DEFAULT 0")
 
             // Recreate table with composite primary key (packageName, userId)
@@ -179,9 +151,6 @@ class De1984Dependencies(private val context: Context) {
         database.firewallRuleDao()
     }
 
-    // =============================================================================================
-    // Managers (Singletons)
-    // =============================================================================================
 
     val rootManager: RootManager by lazy {
         RootManager(context)
@@ -211,9 +180,6 @@ class De1984Dependencies(private val context: Context) {
         BootProtectionManager(context, rootManager, shizukuManager)
     }
 
-    // =============================================================================================
-    // Repositories (Singletons)
-    // =============================================================================================
 
     val firewallRepository: FirewallRepository by lazy {
         FirewallRepositoryImpl(firewallRuleDao, context) { notifyPackageDataChanged() }
@@ -233,9 +199,6 @@ class De1984Dependencies(private val context: Context) {
         NetworkPackageRepositoryImpl(context, packageDataSource)
     }
 
-    // =============================================================================================
-    // Services (Singletons)
-    // =============================================================================================
 
     val newAppNotificationManager: NewAppNotificationManager by lazy {
         NewAppNotificationManager(context)
@@ -261,9 +224,6 @@ class De1984Dependencies(private val context: Context) {
         )
     }
 
-    // =============================================================================================
-    // Use Cases (Created on demand)
-    // =============================================================================================
 
     fun provideGetNetworkPackagesUseCase(): GetNetworkPackagesUseCase {
         return GetNetworkPackagesUseCase(networkPackageRepository)

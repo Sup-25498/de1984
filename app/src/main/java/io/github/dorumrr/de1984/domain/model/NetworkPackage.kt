@@ -1,17 +1,8 @@
 package io.github.dorumrr.de1984.domain.model
 
-/**
- * Domain model for network/firewall package display.
- *
- * @property packageName The package name of the app
- * @property userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
- * @property uid Absolute UID: userId * 100000 + appId
- */
 data class NetworkPackage(
     val packageName: String,
-    /** Android user profile ID (0 = personal, 10+ = work/clone profiles) */
     val userId: Int = 0,
-    /** Absolute UID: userId * 100000 + appId */
     val uid: Int = 0,
     val name: String,
     val icon: String,
@@ -30,9 +21,7 @@ data class NetworkPackage(
     val updateTime: Long? = null,
     val isSystemCritical: Boolean = false,
     val isVpnApp: Boolean = false,
-    /** True if this package belongs to a work profile (managed profile) */
     val isWorkProfile: Boolean = false,
-    /** True if this package belongs to a clone profile */
     val isCloneProfile: Boolean = false
 ) {
     val isNetworkAllowed: Boolean
@@ -41,13 +30,6 @@ data class NetworkPackage(
     val isFullyBlocked: Boolean
         get() = wifiBlocked && mobileBlocked
 
-    /**
-     * Nothing is blocked at all - LAN included.
-     *
-     * LAN counts here even though only the iptables backend enforces it. Without it an app with
-     * only lanBlocked set rendered as "Allowed" and matched the Allowed filter, which is how a
-     * silently-set LAN block became invisible.
-     */
     val isFullyAllowed: Boolean
         get() = !wifiBlocked && !mobileBlocked && !roamingBlocked && !lanBlocked
 
@@ -72,7 +54,6 @@ data class NetworkPackage(
             io.github.dorumrr.de1984.utils.Constants.Firewall.NETWORK_PERMISSIONS.contains(permission)
         }
 
-    /** Get the unique identifier for this package */
     val id: PackageId get() = PackageId(packageName, userId)
 }
 
@@ -84,7 +65,7 @@ enum class NetworkAccessState {
 
 data class FirewallFilterState(
     val packageType: String = "All",
-    val networkState: String? = null,  // "Allowed" or "Blocked" only
-    val internetOnly: Boolean = true,  // Independent permission filter
-    val profileFilter: String = "All"  // "All", "Personal", "Work", "Clone"
+    val networkState: String? = null,
+    val internetOnly: Boolean = true,
+    val profileFilter: String = "All"
 )

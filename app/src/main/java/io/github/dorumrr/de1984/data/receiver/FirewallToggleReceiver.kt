@@ -14,13 +14,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/**
- * Handles firewall toggle requests from widgets, tiles, and notifications.
- * 
- * This receiver provides a centralized way to toggle the firewall on/off from
- * any context (Widget, TileService, Notification actions). It handles VPN
- * permission requirements by launching MainActivity when needed.
- */
 class FirewallToggleReceiver : BroadcastReceiver() {
 
     companion object {
@@ -44,7 +37,6 @@ class FirewallToggleReceiver : BroadcastReceiver() {
         
         AppLogger.d(TAG, "FirewallManager obtained, isActive=${firewallManager.isActive()}")
 
-        // Use goAsync() to keep receiver alive while coroutine runs
         val pendingResult = goAsync()
         AppLogger.d(TAG, "goAsync() called, starting coroutine...")
 
@@ -55,7 +47,6 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                 AppLogger.d(TAG, "Current firewall state: isActive=$isCurrentlyActive")
                 
                 if (isCurrentlyActive) {
-                    // Firewall is ON - open app for stop confirmation (to prevent accidental stops)
                     AppLogger.d(TAG, "🔴 Firewall is active, opening app for stop confirmation...")
                     val activityIntent = Intent(context, MainActivity::class.java).apply {
                         action = Constants.Firewall.ACTION_TOGGLE_FIREWALL
@@ -64,10 +55,8 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                     context.startActivity(activityIntent)
                     AppLogger.d(TAG, "MainActivity launched for stop confirmation")
                 } else {
-                    // Firewall is OFF - start directly without opening app (quick toggle from widget)
                     AppLogger.d(TAG, "🟢 Firewall is stopped, starting directly...")
 
-                    // Immediately show loading state on widgets for responsive UX
                     FirewallWidget.setLoadingState(context)
 
                     // Honour the mode the user picked in Settings. Hard-coding AUTO here started a
@@ -76,7 +65,6 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                     val persistedMode = firewallManager.getCurrentMode()
                     AppLogger.d(TAG, "Using persisted firewall mode: $persistedMode")
 
-                    // Check if VPN permission is needed
                     var mode = persistedMode
                     var planResult = firewallManager.computeStartPlan(mode)
 
@@ -137,7 +125,6 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                 AppLogger.e(TAG, "❌ Error toggling firewall", e)
             } finally {
                 AppLogger.d(TAG, "Coroutine complete, calling pendingResult.finish()")
-                // Signal that async work is complete
                 pendingResult.finish()
             }
         }

@@ -3,17 +3,8 @@ package io.github.dorumrr.de1984.domain.repository
 import io.github.dorumrr.de1984.domain.model.FirewallRule
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Repository interface for firewall rules.
- *
- * All methods that operate on a specific package require both packageName AND userId
- * to properly support multi-user/work profile environments.
- */
 interface FirewallRepository {
 
-    // =============================================================================================
-    // Read operations - All users
-    // =============================================================================================
 
     fun getAllRules(): Flow<List<FirewallRule>>
 
@@ -29,25 +20,16 @@ interface FirewallRepository {
 
     fun getBlockedCount(): Flow<Int>
 
-    // =============================================================================================
-    // Read operations - By user profile
-    // =============================================================================================
 
     fun getRulesByUserId(userId: Int): Flow<List<FirewallRule>>
 
     suspend fun getRulesByUserIdSync(userId: Int): List<FirewallRule>
 
-    // =============================================================================================
-    // Read operations - By package (require userId for composite key)
-    // =============================================================================================
 
     fun getRuleByPackage(packageName: String, userId: Int): Flow<FirewallRule?>
 
     suspend fun getRuleByPackageSync(packageName: String, userId: Int): FirewallRule?
 
-    // =============================================================================================
-    // Write operations
-    // =============================================================================================
 
     suspend fun insertRule(rule: FirewallRule)
 
@@ -61,17 +43,11 @@ interface FirewallRepository {
 
     suspend fun deleteAllRules()
 
-    // =============================================================================================
-    // Bulk operations - All users
-    // =============================================================================================
 
     suspend fun blockAllApps()
 
     suspend fun allowAllApps()
 
-    // =============================================================================================
-    // Atomic field updates (require userId for composite key)
-    // =============================================================================================
 
     suspend fun updateWifiBlocking(packageName: String, userId: Int, blocked: Boolean)
 

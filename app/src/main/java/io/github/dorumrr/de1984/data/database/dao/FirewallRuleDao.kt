@@ -8,18 +8,9 @@ import androidx.room.Update
 import io.github.dorumrr.de1984.data.database.entity.FirewallRuleEntity
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Data Access Object for firewall rules.
- *
- * All queries that operate on a specific package require both packageName AND userId
- * to properly support multi-user/work profile environments.
- */
 @Dao
 interface FirewallRuleDao {
 
-    // =============================================================================================
-    // Read operations - All users
-    // =============================================================================================
 
     @Query("SELECT * FROM firewall_rules ORDER BY appName ASC")
     fun getAllRules(): Flow<List<FirewallRuleEntity>>
@@ -42,9 +33,6 @@ interface FirewallRuleDao {
     @Query("SELECT COUNT(*) FROM firewall_rules WHERE (wifiBlocked = 1 OR mobileBlocked = 1) AND enabled = 1")
     fun getBlockedCount(): Flow<Int>
 
-    // =============================================================================================
-    // Read operations - By user profile
-    // =============================================================================================
 
     @Query("SELECT * FROM firewall_rules WHERE userId = :userId ORDER BY appName ASC")
     fun getRulesByUserId(userId: Int): Flow<List<FirewallRuleEntity>>
@@ -52,9 +40,6 @@ interface FirewallRuleDao {
     @Query("SELECT * FROM firewall_rules WHERE userId = :userId ORDER BY appName ASC")
     suspend fun getRulesByUserIdSync(userId: Int): List<FirewallRuleEntity>
 
-    // =============================================================================================
-    // Read operations - By package (require userId for composite key)
-    // =============================================================================================
 
     @Query("SELECT * FROM firewall_rules WHERE packageName = :packageName AND userId = :userId")
     fun getRuleByPackage(packageName: String, userId: Int): Flow<FirewallRuleEntity?>
@@ -62,9 +47,6 @@ interface FirewallRuleDao {
     @Query("SELECT * FROM firewall_rules WHERE packageName = :packageName AND userId = :userId")
     suspend fun getRuleByPackageSync(packageName: String, userId: Int): FirewallRuleEntity?
 
-    // =============================================================================================
-    // Write operations
-    // =============================================================================================
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRule(rule: FirewallRuleEntity)
@@ -84,9 +66,6 @@ interface FirewallRuleDao {
     @Query("DELETE FROM firewall_rules")
     suspend fun deleteAllRules()
 
-    // =============================================================================================
-    // Bulk operations - All users
-    // =============================================================================================
 
     // "All" means WiFi + Mobile + Roaming + LAN. Screen-off (blockWhenBackground) is deliberately
     // excluded: it is a condition, not a network, and an app blocked on every network is already
@@ -98,9 +77,6 @@ interface FirewallRuleDao {
     @Query("UPDATE firewall_rules SET wifiBlocked = 0, mobileBlocked = 0, blockWhenRoaming = 0, lanBlocked = 0, updatedAt = :timestamp WHERE enabled = 1 AND packageName NOT IN (:excludedPackages)")
     suspend fun allowAllApps(excludedPackages: List<String>, timestamp: Long = System.currentTimeMillis())
 
-    // =============================================================================================
-    // Atomic field updates (require userId for composite key)
-    // =============================================================================================
 
     @Query("UPDATE firewall_rules SET wifiBlocked = :blocked, updatedAt = :timestamp WHERE packageName = :packageName AND userId = :userId")
     suspend fun updateWifiBlocking(packageName: String, userId: Int, blocked: Boolean, timestamp: Long = System.currentTimeMillis())

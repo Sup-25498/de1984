@@ -85,12 +85,10 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private var currentProfileFilter: String? = null
     private var lastSubmittedPackages: List<Package> = emptyList()
 
-    // Dialog tracking to prevent dialogs stacking
     private var currentDialog: BottomSheetDialog? = null
     private var dialogOpenTimestamp: Long = 0
     private var pendingDialogPackageId: PackageId? = null
 
-    // Selection mode state
     private var isSelectionMode = false
     private val selectedPackages = mutableSetOf<PackageId>()
     private var progressDialog: androidx.appcompat.app.AlertDialog? = null
@@ -105,14 +103,9 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     override fun scrollToTop() {
-        // Only scroll if binding is available (fragment view is created)
         _binding?.packagesRecyclerView?.scrollToPosition(0)
     }
 
-    /**
-     * Scroll to a specific package in the list.
-     * Used for cross-navigation to keep the same app in view.
-     */
     private fun scrollToPackage(packageName: String) {
         _binding?.let { binding ->
             binding.packagesRecyclerView.post {
@@ -129,7 +122,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Show loading state immediately until first state emission
         binding.loadingState.visibility = View.VISIBLE
         binding.emptyState.visibility = View.GONE
         binding.packagesRecyclerView.visibility = View.GONE
@@ -156,9 +148,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         // Note: Don't load packages here - let ViewModel's init{} handle first load
         viewModel.checkRootAccess()
 
-        // Add layout change listener to track when RecyclerView actually renders
         binding.packagesRecyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            // RecyclerView layout changed
         }
     }
 
@@ -180,7 +170,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
     private fun setupRecyclerView() {
         adapter = PackageAdapter(
-            showIcons = true, // Will be updated from settings
+            showIcons = true,
             onPackageClick = { pkg ->
                 AppLogger.d(TAG, "🔘 USER ACTION: Package clicked: ${pkg.packageName}")
                 showPackageActionSheet(pkg)
@@ -192,14 +182,12 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
         )
 
-        // Set selection change listener
         adapter.setOnSelectionChangedListener { selected ->
             selectedPackages.clear()
             selectedPackages.addAll(selected)
             updateSelectionToolbar()
         }
 
-        // Set selection limit reached listener
         adapter.setOnSelectionLimitReachedListener {
             android.widget.Toast.makeText(
                 requireContext(),
@@ -218,12 +206,10 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             setHasFixedSize(true)
         }
 
-        // Setup selection toolbar
         setupSelectionToolbar()
     }
 
     private fun setupFilterChips() {
-        // Get translated filter strings
         val packageTypeFilters = listOf(
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all),
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user),
@@ -241,7 +227,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             getString(io.github.dorumrr.de1984.R.string.filter_profile_clone)
         )
 
-        // Initial setup - only called once
         currentTypeFilter = getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
         currentStateFilter = null
         currentProfileFilter = getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
@@ -250,29 +235,24 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             chipGroup = binding.filterChips,
             typeFilters = packageTypeFilters,
             stateFilters = packageStateFilters,
-            permissionFilters = emptyList(),  // No permission filters in Packages screen
+            permissionFilters = emptyList(),
             profileFilters = profileFilters,
             selectedTypeFilter = currentTypeFilter,
             selectedStateFilter = currentStateFilter,
-            selectedPermissionFilter = false,  // Not used in Packages screen
+            selectedPermissionFilter = false,
             selectedProfileFilter = currentProfileFilter,
             onTypeFilterSelected = { filter ->
-                // Only trigger if different from current
                 if (filter != currentTypeFilter) {
                     // Don't clear adapter - let ViewModel handle the state transition
                     currentTypeFilter = filter
-                    // Map translated string to internal constant
                     val internalFilter = mapTypeFilterToInternal(filter)
                     viewModel.setPackageTypeFilter(internalFilter)
                 }
             },
             onStateFilterSelected = { filter ->
-                // Only trigger if different from current
                 if (filter != currentStateFilter) {
-                    // Map translated string to internal constant BEFORE updating currentStateFilter
                     val internalFilter = filter?.let { mapStateFilterToInternal(it) }
 
-                    // Exit selection mode if switching to Disabled or Uninstalled filter
                     val isRestrictedFilter = internalFilter?.lowercase() == Constants.Packages.STATE_DISABLED.lowercase() ||
                                               internalFilter?.lowercase() == Constants.Packages.STATE_UNINSTALLED.lowercase()
                     if (isSelectionMode && isRestrictedFilter) {
@@ -285,13 +265,11 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                 }
             },
             onPermissionFilterSelected = { _ ->
-                // Not used in Packages screen
             },
             onProfileFilterSelected = { filter ->
                 if (filter != currentProfileFilter) {
                     AppLogger.d(TAG, "🔘 USER ACTION: Profile filter changed: $filter")
                     currentProfileFilter = filter
-                    // Map translated string to internal constant
                     val internalFilter = mapProfileFilterToInternal(filter)
                     viewModel.setProfileFilter(internalFilter)
                 }
@@ -300,10 +278,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun setupSearchBox() {
-        // Initially hide clear icon
         binding.searchLayout.isEndIconVisible = false
 
-        // Text change listener for real-time search
         binding.searchInput.addTextChangedListener { text ->
             val query = text?.toString() ?: ""
             if (query.isNotEmpty()) {
@@ -311,18 +287,15 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
             viewModel.setSearchQuery(query)
 
-            // Show/hide clear icon based on text length
             binding.searchLayout.isEndIconVisible = query.isNotEmpty()
         }
 
-        // Clear icon click listener
         binding.searchLayout.setEndIconOnClickListener {
             AppLogger.d(TAG, "🔘 USER ACTION: Search cleared")
             binding.searchInput.text?.clear()
             binding.searchLayout.isEndIconVisible = false
         }
 
-        // Handle keyboard "Search" or "Done" button
         binding.searchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
                 hideKeyboardAndClearFocus()
@@ -332,7 +305,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
         }
 
-        // Clear focus and hide keyboard when touching/scrolling RecyclerView
         binding.packagesRecyclerView.setOnTouchListener { view, event ->
             if (event.action == android.view.MotionEvent.ACTION_DOWN) {
                 if (binding.searchInput.hasFocus()) {
@@ -340,10 +312,9 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                     view.requestFocus()
                 }
             }
-            false // Allow touch events to propagate for normal scrolling
+            false
         }
 
-        // Clear focus when scrolling RecyclerView
         binding.packagesRecyclerView.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: androidx.recyclerview.widget.RecyclerView, newState: Int) {
                 if (newState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING) {
@@ -354,10 +325,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
         })
 
-        // Clear focus when clicking on root container (outside search box)
         binding.rootContainer.setOnTouchListener { view, event ->
             if (event.action == android.view.MotionEvent.ACTION_DOWN) {
-                // Check if touch is outside the search layout
                 val searchLayoutLocation = IntArray(2)
                 binding.searchLayout.getLocationOnScreen(searchLayoutLocation)
                 val searchLayoutRect = android.graphics.Rect(
@@ -375,7 +344,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                     view.requestFocus()
                 }
             }
-            false // Allow touch events to propagate
+            false
         }
     }
 
@@ -390,12 +359,10 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         packageStateFilter: String?,
         profileFilter: String
     ) {
-        // Map internal constants to translated strings
         val translatedTypeFilter = mapInternalToTypeFilter(packageTypeFilter)
         val translatedStateFilter = packageStateFilter?.let { mapInternalToStateFilter(it) }
         val translatedProfileFilter = mapInternalToProfileFilter(profileFilter)
 
-        // Only update if filters have changed
         if (translatedTypeFilter == currentTypeFilter &&
             translatedStateFilter == currentStateFilter &&
             translatedProfileFilter == currentProfileFilter) {
@@ -406,19 +373,17 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         currentStateFilter = translatedStateFilter
         currentProfileFilter = translatedProfileFilter
 
-        // Update chip selection without recreating or triggering listeners
         FilterChipsHelper.updateMultiSelectFilterChips(
             chipGroup = binding.filterChips,
             selectedTypeFilter = translatedTypeFilter,
             selectedStateFilter = translatedStateFilter,
-            selectedPermissionFilter = false,  // Not used in Packages screen
+            selectedPermissionFilter = false,
             selectedProfileFilter = translatedProfileFilter
         )
     }
 
     private fun setupPermissionDialog() {
         AppLogger.d(TAG, "setupPermissionDialog called")
-        // Observe privileged access status and show modal dialog when needed
         observePrivilegedAccessStatus()
     }
 
@@ -427,7 +392,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 AppLogger.d(TAG, "Starting privileged access status observation")
-                // Combine both status flows to determine banner state
                 launch {
                     viewModel.rootManager.rootStatus.collect { rootStatus ->
                         AppLogger.d(TAG, "Root status changed: $rootStatus")
@@ -446,22 +410,17 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
     private fun updateBannerContent(rootStatus: RootStatus, shizukuStatus: ShizukuStatus) {
         AppLogger.d(TAG, "updateBannerContent: rootStatus=$rootStatus, shizukuStatus=$shizukuStatus")
-        // This method is now used to trigger the modal dialog when needed
-        // The actual dialog showing is handled by observeUiState when showRootBanner becomes true
     }
 
 
 
     private fun navigateToSettings() {
-        // Navigate to Settings screen using bottom navigation
         requireActivity().findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation)
             ?.selectedItemId = R.id.settingsFragment
     }
 
     private fun attemptPermissionGrant() {
-        // Try Shizuku first, then root (existing logic)
         settingsViewModel.grantShizukuPermission()
-        // If Shizuku is not available, request root
         settingsViewModel.requestRootPermission()
     }
 
@@ -490,14 +449,12 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private fun observeUiState() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                // Observe UI state
                 launch {
                     viewModel.uiState.collect { state ->
                         updateUI(state)
                     }
                 }
 
-                // Observe banner visibility and show modal dialog
                 launch {
                     viewModel.showRootBanner.collect { showBanner ->
                         if (showBanner) {
@@ -510,9 +467,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun updateUI(state: PackagesUiState) {
-        // Update visibility based on state
         if (state.isLoadingData && state.packages.isEmpty()) {
-            binding.packagesRecyclerView.visibility = View.INVISIBLE  // INVISIBLE instead of GONE
+            binding.packagesRecyclerView.visibility = View.INVISIBLE
             binding.loadingState.visibility = View.VISIBLE
             binding.emptyState.visibility = View.GONE
         } else if (state.packages.isEmpty()) {
@@ -536,14 +492,12 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             binding.emptyState.visibility = View.GONE
         }
 
-        // Update filter chips
         updateFilterChips(
             packageTypeFilter = state.filterState.packageType,
             packageStateFilter = state.filterState.packageState,
             profileFilter = state.filterState.profileFilter
         )
 
-        // Apply search filtering with partial substring matching (app name only)
         val displayedPackages = if (state.searchQuery.isBlank()) {
             state.packages
         } else {
@@ -553,8 +507,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
         }
 
-        // Update package count in search field
-        // Hide count if 0 results AND no search query (empty state)
         val count = displayedPackages.size
         binding.packageCounter.text = if (count == 0 && state.searchQuery.isBlank()) {
             ""
@@ -566,10 +518,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             )
         }
 
-        // Update RecyclerView only if list changed
         val listChanged = displayedPackages != lastSubmittedPackages
         if (!listChanged) {
-            // Even if list didn't change, still handle batch result and errors
             handleBatchUninstallResult(state)
             handleError(state)
             return
@@ -581,16 +531,12 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             viewModel.setUIReady()
         }
 
-        // Handle batch uninstall result
         handleBatchUninstallResult(state)
 
-        // Handle batch reinstall result
         handleBatchReinstallResult(state)
 
-        // Handle success toasts
         handleSuccessToasts(state)
 
-        // Show error if any
         handleError(state)
     }
 
@@ -646,25 +592,13 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     // ============================================================================
     // DO NOT REMOVE: This method is called from MainActivity for cross-navigation
     // ============================================================================
-    /**
-     * Open the package action dialog for a specific app by package name and user ID.
-     * Used for cross-navigation from other screens (e.g., Firewall -> Packages).
-     *
-     * This method handles cases where the package might not be in the current filtered list
-     * by loading it directly from the repository and automatically switching filters if needed.
-     *
-     * @param packageName The package name of the app
-     * @param userId Android user profile ID (0 = personal, 10+ = work/clone profiles)
-     */
     fun openAppDialog(packageName: String, userId: Int = 0) {
-        // Prevent multiple dialogs from stacking
         if (currentDialog?.isShowing == true) {
             AppLogger.w(TAG, "[PACKAGES] Dialog already open, dismissing before opening new one")
             currentDialog?.dismiss()
             currentDialog = null
         }
 
-        // Find the package in the current list (match both packageName and userId)
         val pkg = viewModel.uiState.value.packages.find {
             it.packageName == packageName && it.userId == userId
         }
@@ -676,29 +610,23 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             scrollToPackage(packageName)
             showPackageActionSheet(pkg)
         } else {
-            // Package not in filtered list - need to load it and possibly change filter
             pendingDialogPackageId = targetPackageId
 
-            // Package not in filtered list - try to get it directly from repository
             lifecycleScope.launch {
                 try {
-                    // Get package from repository (bypasses filter)
                     val app = requireActivity().application as De1984Application
                     val packageRepository = app.dependencies.packageRepository
                     val result = packageRepository.getPackage(packageName, userId)
 
                     result.onSuccess { foundPkg ->
-                        // Check if this request is still valid
                         if (pendingDialogPackageId != targetPackageId) {
                             return@onSuccess
                         }
 
-                        // Check if we need to change filter to show this package
                         val currentFilter = viewModel.uiState.value.filterState.packageType
                         val packageType = foundPkg.type.toString()
 
                         if (currentFilter.equals(packageType, ignoreCase = true)) {
-                            // Filter already matches - just wait for data to load
                             viewModel.uiState.collect { state ->
                                 if (pendingDialogPackageId != targetPackageId) {
                                     return@collect
@@ -715,10 +643,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                                 }
                             }
                         } else {
-                            // Need to change filter
                             viewModel.setPackageTypeFilter(packageType)
 
-                            // Wait for filter change and data load
                             viewModel.uiState.collect { state ->
                                 if (pendingDialogPackageId != targetPackageId) {
                                     return@collect
@@ -765,8 +691,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             }
         }
 
-        // Set app info with async icon loading (prevents UI freeze for work profile apps)
-        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon) // Placeholder
+        binding.actionSheetAppIcon.setImageResource(R.drawable.de1984_icon)
         binding.actionSheetAppName.text = pkg.name
         binding.actionSheetPackageName.text = pkg.packageName
 
@@ -778,15 +703,11 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             val icon = withContext(Dispatchers.IO) {
                 PackageUtils.getPackageIcon(context, pkg.packageName, pkg.userId)
             }
-            // Update icon if dialog is still showing and fragment is attached
             if (dialog.isShowing && isAdded) {
                 icon?.let { binding.actionSheetAppIcon.setImageDrawable(it) }
             }
         }
 
-        // ============================================================================
-        // Click package name to copy to clipboard
-        // ============================================================================
         binding.actionSheetPackageName.setOnClickListenerDebounced {
             requireContext().copyToClipboard(pkg.packageName, getString(io.github.dorumrr.de1984.R.string.action_sheet_package_name_label))
         }
@@ -800,7 +721,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             dialog.dismiss()
         }
 
-        // Set safety and category badges
         if (pkg.criticality != null && pkg.criticality != PackageCriticality.UNKNOWN) {
             binding.actionSheetBadgesContainer.visibility = View.VISIBLE
 
@@ -890,7 +810,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             binding.firewallRulesDivider.visibility = View.GONE
         }
 
-        // Setup Force Stop action
         binding.forceStopDescription.text = if (pkg.isEnabled) {
             getString(io.github.dorumrr.de1984.R.string.action_sheet_force_stop_desc_running)
         } else {
@@ -902,7 +821,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             showForceStopConfirmation(pkg)
         }
 
-        // Setup Enable/Disable action
         if (pkg.isEnabled) {
             binding.enableDisableIcon.setImageResource(R.drawable.ic_block)
             binding.enableDisableTitle.text = getString(io.github.dorumrr.de1984.R.string.action_disable)
@@ -918,26 +836,21 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             showEnableDisableConfirmation(pkg, !pkg.isEnabled)
         }
 
-        // Setup Uninstall/Reinstall action - conditionally show based on criticality and settings
         val allowCriticalUninstall = settingsViewModel.uiState.value.allowCriticalPackageUninstall
         val isCriticalPackage = pkg.criticality == PackageCriticality.ESSENTIAL ||
                                 pkg.criticality == PackageCriticality.IMPORTANT
         val isUninstalled = pkg.versionName == null && !pkg.isEnabled && pkg.type == PackageType.SYSTEM
 
-        // Show protection warning banner if package is critical and protection is enabled
         if (isCriticalPackage && !allowCriticalUninstall && !isUninstalled) {
             binding.protectionWarningBanner.root.visibility = View.VISIBLE
 
-            // Set banner message
             binding.protectionWarningBanner.bannerMessage.text = getString(R.string.protection_banner_message_uninstall)
 
-            // Setup Settings button click listener
             binding.protectionWarningBanner.bannerSettingsButton.setOnClickListener {
                 dialog.dismiss()
                 (requireActivity() as? io.github.dorumrr.de1984.ui.MainActivity)?.navigateToSettings()
             }
 
-            // Show uninstall button but make it disabled
             binding.uninstallAction.visibility = View.VISIBLE
             binding.uninstallAction.isEnabled = false
             binding.uninstallAction.alpha = 0.5f
@@ -952,7 +865,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             binding.uninstallDescription.text = getString(R.string.action_sheet_uninstall_desc)
             binding.uninstallDescription.alpha = 0.5f
 
-            // Add click listener to show snackbar
             binding.uninstallAction.setOnClickListener {
                 showUninstallProtectionSnackbar(dialog)
             }
@@ -963,7 +875,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             binding.uninstallAction.alpha = 1.0f
 
             if (isUninstalled) {
-                // Show Reinstall action for uninstalled packages
                 binding.uninstallIcon.setImageResource(R.drawable.ic_check_circle)
                 val tealColor = ContextCompat.getColor(requireContext(), R.color.lineage_teal)
                 binding.uninstallIcon.setColorFilter(tealColor)
@@ -979,7 +890,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                     showReinstallConfirmation(pkg)
                 }
             } else {
-                // Show Uninstall action for installed packages
                 binding.uninstallIcon.setImageResource(R.drawable.ic_delete)
                 val redColor = ContextCompat.getColor(requireContext(), R.color.error_red)
                 binding.uninstallIcon.setColorFilter(redColor)
@@ -1000,7 +910,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         dialog.setContentView(binding.root)
         dialog.show()
 
-        // Configure BottomSheetBehavior to properly handle nested scrolling
         dialog.behavior.apply {
             isDraggable = true
             // Allow the sheet to be dragged, but nested scrolling will take priority
@@ -1052,10 +961,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun showUninstallConfirmation(pkg: Package) {
-        // Show different dialogs based on package criticality
         when (pkg.criticality) {
             PackageCriticality.ESSENTIAL -> {
-                // Type-to-confirm for Essential packages
                 val affectsText = if (pkg.affects.isNotEmpty()) {
                     getString(R.string.uninstall_dialog_affects_prefix, pkg.affects.joinToString("\n") { "• $it" })
                 } else ""
@@ -1072,7 +979,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                 )
             }
             PackageCriticality.IMPORTANT -> {
-                // Strong warning for Important packages
                 val affectsText = if (pkg.affects.isNotEmpty()) {
                     getString(R.string.uninstall_dialog_affects_prefix, pkg.affects.joinToString("\n") { "• $it" })
                 } else ""
@@ -1088,7 +994,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                 )
             }
             PackageCriticality.OPTIONAL -> {
-                // Informational for Optional packages
                 StandardDialog.showConfirmation(
                     context = requireContext(),
                     title = getString(R.string.uninstall_dialog_title_optional, pkg.name),
@@ -1104,7 +1009,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                 )
             }
             PackageCriticality.BLOATWARE -> {
-                // Positive message for Bloatware
                 StandardDialog.showConfirmation(
                     context = requireContext(),
                     title = getString(R.string.uninstall_dialog_title_bloatware, pkg.name),
@@ -1116,7 +1020,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                 )
             }
             else -> {
-                // Default behavior for unknown packages (fallback to system/user check)
                 val isSystemPackage = pkg.type == PackageType.SYSTEM
                 StandardDialog.showConfirmation(
                     context = requireContext(),
@@ -1148,11 +1051,9 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun showError(message: String) {
-        // Check if this is a privileged access error
         if (message.contains("Shizuku or root access required", ignoreCase = true)) {
             StandardDialog.showNoAccessDialog(requireContext())
         } else {
-            // Show generic error dialog
             StandardDialog.showError(
                 context = requireContext(),
                 message = message
@@ -1160,10 +1061,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         }
     }
 
-    // ========== MULTI-SELECT FUNCTIONALITY ==========
 
     private fun setupSelectionToolbar() {
-        // Set background color to match Material 3 theme (supports Dynamic Colors)
         val primaryColor = com.google.android.material.color.MaterialColors.getColor(
             binding.selectionToolbar,
             com.google.android.material.R.attr.colorPrimaryContainer
@@ -1188,12 +1087,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         }
     }
 
-    /**
-     * Check if multi-select mode is allowed for the current filter.
-     * Multi-select is NOT allowed for Disabled or Uninstalled filters because:
-     * - Disabled packages: can't be uninstalled without enabling first
-     * - Uninstalled packages: already uninstalled, reinstall should be done individually
-     */
     private fun isSelectionModeAllowedForCurrentFilter(): Boolean {
         val currentState = viewModel.uiState.value.filterState.packageState?.lowercase()
         return currentState != Constants.Packages.STATE_DISABLED.lowercase() &&
@@ -1201,7 +1094,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun enterSelectionMode(initialPackage: Package? = null) {
-        // Block selection mode for Disabled and Uninstalled filters
         if (!isSelectionModeAllowedForCurrentFilter()) {
             val currentState = viewModel.uiState.value.filterState.packageState?.lowercase()
             val toastMessage = when (currentState) {
@@ -1218,7 +1110,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         isSelectionMode = true
         adapter.setSelectionMode(true)
 
-        // Auto-select the long-pressed package if provided and selectable
         initialPackage?.let { pkg ->
             if (adapter.canSelectPackage(pkg)) {
                 adapter.selectPackage(pkg.id)
@@ -1243,7 +1134,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         binding.selectionCount.text = getString(R.string.multiselect_toolbar_title_format, count)
         binding.uninstallButton.isEnabled = count > 0
 
-        // Update button text based on filter
         val currentState = viewModel.uiState.value
         val isUninstalledFilter = currentState.filterState.packageState?.lowercase() == Constants.Packages.STATE_UNINSTALLED.lowercase()
         binding.uninstallButton.text = if (isUninstalledFilter) {
@@ -1256,7 +1146,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private fun showMultiUninstallConfirmation() {
         val packages = lastSubmittedPackages.filter { selectedPackages.contains(it.id) }
 
-        // Group packages by type and criticality
         val userApps = packages.filter { it.type == PackageType.USER }
         val bloatware = packages.filter { it.criticality == PackageCriticality.BLOATWARE }
         val optional = packages.filter { it.criticality == PackageCriticality.OPTIONAL }
@@ -1301,7 +1190,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             message = message,
             confirmButtonText = Constants.Packages.MultiSelect.DIALOG_BUTTON_UNINSTALL_ALL,
             onConfirm = {
-                // Convert selected PackageIds to pairs with userId
                 val packagesWithUserId = selectedPackages.map { it.packageName to it.userId }
                 performBatchUninstall(packagesWithUserId)
             },
@@ -1310,10 +1198,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun performBatchUninstall(packages: List<Pair<String, Int>>) {
-        // Dismiss any existing progress dialog
         progressDialog?.dismiss()
 
-        // Show progress dialog
         progressDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
             .setTitle(Constants.Packages.MultiSelect.PROGRESS_DIALOG_TITLE)
             .setMessage(String.format(
@@ -1326,8 +1212,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
         progressDialog?.show()
 
-        // Start batch uninstall
-        // Result will be handled by the existing observer in observeUiState() -> updateUI()
         viewModel.uninstallMultiplePackages(packages)
     }
 
@@ -1395,7 +1279,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             message = message,
             confirmButtonText = getString(R.string.batch_reinstall_dialog_button_reinstall_all),
             onConfirm = {
-                // Convert selected PackageIds to pairs with userId
                 val packagesWithUserId = selectedPackages.map { it.packageName to it.userId }
                 performBatchReinstall(packagesWithUserId)
             },
@@ -1404,10 +1287,8 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     }
 
     private fun performBatchReinstall(packages: List<Pair<String, Int>>) {
-        // Dismiss any existing progress dialog
         progressDialog?.dismiss()
 
-        // Show progress dialog
         progressDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
             .setTitle(Constants.Packages.MultiSelect.PROGRESS_DIALOG_TITLE_REINSTALL)
             .setMessage(String.format(
@@ -1420,8 +1301,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
         progressDialog?.show()
 
-        // Start batch reinstall
-        // Result will be handled by the existing observer in observeUiState() -> updateUI()
         viewModel.reinstallMultiplePackages(packages)
     }
 
@@ -1468,83 +1347,62 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         )
     }
 
-    /**
-     * Map translated type filter string to internal constant
-     */
     private fun mapTypeFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all) -> Constants.Packages.TYPE_ALL
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user) -> Constants.Packages.TYPE_USER
             getString(io.github.dorumrr.de1984.R.string.packages_filter_system) -> Constants.Packages.TYPE_SYSTEM
-            else -> Constants.Packages.TYPE_ALL // Default fallback
+            else -> Constants.Packages.TYPE_ALL
         }
     }
 
-    /**
-     * Map translated state filter string to internal constant
-     */
     private fun mapStateFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.packages_filter_enabled) -> Constants.Packages.STATE_ENABLED
             getString(io.github.dorumrr.de1984.R.string.packages_filter_disabled) -> Constants.Packages.STATE_DISABLED
             getString(io.github.dorumrr.de1984.R.string.status_uninstalled) -> Constants.Packages.STATE_UNINSTALLED
-            else -> translatedFilter // Fallback to original
+            else -> translatedFilter
         }
     }
 
-    /**
-     * Map internal constant to translated type filter string
-     */
     private fun mapInternalToTypeFilter(internalFilter: String): String {
         return when (internalFilter) {
             Constants.Packages.TYPE_ALL -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
             Constants.Packages.TYPE_USER -> getString(io.github.dorumrr.de1984.R.string.packages_filter_user)
             Constants.Packages.TYPE_SYSTEM -> getString(io.github.dorumrr.de1984.R.string.packages_filter_system)
-            else -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all) // Default fallback
+            else -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
         }
     }
 
-    /**
-     * Map internal constant to translated state filter string
-     */
     private fun mapInternalToStateFilter(internalFilter: String): String {
         return when (internalFilter) {
             Constants.Packages.STATE_ENABLED -> getString(io.github.dorumrr.de1984.R.string.packages_filter_enabled)
             Constants.Packages.STATE_DISABLED -> getString(io.github.dorumrr.de1984.R.string.packages_filter_disabled)
             Constants.Packages.STATE_UNINSTALLED -> getString(io.github.dorumrr.de1984.R.string.status_uninstalled)
-            else -> internalFilter // Fallback to original
+            else -> internalFilter
         }
     }
 
-    /**
-     * Map translated profile filter string to internal constant
-     */
     private fun mapProfileFilterToInternal(translatedFilter: String): String {
         return when (translatedFilter) {
             getString(io.github.dorumrr.de1984.R.string.filter_profile_all) -> "All"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_personal) -> "Personal"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_work) -> "Work"
             getString(io.github.dorumrr.de1984.R.string.filter_profile_clone) -> "Clone"
-            else -> "All" // Default fallback
+            else -> "All"
         }
     }
 
-    /**
-     * Map internal constant to translated profile filter string
-     */
     private fun mapInternalToProfileFilter(internalFilter: String): String {
         return when (internalFilter) {
             "All" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
             "Personal" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_personal)
             "Work" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_work)
             "Clone" -> getString(io.github.dorumrr.de1984.R.string.filter_profile_clone)
-            else -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all) // Default fallback
+            else -> getString(io.github.dorumrr.de1984.R.string.filter_profile_all)
         }
     }
 
-    /**
-     * Get translated display name for package category
-     */
     private fun getCategoryDisplayName(category: String): String {
         val stringResId = when (category) {
             "system-core" -> R.string.category_system_core
@@ -1558,7 +1416,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             "vendor" -> R.string.category_vendor
             "unknown" -> R.string.category_unknown
             else -> {
-                // Fallback: format the category string (capitalize words, replace dashes)
                 return category.replace("-", " ").split(" ")
                     .joinToString(" ") { word -> word.replaceFirstChar { char -> char.uppercase() } }
             }
@@ -1566,10 +1423,6 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         return getString(stringResId)
     }
 
-    /**
-     * Show snackbar informing user that package is protected from uninstall.
-     * Provides action button to navigate to Settings.
-     */
     private fun showUninstallProtectionSnackbar(dialog: BottomSheetDialog) {
         val parentView = dialog.window?.decorView ?: requireView()
         Snackbar.make(

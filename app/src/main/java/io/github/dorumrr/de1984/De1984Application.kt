@@ -43,7 +43,6 @@ class De1984Application : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize AppLogger with context for SharedPreferences access
         AppLogger.init(this)
         AppLogger.i(TAG, "Application starting")
 
@@ -51,32 +50,21 @@ class De1984Application : Application() {
         // Must be done early, before any hidden API calls
         HiddenApiHelper.initialize()
 
-        // Apply dynamic colors if enabled
         applyDynamicColorsIfEnabled()
 
-        // Initialize dependencies
         dependencies = De1984Dependencies.getInstance(this)
 
-        // Register Shizuku listeners for lifecycle monitoring
         dependencies.shizukuManager.registerListeners()
 
-        // Set ShizukuManager reference for HiddenApiHelper (Issue #68 - work profile with Shizuku)
         HiddenApiHelper.setShizukuManager(dependencies.shizukuManager)
 
-        // Ensure system-recommended apps have proper rules (Issue #66 - GMS notifications)
         ensureSystemRecommendedRules()
 
-        // Clean up orphaned firewall rules if app was killed while privileged backends were running
         cleanupOrphanedFirewallRules()
 
         AppLogger.i(TAG, "Application initialized")
     }
 
-    /**
-     * Ensure that all system-recommended apps (SYSTEM_RECOMMENDED_ALLOW) have proper "allow all" rules.
-     * This handles existing installations where GMS or other recommended apps don't have rules yet (Issue #66).
-     * Safe to call on every startup - only creates rules for missing packages, respects existing user config.
-     */
     private fun ensureSystemRecommendedRules() {
         dependencies.applicationScope.launch(Dispatchers.IO) {
             try {
@@ -84,17 +72,11 @@ class De1984Application : Application() {
                 useCase.invoke()
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to sync system-recommended rules: ${e.message}")
-                // Ignore errors - this is best-effort
             }
         }
     }
 
-    /**
-     * Clean up orphaned firewall rules that may remain if app was killed while privileged backends were running.
-     * This prevents apps from remaining blocked after app crash/kill.
-     */
     private fun cleanupOrphanedFirewallRules() {
-        // Use application scope for cleanup - this is an app-level operation
         dependencies.applicationScope.launch(Dispatchers.IO) {
             try {
                 val prefs = getSharedPreferences(Constants.Settings.PREFS_NAME, MODE_PRIVATE)
@@ -147,7 +129,6 @@ class De1984Application : Application() {
                     // every process reporting Healthy, with no badge, no banner and nothing to press.
                     val orphans = mutableListOf<Pair<FirewallBackendType, Throwable>>()
 
-                    // Clean up iptables rules
                     try {
                         val iptablesBackend = IptablesFirewallBackend(
                             this@De1984Application,
@@ -165,7 +146,6 @@ class De1984Application : Application() {
                         AppLogger.w(TAG, "Failed to clean up orphaned iptables rules: ${e.message}")
                     }
 
-                    // Clean up ConnectivityManager rules
                     try {
                         val cmBackend = ConnectivityManagerFirewallBackend(
                             this@De1984Application,
@@ -215,7 +195,6 @@ class De1984Application : Application() {
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to clean up orphaned firewall rules: ${e.message}")
-                // Ignore errors - this is best-effort cleanup
             }
         }
     }
@@ -235,7 +214,6 @@ class De1984Application : Application() {
             AppLogger.d(TAG, "applyDynamicColorsIfEnabled: useDynamicColors=$useDynamicColors, SDK=${Build.VERSION.SDK_INT}")
 
             if (useDynamicColors) {
-                // Check if Dynamic Colors is available (Android 12+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     DynamicColors.applyToActivitiesIfAvailable(this)
                     AppLogger.d(TAG, "Dynamic colors enabled and applied (Android 12+)")
@@ -247,7 +225,6 @@ class De1984Application : Application() {
             }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to apply dynamic colors: ${e.message}", e)
-            // Ignore errors - dynamic colors are optional
         }
     }
 }

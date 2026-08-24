@@ -42,15 +42,13 @@ class GetNetworkPackagesUseCase constructor(
     }
 
     fun getFilteredByState(filterState: FirewallFilterState): Flow<List<NetworkPackage>> {
-        // Step 1: Apply package type filter (All, User, or System)
         val baseFlow = when (filterState.packageType.lowercase()) {
             "user" -> getByType(PackageType.USER)
             "system" -> getByType(PackageType.SYSTEM)
-            "all" -> invoke()  // Return all packages
-            else -> invoke()   // Default to all packages
+            "all" -> invoke()
+            else -> invoke()
         }
 
-        // Step 2: Apply profile filter (All, Personal, Work, Clone)
         val profileFilteredFlow = baseFlow.map { packages ->
             when (filterState.profileFilter.lowercase()) {
                 "personal" -> packages.filter { !it.isWorkProfile && !it.isCloneProfile }
@@ -61,17 +59,12 @@ class GetNetworkPackagesUseCase constructor(
             }
         }
 
-        // Step 3: Apply network state filter (Allowed or Blocked) if selected
         val stateFilteredFlow = if (filterState.networkState != null) {
             profileFilteredFlow.map { packages ->
                 when (filterState.networkState.lowercase()) {
-                    // "Allowed" filter: Show apps that are allowed on ANY network
-                    // This includes fully allowed apps AND partially blocked apps (allowed on some networks)
                     "allowed" -> packages.filter { pkg ->
                         !pkg.wifiBlocked || !pkg.mobileBlocked || !pkg.roamingBlocked
                     }
-                    // "Blocked" filter: Show apps that are blocked on ANY network
-                    // This includes fully blocked apps AND partially blocked apps (blocked on some networks)
                     "blocked" -> packages.filter { pkg ->
                         pkg.wifiBlocked || pkg.mobileBlocked || pkg.roamingBlocked
                     }
@@ -82,7 +75,6 @@ class GetNetworkPackagesUseCase constructor(
             profileFilteredFlow
         }
 
-        // Step 4: Apply Internet Only permission filter if enabled
         return if (filterState.internetOnly) {
             stateFilteredFlow.map { packages ->
                 packages.filter { pkg -> pkg.hasInternetPermission }

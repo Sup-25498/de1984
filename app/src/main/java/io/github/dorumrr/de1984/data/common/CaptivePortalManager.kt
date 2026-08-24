@@ -11,15 +11,6 @@ import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Manages Android captive portal detection settings.
- * 
- * Provides read/write access to system captive portal configuration,
- * with support for capturing and restoring original device settings.
- * 
- * Read operations work without privileges (settings get global).
- * Write operations require root or Shizuku (settings put global).
- */
 class CaptivePortalManager(
     private val context: Context,
     private val rootManager: RootManager,
@@ -38,17 +29,10 @@ class CaptivePortalManager(
         context.getSharedPreferences(Constants.CaptivePortal.PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    /**
-     * Check if we have privileges to modify captive portal settings.
-     */
     fun hasPrivileges(): Boolean {
         return rootManager.hasRootPermission || shizukuManager.hasShizukuPermission
     }
 
-    /**
-     * Get current captive portal settings from the system.
-     * This works WITHOUT root/Shizuku (read-only).
-     */
     suspend fun getCurrentSettings(): Result<CaptivePortalSettings> = withContext(Dispatchers.IO) {
         return@withContext try {
             val mode = getSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_MODE)?.toIntOrNull()
@@ -76,17 +60,10 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Check if original settings have been captured.
-     */
     fun hasOriginalSettings(): Boolean {
         return prefs.getBoolean(Constants.CaptivePortal.KEY_ORIGINAL_CAPTURED, false)
     }
 
-    /**
-     * Capture current system settings as "original" for later restoration.
-     * This should be called the first time the user opens the Captive Portal settings.
-     */
     suspend fun captureOriginalSettings(): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (hasOriginalSettings()) {
@@ -145,10 +122,6 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Apply a server preset (Google, GrapheneOS, Kuketz, Cloudflare).
-     * Requires root or Shizuku.
-     */
     suspend fun applyPreset(preset: CaptivePortalPreset): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (!hasPrivileges()) {
@@ -161,13 +134,11 @@ class CaptivePortalManager(
 
             AppLogger.d(TAG, "Applying preset: ${preset.name}")
 
-            // Set HTTP URL
             val httpResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL, preset.httpUrl)
             if (httpResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTP URL: ${httpResult.second}"))
             }
 
-            // Set HTTPS URL
             val httpsResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL, preset.httpsUrl)
             if (httpsResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTPS URL: ${httpsResult.second}"))
@@ -181,10 +152,6 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Set captive portal detection mode.
-     * Requires root or Shizuku.
-     */
     suspend fun setDetectionMode(mode: CaptivePortalMode): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (!hasPrivileges()) {
@@ -206,17 +173,12 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Set custom captive portal URLs.
-     * Requires root or Shizuku.
-     */
     suspend fun setCustomUrls(httpUrl: String, httpsUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (!hasPrivileges()) {
                 return@withContext Result.failure(Exception("Root or Shizuku access required"))
             }
 
-            // Validate URLs
             if (!isValidUrl(httpUrl)) {
                 return@withContext Result.failure(Exception("Invalid HTTP URL: must start with http://"))
             }
@@ -226,13 +188,11 @@ class CaptivePortalManager(
 
             AppLogger.d(TAG, "Setting custom URLs: http=$httpUrl, https=$httpsUrl")
 
-            // Set HTTP URL
             val httpResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL, httpUrl)
             if (httpResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTP URL: ${httpResult.second}"))
             }
 
-            // Set HTTPS URL
             val httpsResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL, httpsUrl)
             if (httpsResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTPS URL: ${httpsResult.second}"))
@@ -246,10 +206,6 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Restore original captive portal settings.
-     * Requires root or Shizuku.
-     */
     suspend fun restoreOriginalSettings(): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (!hasPrivileges()) {
@@ -344,7 +300,6 @@ class CaptivePortalManager(
         ).toString()
     }
 
-    /** As [originalRawMode], for `captive_portal_use_https`. */
     private fun originalRawUseHttps(): String? {
         if (prefs.contains(Constants.CaptivePortal.KEY_ORIGINAL_RAW_FORMAT)) {
             return prefs.getString(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS_RAW, null)
@@ -353,10 +308,6 @@ class CaptivePortalManager(
         return if (prefs.getBoolean(Constants.CaptivePortal.KEY_ORIGINAL_USE_HTTPS, true)) "1" else "0"
     }
 
-    /**
-     * Reset to Google's default captive portal settings.
-     * Requires root or Shizuku.
-     */
     suspend fun resetToGoogleDefaults(): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             if (!hasPrivileges()) {
@@ -365,19 +316,16 @@ class CaptivePortalManager(
 
             AppLogger.d(TAG, "Resetting to Google defaults")
 
-            // Set mode to ENABLED (1)
             val modeResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_MODE, Constants.CaptivePortal.DEFAULT_MODE.toString())
             if (modeResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set mode: ${modeResult.second}"))
             }
 
-            // Set HTTP URL
             val httpResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTP_URL, Constants.CaptivePortal.DEFAULT_HTTP_URL)
             if (httpResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTP URL: ${httpResult.second}"))
             }
 
-            // Set HTTPS URL
             val httpsResult = setSystemSetting(Constants.CaptivePortal.SYSTEM_KEY_HTTPS_URL, Constants.CaptivePortal.DEFAULT_HTTPS_URL)
             if (httpsResult.first != 0) {
                 return@withContext Result.failure(Exception("Failed to set HTTPS URL: ${httpsResult.second}"))
@@ -399,16 +347,13 @@ class CaptivePortalManager(
         return@withContext try {
             val command = "settings get global $key"
 
-            // Try with Shizuku first (if available), then root, then regular shell
             val result = when {
                 shizukuManager.hasShizukuPermission -> shizukuManager.executeShellCommand(command)
                 rootManager.hasRootPermission -> rootManager.executeRootCommand(command)
                 else -> {
-                    // Try regular shell (works for read operations)
                     val process = Runtime.getRuntime().exec(command)
-                    // Read both streams to prevent blocking
                     val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-                    process.errorStream.bufferedReader().use { it.readText() } // Drain error stream
+                    process.errorStream.bufferedReader().use { it.readText() }
                     val exitCode = process.waitFor()
                     process.destroy()
                     Pair(exitCode, output)
@@ -426,10 +371,6 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Write a system setting value.
-     * Requires root or Shizuku.
-     */
     private suspend fun setSystemSetting(key: String, value: String): Pair<Int, String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // Single-quote the value and escape any embedded single quote. Inside single quotes the
@@ -452,12 +393,6 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Remove a system setting, so the framework falls back to its own built-in value.
-     *
-     * Restore needs this: a key that was unset when captured must be put back to unset, not written
-     * with a substitute. Requires root or Shizuku.
-     */
     private suspend fun deleteSystemSetting(key: String): Pair<Int, String> = withContext(Dispatchers.IO) {
         return@withContext try {
             val command = "settings delete global $key"
@@ -473,18 +408,13 @@ class CaptivePortalManager(
         }
     }
 
-    /**
-     * Validate a URL for captive portal use.
-     */
     private fun isValidUrl(url: String): Boolean {
         if (url.isBlank()) return false
 
-        // Must start with http:// or https://
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return false
         }
 
-        // Basic validation: must have a hostname after protocol
         val withoutProtocol = url.substringAfter("://")
         if (withoutProtocol.isBlank() || withoutProtocol.startsWith("/")) {
             return false

@@ -24,7 +24,6 @@ class PackageMonitoringService : Service() {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitoringJob: Job? = null
-    // Track packages by (packageName, userId) for multi-user support
     private var lastKnownPackages: Set<Pair<String, Int>> = emptySet()
 
     /**
@@ -61,7 +60,6 @@ class PackageMonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize dependencies manually
         val app = application as De1984Application
         val deps = app.dependencies
         handleNewAppInstallUseCase = deps.provideHandleNewAppInstallUseCase()
@@ -169,7 +167,6 @@ class PackageMonitoringService : Service() {
 
                 packages
                     .filter { appInfo ->
-                        // Only track user apps with internet permission
                         (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 &&
                         hasInternetPermission(appInfo.packageName, profile.userId)
                     }
@@ -198,8 +195,6 @@ class PackageMonitoringService : Service() {
 
     private suspend fun processNewPackage(packageName: String, userId: Int) {
         try {
-            // Calculate UID for the use case: userId * 100000 + appId
-            // Use HiddenApiHelper for multi-user support - work profile apps need userId to be queried
             val appInfo = try {
                 io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getApplicationInfoAsUser(
                     this, packageName, 0, userId
