@@ -201,7 +201,7 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
 
     private fun setupViews() {
         binding.root.findViewById<com.google.android.material.button.MaterialButton>(R.id.donate_button)?.setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donate.stripe.com/5kQeV6cOgaxGcsf9iD3ZK01"))
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.paypal.me/duoveselia"))
             startActivity(intent)
         }
 
