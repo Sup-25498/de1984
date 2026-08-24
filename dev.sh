@@ -225,28 +225,36 @@ start_emulator() {
     log_info "Emulator starting with PID: $emulator_pid"
     log_info "Waiting for emulator to boot..."
 
-    # Wait for emulator to be ready (max 3 minutes)
+    # Wait for emulator to be ready (max 3 minutes of REAL time)
+    #
+    # Measured from a timestamp, not by adding 5 each pass. The old loop slept 10 EXTRA seconds
+    # inside the "device is visible" branch while still adding only 5 to its counter, so a 180 second
+    # timeout could run for roughly nine minutes.
     local timeout=180
-    local elapsed=0
+    local start_ts=$(date +%s)
+    local announced_device=0
 
-    while [ $elapsed -lt $timeout ]; do
+    while [ $(( $(date +%s) - start_ts )) -lt $timeout ]; do
         if adb devices | grep -q "emulator.*device$"; then
-            log_success "Emulator is ready!"
+            # Announced once. It used to log "Emulator is ready!" on EVERY pass from the moment the
+            # device appeared - long before it had booted - so the line was both repeated and untrue.
+            if [ $announced_device -eq 0 ]; then
+                log_info "Emulator device visible, waiting for boot to complete..."
+                announced_device=1
+            fi
 
-            # Wait a bit more for full boot
-            log_info "Waiting for system to fully boot..."
-            sleep 10
-
-            # Check if boot is complete
-            local boot_complete=$(adb shell getprop sys.boot_completed 2>/dev/null || echo "0")
+            # tr -d '\r' matters: adb returns "1\r\n", command substitution strips only the newline,
+            # and "1\r" never equals "1". Without this the success test could not pass at all and the
+            # wait always ran to the timeout, however long the emulator actually took.
+            local boot_complete=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo "0")
             if [ "$boot_complete" = "1" ]; then
+                echo ""
                 log_success "Emulator fully booted and ready!"
                 return 0
             fi
         fi
 
         sleep 5
-        elapsed=$((elapsed + 5))
         echo -n "."
     done
 

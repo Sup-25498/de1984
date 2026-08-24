@@ -159,11 +159,15 @@ class ShizukuManager(private val context: Context) {
         AppLogger.d(TAG, "=== checkShizukuStatus() called ===")
         AppLogger.d(TAG, "Current status: $currentStatus, hasCheckedOnce: $hasCheckedOnce")
 
-        // Only skip check if we have definitive permission
-        if (hasCheckedOnce && currentStatus == ShizukuStatus.RUNNING_WITH_PERMISSION) {
-            AppLogger.d(TAG, "Skipping check - already have permission")
-            return
-        }
+        // No early return on a cached grant. Revocation that does NOT kill the binder - the user
+        // switching De1984 off inside Shizuku while Shizuku keeps running - fires neither listener:
+        // binderDeadListener only sees the service die, and permissionResultListener only sees the
+        // result of a request WE made. So a cached RUNNING_WITH_PERMISSION never expired. Settings
+        // kept showing "Granted" and every privileged action failed, until the app was restarted.
+        //
+        // Nothing is saved by skipping it: the check is a package lookup, a binder ping and a
+        // permission read, and the eight callers are all lifecycle events - app start, activity
+        // resume, boot, the 15s health job - never a tight loop.
 
         if (!hasCheckedOnce) {
             _shizukuStatus.value = ShizukuStatus.CHECKING

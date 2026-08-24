@@ -175,6 +175,39 @@ class FirewallManager(
      * Initialize backend state by detecting if any backend is currently running.
      * This is needed when the app starts and a backend (e.g., VPN service) is already running.
      */
+    /**
+     * Publish a backend that startup detection found already running.
+     *
+     * Detection itself stays OUTSIDE the lock - it retries five times with backoff, and holding
+     * startStopMutex across that would block the toggle for seconds. Only the WRITE is serialised,
+     * and it yields to anything that got there first.
+     *
+     * That check is the point. This runs from init on its own coroutine with no lock, while a
+     * widget tap, a tile tap or boot restore can be inside startFirewall at the same moment. The
+     * detection result is a snapshot from up to two seconds ago; a start or stop that has already
+     * claimed currentBackend has the newer truth, and overwriting it left the manager pointing at a
+     * backend that had been replaced - so what the UI showed, and what a later stop tore down, was
+     * not what was actually running.
+     *
+     * @return true if this detection was published, false if something else had already claimed it.
+     */
+    private suspend fun claimDetectedBackend(
+        backend: FirewallBackend,
+        type: FirewallBackendType
+    ): Boolean = startStopMutex.withLock {
+        if (currentBackend != null) {
+            AppLogger.d(TAG, "Startup detection found $type, but ${_activeBackendType.value} was claimed first - leaving it alone")
+            return@withLock false
+        }
+
+        currentBackend = backend
+        _activeBackendType.value = type
+        _firewallState.value = FirewallState.Running(type)
+        emitStateChangeBroadcast(_firewallState.value)
+        startBackendHealthMonitoring()
+        true
+    }
+
     private fun initializeBackendState() {
         scope.launch {
             val initStartTime = System.currentTimeMillis()
@@ -197,12 +230,7 @@ class FirewallManager(
                     val vpnBackend = VpnFirewallBackend(context)
                     if (vpnBackend.isActive()) {
                         AppLogger.d(TAG, "Detected VPN backend running on startup (attempt ${attempts + 1})")
-                        currentBackend = vpnBackend
-                        _activeBackendType.value = FirewallBackendType.VPN
-                        _firewallState.value = FirewallState.Running(FirewallBackendType.VPN)
-                        emitStateChangeBroadcast(_firewallState.value)
-                        // VPN monitors internally, no need to start monitoring
-                        startBackendHealthMonitoring()
+                        claimDetectedBackend(vpnBackend, FirewallBackendType.VPN)
                         return@launch
                     }
 
@@ -212,12 +240,7 @@ class FirewallManager(
                     if (iptablesBackend.isActive()) {
                         val iptablesCheckEnd = System.currentTimeMillis()
                         AppLogger.i(TAG, "⏱️ TIMING: Detected iptables backend running (check took ${iptablesCheckEnd - iptablesCheckStart}ms, total elapsed: ${iptablesCheckEnd - initStartTime}ms)")
-                        currentBackend = iptablesBackend
-                        _activeBackendType.value = FirewallBackendType.IPTABLES
-                        _firewallState.value = FirewallState.Running(FirewallBackendType.IPTABLES)
-                        emitStateChangeBroadcast(_firewallState.value)
-                        // Note: iptables backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
-                        startBackendHealthMonitoring()
+                        claimDetectedBackend(iptablesBackend, FirewallBackendType.IPTABLES)
                         return@launch
                     }
 
@@ -225,12 +248,7 @@ class FirewallManager(
                     val cmBackend = ConnectivityManagerFirewallBackend(context, shizukuManager, errorHandler)
                     if (cmBackend.isActive()) {
                         AppLogger.d(TAG, "Detected ConnectivityManager backend running on startup (attempt ${attempts + 1})")
-                        currentBackend = cmBackend
-                        _activeBackendType.value = FirewallBackendType.CONNECTIVITY_MANAGER
-                        _firewallState.value = FirewallState.Running(FirewallBackendType.CONNECTIVITY_MANAGER)
-                        emitStateChangeBroadcast(_firewallState.value)
-                        // Note: ConnectivityManager backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
-                        startBackendHealthMonitoring()
+                        claimDetectedBackend(cmBackend, FirewallBackendType.CONNECTIVITY_MANAGER)
                         return@launch
                     }
 
@@ -238,12 +256,7 @@ class FirewallManager(
                     val npmBackend = NetworkPolicyManagerFirewallBackend(context, shizukuManager, errorHandler)
                     if (npmBackend.isActive()) {
                         AppLogger.d(TAG, "Detected NetworkPolicyManager backend running on startup (attempt ${attempts + 1})")
-                        currentBackend = npmBackend
-                        _activeBackendType.value = FirewallBackendType.NETWORK_POLICY_MANAGER
-                        _firewallState.value = FirewallState.Running(FirewallBackendType.NETWORK_POLICY_MANAGER)
-                        emitStateChangeBroadcast(_firewallState.value)
-                        // Note: NetworkPolicyManager backend is monitored by PrivilegedFirewallService, which observes network, screen and rule changes and applies the rules itself
-                        startBackendHealthMonitoring()
+                        claimDetectedBackend(npmBackend, FirewallBackendType.NETWORK_POLICY_MANAGER)
                         return@launch
                     }
 
@@ -664,6 +677,11 @@ class FirewallManager(
             // still says the firewall stopped.
             val stoppedBackendType = _activeBackendType.value
                 ?: (_firewallHealth.value as? FirewallHealth.StopFailed)?.backend
+                // Last resort: ask the backend object itself. handleVpnConflictFallbackFailed nulls
+                // _activeBackendType on purpose while KEEPING currentBackend, so the health monitor
+                // can still drive recovery - and in that state neither of the two sources above can
+                // name the backend. The sweep would then report a failure against nobody.
+                ?: currentBackend?.getType()
             var stopFailure: Throwable? = null
             currentBackend?.stop()?.onFailure { error ->
                 AppLogger.e(TAG, "Failed to stop current backend ($stoppedBackendType): ${error.message}", error)
