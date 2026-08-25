@@ -507,6 +507,7 @@
     <string name="dialog_import_warning_message">%1$d of %2$d packages found.\n\nFound:\n%3$s\n\nNot found:\n%4$s\n\nContinue with found packages?</string>
     <string name="dialog_import_failed_title">Import Failed</string>
     <string name="dialog_import_all_not_found">❌ None of the %d packages in the file are currently installed</string>
+    <string name="dialog_import_protected_section">🛡️ Skipped as protected (essential or required by De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ The file is empty or contains no valid package names</string>
     <string name="dialog_import_confirm">Uninstall All</string>
     <string name="error_import_requires_privileges">❌ Root or Shizuku required to uninstall apps</string>

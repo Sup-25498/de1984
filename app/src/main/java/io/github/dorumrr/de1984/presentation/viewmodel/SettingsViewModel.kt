@@ -25,6 +25,7 @@ import io.github.dorumrr.de1984.domain.model.CaptivePortalPreset
 import io.github.dorumrr.de1984.domain.model.CaptivePortalSettings
 import io.github.dorumrr.de1984.domain.model.FirewallRulesBackup
 import io.github.dorumrr.de1984.domain.model.Package
+import io.github.dorumrr.de1984.domain.model.PackageCriticality
 import io.github.dorumrr.de1984.domain.model.UninstallBatchResult
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.domain.repository.PackageRepository
@@ -32,6 +33,7 @@ import io.github.dorumrr.de1984.domain.usecase.HandleNewAppInstallUseCase
 import io.github.dorumrr.de1984.domain.usecase.SmartPolicySwitchUseCase
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
+import io.github.dorumrr.de1984.utils.PackageSafetyLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -872,12 +874,30 @@ class SettingsViewModel(
                 val installedPackages = packageRepository.getPackages().first()
                 val installedPackageNames = installedPackages.map { it.packageName }.toSet()
 
-                val packagesToUninstallNames = packageNames.filter { it in installedPackageNames }
                 val packagesNotFound = packageNames.filter { it !in installedPackageNames }
+                val installedFromFile = packageNames.filter { it in installedPackageNames }
+
+                // A package list is a file the user can be handed by anyone. Nothing here checked
+                // criticality: the only filter was "is it installed", so an ESSENTIAL package or
+                // De1984 itself would be uninstalled without the typed confirmation the Packages
+                // screen demands for exactly those apps. Protected packages are dropped from the
+                // batch and reported, never silently uninstalled.
+                val packagesProtected = mutableListOf<String>()
+                val packagesToUninstallNames = mutableListOf<String>()
+                for (name in installedFromFile) {
+                    val isProtected = Constants.App.isOwnApp(name) ||
+                        Constants.Firewall.isSystemCritical(name) ||
+                        PackageSafetyLoader.getCriticality(context, name) == PackageCriticality.ESSENTIAL
+                    if (isProtected) packagesProtected.add(name) else packagesToUninstallNames.add(name)
+                }
 
                 val packagesToUninstall = packagesToUninstallNames.map { it to 0 }
 
-                AppLogger.d(TAG, "📥 IMPORT: Validation - ${packagesToUninstall.size} found, ${packagesNotFound.size} not found")
+                AppLogger.d(TAG, "📥 IMPORT: Validation - ${packagesToUninstall.size} found, " +
+                        "${packagesNotFound.size} not found, ${packagesProtected.size} protected and skipped")
+                if (packagesProtected.isNotEmpty()) {
+                    AppLogger.w(TAG, "📥 IMPORT: refusing to uninstall protected packages: ${packagesProtected.joinToString()}")
+                }
 
                 when {
                     packagesToUninstall.isEmpty() -> {
@@ -892,7 +912,8 @@ class SettingsViewModel(
                             importUninstalledPreview = ImportUninstalledPreview(
                                 totalPackages = packageNames.size,
                                 packagesToUninstall = packagesToUninstall,
-                                packagesNotFound = packagesNotFound
+                                packagesNotFound = packagesNotFound,
+                                packagesProtected = packagesProtected
                             )
                         )
                     }
@@ -1247,7 +1268,9 @@ data class SystemInfo(
 data class ImportUninstalledPreview(
     val totalPackages: Int,
     val packagesToUninstall: List<Pair<String, Int>>,
-    val packagesNotFound: List<String>
+    val packagesNotFound: List<String>,
+    /** Installed, but refused: De1984 itself, system-critical packages, ESSENTIAL packages. */
+    val packagesProtected: List<String> = emptyList()
 )
 
 

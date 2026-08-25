@@ -504,6 +504,7 @@
     <string name="dialog_import_warning_message">%1$d sur %2$d paquets trouvés.\n\nTrouvés:\n%3$s\n\nNon trouvés:\n%4$s\n\nContinuer avec les paquets trouvés?</string>
     <string name="dialog_import_failed_title">Échec de l\'importation</string>
     <string name="dialog_import_all_not_found">❌ Aucun des %d paquets du fichier n\'est actuellement installé</string>
+    <string name="dialog_import_protected_section">🛡️ Ignorés car protégés (essentiels ou requis par De1984) :\n%1$s</string>
     <string name="dialog_import_empty_file">❌ Le fichier est vide ou ne contient aucun nom de paquet valide</string>
     <string name="dialog_import_confirm">Désinstaller tout</string>
     <string name="error_import_requires_privileges">❌ Root ou Shizuku requis pour désinstaller des applications</string>

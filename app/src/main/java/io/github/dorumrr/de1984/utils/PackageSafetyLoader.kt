@@ -14,6 +14,17 @@ object PackageSafetyLoader {
 
     @Volatile
     private var cachedData: PackageSafetyData? = null
+
+    /**
+     * Give up only after repeated failures. Caching the empty result on the FIRST failure made one
+     * transient read - memory pressure, a slow asset open - downgrade every package to UNKNOWN for
+     * the rest of the process, and every uninstall safety rail with it, silently. The asset is
+     * bundled, so a genuine parse error fails identically each time and still settles here.
+     */
+    private const val MAX_LOAD_ATTEMPTS = 3
+
+    @Volatile
+    private var failedAttempts = 0
     private val loadMutex = Mutex()
     private val json = Json { 
         ignoreUnknownKeys = true
@@ -45,13 +56,18 @@ object PackageSafetyLoader {
 
                 data
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed to load safety data", e)
+                failedAttempts++
+                AppLogger.e(TAG, "Failed to load safety data (attempt $failedAttempts of $MAX_LOAD_ATTEMPTS)", e)
                 val emptyData = PackageSafetyData(
                     version = 0,
                     lastUpdated = "",
                     packages = emptyMap()
                 )
-                cachedData = emptyData
+                if (failedAttempts >= MAX_LOAD_ATTEMPTS) {
+                    AppLogger.e(TAG, "Giving up on safety data - every package will read as UNKNOWN " +
+                            "and the uninstall rails will downgrade accordingly")
+                    cachedData = emptyData
+                }
                 emptyData
             }
         }

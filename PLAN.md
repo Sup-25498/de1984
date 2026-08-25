@@ -303,20 +303,20 @@ toggle is stored, shown, and never enforced.
 All 26 entries re-checked against code at v2.6.4 / versionCode 35. Line numbers from the original
 audit had all shifted, so each was verified by pattern, not by line.
 
-**12 fixed · 2 were never defects · 8 still live · 4 unresolved.**
+**17 fixed · 2 were never defects · 3 still live · 4 unresolved.**
 
-## Still live — 8
+Five more were fixed on 2026-08-25: P1-2, P1-10, P1-11, P1-14, P1-22. See "Closed" below.
+
+## Still live — 3
+
+These three were left deliberately: each is a refactor of core firewall code with real regression
+risk, not a contained fix.
 
 | ID | Finding | Evidence today |
 |---|---|---|
-| P1-2 | **Manual VPN health check verifies nothing.** In manual VPN mode it increments `consecutiveSuccessfulHealthChecks` and logs "VPN backend is active" **without ever calling `isActive()`**. The AUTO branch does the same. A killed VPN service is never detected. | `FirewallManager.kt:1075-1079, 1115-1117` |
-| P1-10 | **Package safety DB caches the empty result permanently.** On any parse failure it assigns `cachedData = emptyData` and every app becomes UNKNOWN for the rest of the process, silently downgrading every uninstall rail. | `PackageSafetyLoader.kt`, the `catch` branch |
-| P1-11 | **Work-only apps get a fabricated uid**: `userId * 100000 + 10000 + packageName.hashCode().and(0xFFFF)`. That can produce an appId up to 75535, outside the real app range. Since 2026-08-25 both Shizuku backends skip anything outside `10000..19999`, so these fake uids are now silently dropped rather than sent — better, but the value is still invented. | `HiddenApiHelper.kt:438` |
-| P1-14 | **`onDestroy` cancels the scope the teardown runs in.** `stopFirewall()` launches the real `stopInternal()` into `serviceScope`, and `onDestroy` calls `serviceScope.cancel()` on the very next line. | `PrivilegedFirewallService.kt:180-182, 329` |
-| P1-22 | **"Import uninstalled apps" applies no criticality check.** The file is filtered only on non-empty, not-a-comment, contains-a-dot, then batch-uninstalled. There is a preview and a confirm step now, which the original finding predates, but nothing stops an ESSENTIAL package. | `SettingsViewModel.kt:844, 890-946` |
-| P1-23 | **Nothing survives reinstall.** `allowBackup="false"`, `exportSchema = false`, `fallbackToDestructiveMigration()` with only two migrations written. Partly mitigated by the JSON rules backup, which is a manual, opt-in export. | `AndroidManifest.xml:49`, `De1984Database.kt:13`, `De1984Dependencies.kt:140-141` |
-| P1-24 | **No `withContext` anywhere in `FirewallManager`** — zero occurrences in the whole file. All backend work still runs on the caller's dispatcher, which for UI callers is the main thread. | `FirewallManager.kt`, 0 matches |
-| P1-26 | **Backend switches are non-atomic outside `startFirewall`.** `restartFirewallIfRunning` still stops then starts, so picking a backend in Settings unblocks every app in between. | `SettingsViewModel.kt:548` |
+| P1-23 | **Nothing survives reinstall.** `allowBackup="false"`, `exportSchema = false`, `fallbackToDestructiveMigration()` with only two migrations written. Partly mitigated by the JSON rules backup, which is manual and opt-in. | `AndroidManifest.xml:49`, `De1984Database.kt:13`, `De1984Dependencies.kt:140-141` |
+| P1-24 | **No `withContext` anywhere in `FirewallManager`** — zero occurrences in the whole file. All backend work runs on the caller's dispatcher, which for UI callers is the main thread. | `FirewallManager.kt`, 0 matches |
+| P1-26 | **Backend switches are non-atomic outside `startFirewall`.** `restartFirewallIfRunning` stops then starts, so picking a backend in Settings unblocks every app in between. | `SettingsViewModel.kt:548` |
 
 ## Unresolved — 4, need a closer look than a grep
 
@@ -331,6 +331,11 @@ audit had all shifted, so each was verified by pattern, not by line.
 
 | ID | What fixed it |
 |---|---|
+| P1-2 | **Fixed 2026-08-25.** A `vpnIsHealthy()` guard runs `checkAvailability()` then `isActive()` before either VPN branch can increment the counter, and routes failure through the same `handleBackendFailure` path every other backend uses. |
+| P1-10 | **Fixed 2026-08-25.** The empty result is cached only after `MAX_LOAD_ATTEMPTS` (3) consecutive failures, so one transient asset read no longer downgrades every package to UNKNOWN for the process. Verified on device: 4,983 packages loaded first try. |
+| P1-11 | **Fixed 2026-08-25.** Work-only apps now get their real uid from a cached `pm list packages -U --user N`. When that cannot be answered the uid is `HiddenApiHelper.UID_UNKNOWN` (-1), which fails `isFirewallableAppUid`, so no backend writes a rule against a guessed number. Verified on device: 216 work-profile apps resolved, 0 fell back. |
+| P1-14 | **Fixed 2026-08-25.** `stopFirewall()` records its teardown job and `onDestroy` waits up to 5s for it before cancelling the scope. `serviceScope` is on Dispatchers.IO, so the bounded wait cannot deadlock the main thread it blocks. |
+| P1-22 | **Fixed 2026-08-25.** Import now excludes De1984 itself, system-critical packages and ESSENTIAL packages, and the confirmation dialog lists what it refused rather than dropping them silently. |
 | P1-4 | `MainActivity.renderFirewallHealthBanner` + `FirewallHealthPresenter`. Health is rendered, and the banner is deliberately not dismissible. |
 | P1-5 | `De1984Application.cleanupOrphanedFirewallRules()` sweeps orphaned rules when `KEY_FIREWALL_ENABLED` is false. **Partial:** it clears rules, does not stop the service and does not touch VPN. |
 | P1-7 | `allowAllApps` / `blockAllApps` now set wifi + mobile + roaming + **lan**, with a comment stating the rule. |

@@ -340,6 +340,7 @@ object HiddenApiHelper {
     }
 
     fun clearInstalledAppsCache() {
+        synchronized(this) { packageUidsCache.clear() }
         installedAppsCache.clear()
         installedAppsCacheTime = 0
         networkPackagesCache = null
@@ -430,12 +431,25 @@ object HiddenApiHelper {
                     this.enabled = isEnabled
                 }
             } else {
-                // App only exists in work profile, create minimal info
-                // Use a reasonable default UID (we'll get the real one from iptables if needed)
+                // App exists only in this profile, so there is no personal-profile uid to derive
+                // from. Ask the shell for the real one; it answers for the whole user in a single
+                // call and the result is cached.
+                //
+                // The fallback is deliberately NOT a plausible app uid. This used to be
+                // `userId * 100000 + 10000 + packageName.hashCode().and(0xFFFF)`, which looks like a
+                // real uid, lands anywhere in 10000..75535, and was handed to the firewall backends
+                // as if it were one - so a rule could be written against a uid belonging to some
+                // other app, or to nothing at all. UID_UNKNOWN cannot be mistaken for an app: it
+                // fails Constants.Firewall.isFirewallableAppUid, so no privileged backend acts on
+                // it, and iptables rejects it rather than matching something real.
+                val realUid = getPackageUidsForUser(context, userId)[packageName]
+                if (realUid == null) {
+                    AppLogger.w(TAG, "No uid available for $packageName in user $userId - " +
+                            "marking it UID_UNKNOWN; the firewall will not act on it")
+                }
                 ApplicationInfo().apply {
                     this.packageName = packageName
-                    // Estimate UID - this may not be accurate but is good enough for display
-                    this.uid = userId * 100000 + 10000 + packageName.hashCode().and(0xFFFF)
+                    this.uid = realUid ?: UID_UNKNOWN
                     this.flags = 0
                     this.enabled = isEnabled
                 }
@@ -444,6 +458,71 @@ object HiddenApiHelper {
             AppLogger.d(TAG, "Failed to create synthetic ApplicationInfo for $packageName: ${e.message}")
             null
         }
+    }
+
+    /**
+     * A uid that is not, and cannot be mistaken for, an installed app.
+     *
+     * Used when the real uid cannot be determined. It fails
+     * [io.github.dorumrr.de1984.utils.Constants.Firewall.isFirewallableAppUid], so the privileged
+     * backends skip it instead of writing a rule against a number that belongs to someone else.
+     */
+    const val UID_UNKNOWN = -1
+
+    private val packageUidsCache = mutableMapOf<Int, Map<String, Int>>()
+
+    /**
+     * packageName -> uid for one user, from `pm list packages -U`. One shell call per user, cached
+     * until [clearInstalledAppsCache]. Empty when no privileged shell is available.
+     */
+    @Synchronized
+    private fun getPackageUidsForUser(context: Context, userId: Int): Map<String, Int> {
+        packageUidsCache[userId]?.let { return it }
+
+        val lines = getPackageUidLinesViaShell(userId)
+        val map = lines.mapNotNull { line ->
+            val body = line.removePrefix("package:").trim()
+            val uid = body.substringAfterLast("uid:", "").trim().toIntOrNull() ?: return@mapNotNull null
+            val name = body.substringBefore(" uid:").trim()
+            if (name.isEmpty()) null else name to uid
+        }.toMap()
+
+        if (map.isNotEmpty()) {
+            packageUidsCache[userId] = map
+        }
+        return map
+    }
+
+    private fun getPackageUidLinesViaShell(userId: Int): List<String> {
+        val command = "pm list packages -U --user $userId"
+
+        try {
+            val cachedShell = Shell.getCachedShell()
+            if (cachedShell != null && cachedShell.isRoot) {
+                val out = mutableListOf<String>()
+                val result = cachedShell.newJob().add(command).to(out).exec()
+                if (result.isSuccess) return out.filter { it.startsWith("package:") }
+            }
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Root shell uid query failed for user $userId: ${e.message}")
+        }
+
+        // Same runBlocking shape as getPackageListViaShizuku above, which already reaches this file's
+        // callers, so this adds no new class of risk - and the result is cached per user, so it runs
+        // once. Without it a Shizuku-only user gets UID_UNKNOWN for every work-only app and the
+        // firewall leaves them alone entirely.
+        val manager = shizukuManager
+        if (manager != null && manager.hasShizukuPermission) {
+            return try {
+                val (exitCode, output) = runBlocking { manager.executeShellCommand(command) }
+                if (exitCode == 0) output.lines().filter { it.startsWith("package:") } else emptyList()
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Shizuku uid query failed for user $userId: ${e.message}")
+                emptyList()
+            }
+        }
+
+        return emptyList()
     }
 
     private fun getPackageListViaShell(userId: Int): List<String> {

@@ -516,7 +516,7 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
         }
 
         state.importUninstalledPreview?.let { preview ->
-            if (preview.packagesNotFound.isEmpty()) {
+            if (preview.packagesNotFound.isEmpty() && preview.packagesProtected.isEmpty()) {
                 showImportPreviewDialog(preview)
             } else {
                 showImportWarningDialog(preview)
@@ -1660,6 +1660,19 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
             ""
         }
 
+        // Protected packages were refused, not missed. Saying so is the point of dropping them.
+        val protectedText = if (preview.packagesProtected.isEmpty()) {
+            ""
+        } else {
+            val list = preview.packagesProtected.take(10).joinToString("\n") { pkg -> "• $pkg" }
+            val more = if (preview.packagesProtected.size > 10) {
+                "\n${getString(R.string.batch_uninstall_results_and_more, preview.packagesProtected.size - 10)}"
+            } else {
+                ""
+            }
+            "\n\n" + getString(R.string.dialog_import_protected_section, list + more)
+        }
+
         StandardDialog.showConfirmation(
             context = requireContext(),
             title = getString(R.string.dialog_import_warning_title),
@@ -1669,7 +1682,7 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
                 preview.totalPackages,
                 foundList + foundMoreText,
                 notFoundList + notFoundMoreText
-            ),
+            ) + protectedText,
             confirmButtonText = getString(R.string.dialog_import_confirm),
             cancelButtonText = getString(R.string.dialog_cancel),
             onConfirm = {

@@ -507,6 +507,7 @@
     <string name="dialog_import_warning_message">Найдено %1$d из %2$d пакетов.\n\nНайдены:\n%3$s\n\nНе найдены:\n%4$s\n\nПродолжить с найденными пакетами?</string>
     <string name="dialog_import_failed_title">Ошибка импорта</string>
     <string name="dialog_import_all_not_found">❌ Ни один из %d пакетов в файле не установлен</string>
+    <string name="dialog_import_protected_section">🛡️ Пропущены как защищённые (важные или необходимые для De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ Файл пуст или не содержит допустимых имён пакетов</string>
     <string name="dialog_import_confirm">Удалить все</string>
     <string name="error_import_requires_privileges">❌ Требуется Root или Shizuku для удаления приложений</string>

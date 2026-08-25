@@ -33,6 +33,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Foreground service for privileged firewall backends (iptables, ConnectivityManager, NetworkPolicyManager).
@@ -52,6 +54,19 @@ class PrivilegedFirewallService : Service() {
     private lateinit var screenStateMonitor: ScreenStateMonitor
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * The real teardown, which runs asynchronously in [serviceScope]. [onDestroy] waits on it for a
+     * bounded time before cancelling the scope.
+     */
+    private var teardownJob: Job? = null
+
+    /**
+     * How long [onDestroy] will wait for the teardown. Bounded so a wedged backend cannot turn a
+     * service destroy into an ANR; [serviceScope] runs on Dispatchers.IO, so the wait cannot
+     * deadlock against the main thread it blocks.
+     */
+    private val teardownGraceMs = 5000L
     private var monitoringJob: Job? = null
     private var healthMonitoringJob: Job? = null
     private var ruleApplicationJob: Job? = null
@@ -179,6 +194,14 @@ class PrivilegedFirewallService : Service() {
 
     override fun onDestroy() {
         stopFirewall()
+
+        // Wait for the teardown before killing the scope it runs in. Cancelling on the next line
+        // used to abort stopInternal() mid-flight, so a service destroyed without an explicit
+        // ACTION_STOP left DROP rules on the device with nothing left running to remove them.
+        runBlocking {
+            withTimeoutOrNull(teardownGraceMs) { teardownJob?.join() }
+        } ?: AppLogger.w(TAG, "Teardown did not finish within ${teardownGraceMs}ms - cancelling anyway")
+
         serviceScope.cancel()
 
         try {
@@ -326,7 +349,7 @@ class PrivilegedFirewallService : Service() {
         consecutiveSuccessfulHealthChecks = 0
         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
 
-        serviceScope.launch {
+        teardownJob = serviceScope.launch {
             val backend = currentBackend
             val backendType = currentBackendType
 

@@ -514,6 +514,7 @@
     <string name="dialog_import_warning_message">找到 %1$d / %2$d 个软件包。\n\n已找到：\n%3$s\n\n未找到：\n%4$s\n\n继续处理已找到的软件包？</string>
     <string name="dialog_import_failed_title">导入失败</string>
     <string name="dialog_import_all_not_found">❌ 文件中的 %d 个软件包当前均未安装</string>
+    <string name="dialog_import_protected_section">🛡️ 已跳过受保护的应用（必要应用或 De1984 所需）：\n%1$s</string>
     <string name="dialog_import_empty_file">❌ 文件为空或不包含有效的软件包名称</string>
     <string name="dialog_import_confirm">全部卸载</string>
     <string name="error_import_requires_privileges">❌ 需要 Root 或 Shizuku 权限才能卸载应用</string>

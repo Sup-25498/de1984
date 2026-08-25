@@ -504,6 +504,7 @@
     <string name="dialog_import_warning_message">%1$d de %2$d pacotes encontrados.\n\nEncontrados:\n%3$s\n\nNão encontrados:\n%4$s\n\nContinuar com os pacotes encontrados?</string>
     <string name="dialog_import_failed_title">Importação falhou</string>
     <string name="dialog_import_all_not_found">❌ Nenhum dos %d pacotes no arquivo está atualmente instalado</string>
+    <string name="dialog_import_protected_section">🛡️ Ignorados por serem protegidos (essenciais ou necessários ao De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ O arquivo está vazio ou não contém nomes de pacotes válidos</string>
     <string name="dialog_import_confirm">Desinstalar tudo</string>
     <string name="error_import_requires_privileges">❌ Root ou Shizuku necessário para desinstalar apps</string>

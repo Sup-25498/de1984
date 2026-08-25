@@ -506,6 +506,7 @@
     <string name="dialog_import_warning_message">%1$d din %2$d pachete găsite.\n\nGăsite:\n%3$s\n\nNegăsite:\n%4$s\n\nContinuă cu pachetele găsite?</string>
     <string name="dialog_import_failed_title">Import eșuat</string>
     <string name="dialog_import_all_not_found">❌ Niciunul dintre cele %d pachete din fișier nu este instalat în prezent</string>
+    <string name="dialog_import_protected_section">🛡️ Ignorate pentru că sunt protejate (esențiale sau necesare pentru De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ Fișierul este gol sau nu conține nume de pachete valide</string>
     <string name="dialog_import_confirm">Dezinstalează tot</string>
     <string name="error_import_requires_privileges">❌ Root sau Shizuku necesar pentru a dezinstala aplicații</string>

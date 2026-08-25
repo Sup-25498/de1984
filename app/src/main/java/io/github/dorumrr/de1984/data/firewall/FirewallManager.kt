@@ -1070,6 +1070,15 @@ class FirewallManager(
                     // BUT: Only switch if user is in AUTO mode. If user manually selected VPN mode,
                     // respect their choice - they may have a reason for using VPN specifically.
                     if (backendType == FirewallBackendType.VPN) {
+                        // Ask the backend before claiming it is healthy. Both VPN branches below
+                        // incremented the success counter and logged "VPN backend is active" without
+                        // ever checking, so a killed VPN service was never detected: the tunnel was
+                        // gone, every app was unblocked, and the health check kept reporting success
+                        // until the interval stretched to 60s. Same two-step as every other backend.
+                        if (!vpnIsHealthy(backend, backendType)) {
+                            break
+                        }
+
                         val currentMode = getCurrentMode()
                         
                         if (currentMode == FirewallMode.VPN) {
@@ -1163,6 +1172,35 @@ class FirewallManager(
                 }
             }
         }
+    }
+
+    /**
+     * True when the VPN backend is still up. On false it has already reported the failure and reset
+     * the health counters, exactly as the non-VPN path does, and the caller must break the loop.
+     */
+    private suspend fun vpnIsHealthy(backend: FirewallBackend, backendType: FirewallBackendType): Boolean {
+        val availabilityResult = backend.checkAvailability()
+        if (availabilityResult.isFailure) {
+            AppLogger.e(TAG, "❌ Health check FAILED: VPN backend is no longer available!")
+            AppLogger.e(TAG, "Error: ${availabilityResult.exceptionOrNull()?.message}")
+            failHealthCheck(backendType)
+            return false
+        }
+
+        if (!backend.isActive()) {
+            AppLogger.e(TAG, "❌ Health check FAILED: VPN backend is not active!")
+            failHealthCheck(backendType)
+            return false
+        }
+
+        return true
+    }
+
+    private suspend fun failHealthCheck(backendType: FirewallBackendType) {
+        AppLogger.e(TAG, "Resetting health check interval to initial value (${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS}ms)")
+        consecutiveSuccessfulHealthChecks = 0
+        currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
+        handleBackendFailure(backendType)
     }
 
     /**
