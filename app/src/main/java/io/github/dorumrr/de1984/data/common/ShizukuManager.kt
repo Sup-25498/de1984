@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
+import rikka.shizuku.ShizukuProvider
 import rikka.shizuku.SystemServiceHelper
 import rikka.sui.Sui
 
@@ -207,12 +208,26 @@ class ShizukuManager(private val context: Context) {
             context.packageManager.getPackageInfo(SHIZUKU_PACKAGE_NAME, 0)
             AppLogger.d(TAG, "isShizukuInstalled: Standalone Shizuku package found")
             true
-        } catch (e: PackageManager.NameNotFoundException) {
-            AppLogger.d(TAG, "isShizukuInstalled: No Shizuku package and no SUI")
-            false
         } catch (e: Exception) {
-            AppLogger.d(TAG, "isShizukuInstalled: Error checking package: ${e.message}")
-            false
+            // A "hide Shizuku from other apps" build renames the package, so the fixed id above
+            // finds nothing while Shizuku is running fine. The permission it declares keeps its
+            // name, and its owner is the manager. See issue #92.
+            val owner = shizukuPackageFromPermission()
+            if (owner != null) {
+                AppLogger.d(TAG, "isShizukuInstalled: Shizuku found via permission owner: $owner")
+                true
+            } else {
+                AppLogger.d(TAG, "isShizukuInstalled: No Shizuku package and no SUI")
+                false
+            }
+        }
+    }
+
+    private fun shizukuPackageFromPermission(): String? {
+        return try {
+            context.packageManager.getPermissionInfo(ShizukuProvider.PERMISSION, 0).packageName
+        } catch (e: Exception) {
+            null
         }
     }
 
