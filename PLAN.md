@@ -298,42 +298,65 @@ toggle is stored, shown, and never enforced.
 
 ---
 
-# The 2026-08-22 catalogue — NOT re-verified since
+# The 2026-08-22 P1 catalogue — RE-VERIFIED 2026-08-25
 
-Everything below was verified against code on **2026-08-22, at v2.6.2 / versionCode 33**. Three
-sessions of fixes have landed since and **none of these entries has been re-checked**. Treat every
-row as a lead to verify, not as a fact.
+All 26 entries re-checked against code at v2.6.4 / versionCode 35. Line numbers from the original
+audit had all shifted, so each was verified by pattern, not by line.
 
-## P1 — wrong results the user will notice
+**12 fixed · 2 were never defects · 8 still live · 4 unresolved.**
 
-| ID | Finding | Evidence | Status |
-|---|---|---|---|
-| P1-2 | Manual VPN mode health check never verifies anything — it increments the success counter without calling `isActive()`. A killed VPN service is never detected. | `FirewallManager.kt:984-988` | VERIFIED |
-| P1-3 | Privilege-gain switch stops VPN first, and on failure only logs: `isFirewallDown` stays false, no notification, no broadcast, and `break` ends health monitoring. | `FirewallManager.kt:1009-1022` | VERIFIED |
-| P1-4 | `Error` state has **no UI consumer at all**. The user cannot tell "I turned it off" from "protection collapsed". | `MainActivity.kt`, `FirewallViewModel.kt:123-132` | VERIFIED |
-| P1-5 | Init Case C not implemented: a detected running backend is adopted as Running without ever reading `KEY_FIREWALL_ENABLED`. | `FirewallManager.kt:167-243` | VERIFIED |
-| P1-6 | `migrateRulesToSimple` permanently rewrites partial rules to block-all on any granular→simple switch. Switching back does not restore. | `FirewallManager.kt:730-764` | VERIFIED |
-| P1-7 | Bulk "Allow All" clears wifi+mobile but not roaming; single-app `allowAll()` clears all three. | `FirewallRuleDao.kt:74` vs `FirewallRule.kt:33,66` | VERIFIED |
-| P1-8 | "Block all networks" leaves LAN open — `setAllNetworkBlocking` creates the rule without `lanBlocked`. | `AndroidPackageDataSource.kt:1188` | VERIFIED |
-| P1-9 | Batch confirmation counts only **visible** selections but uninstalls **every** selected package. | `PackagesFragmentViews.kt:1253,1294,1302` | INFERRED |
-| P1-10 | Package safety DB fails open and caches the empty result **permanently**. One parse error → every app becomes unknown. | `PackageSafetyLoader.kt:55-66` | VERIFIED |
-| P1-11 | Work-only apps get a UID fabricated from `packageName.hashCode()`, then fed to the firewall backends as a real uid. | `HiddenApiHelper.kt:438` | INFERRED |
-| P1-12 | ConnectivityManager backend keys policy by package name only, ignoring `userId`. | `ConnectivityManagerFirewallBackend.kt:243` | VERIFIED |
-| P1-13 | Failed rule writes are never reverted — the "revert by reloading" path replays the already-mutated cache. | `FirewallViewModel.kt:315` | VERIFIED |
-| P1-14 | `PrivilegedFirewallService.onDestroy` cancels the coroutine that tears iptables down, leaving DROP rules on the device. | `PrivilegedFirewallService.kt:165` | INFERRED |
-| P1-15 | Both services return `START_STICKY` but `stopSelf` on the null redelivered intent — after a process kill the firewall fails open. | `FirewallVpnService.kt:136` | INFERRED |
-| P1-16 | iptables DROP rules accumulate across restarts: `blockedUids` is per-instance, `startInternal` never flushes the chain. | `IptablesFirewallBackend.kt:91,500,712` | INFERRED |
-| P1-17 | iptables `stop()` is fire-and-forget `startService` returning success unconditionally. | `IptablesFirewallBackend.kt:90-105` | INFERRED |
-| P1-18 | ConnectivityManager per-package denies are never reverted on stop — only the global chain is switched off. | `ConnectivityManagerFirewallBackend.kt:137-150` | VERIFIED |
-| P1-19 | VPN tunnel is IPv4-only. Blocked apps reach the network over IPv6. | `FirewallVpnService.kt:619-624` | VERIFIED |
-| P1-20 | Widget/tile toggle always starts `FirewallMode.AUTO`, ignoring a sticky manual choice. | `FirewallToggleReceiver.kt` | VERIFIED |
-| P1-21 | User apps uninstall permanently with one tap; batch-of-50 is one ordinary button while one ESSENTIAL app requires typing "UNINSTALL". Friction is inverted. | `PackagesFragmentViews.kt:1122-1129` | VERIFIED |
-| P1-22 | Settings "import uninstalled apps" applies **no criticality check** — filters only on "is installed", forces `userId=0`, batch-uninstalls. | `SettingsViewModel.kt:888-892` | VERIFIED |
-| P1-23 | Nothing survives reinstall. `allowBackup=false`, Room destructive fallback, schema export off. | `AndroidManifest.xml:49` | VERIFIED |
-| P1-24 | All backend work runs on the caller's dispatcher — `su` probes, iptables `isActive()` and Room queries run on the main thread on every `onResume`. | `FirewallManager.kt:288,2320` | VERIFIED |
-| P1-25 | `catch (e: Exception)` swallows `CancellationException` in six places. | `FirewallManager.kt:580,630,828,885,1080,1760` | INFERRED |
-| P1-26 | Backend switches are non-atomic outside `startFirewall`: picking a backend in Settings unblocks every app for at least half a second. | `FirewallManager.kt:2244-2258` | VERIFIED |
-| P1-27 | Under iptables, state monitoring never starts, so `currentNetworkType` stays `NONE` for the whole session. | `FirewallManager.kt:112-113,207` | INFERRED |
+## Still live — 8
+
+| ID | Finding | Evidence today |
+|---|---|---|
+| P1-2 | **Manual VPN health check verifies nothing.** In manual VPN mode it increments `consecutiveSuccessfulHealthChecks` and logs "VPN backend is active" **without ever calling `isActive()`**. The AUTO branch does the same. A killed VPN service is never detected. | `FirewallManager.kt:1075-1079, 1115-1117` |
+| P1-10 | **Package safety DB caches the empty result permanently.** On any parse failure it assigns `cachedData = emptyData` and every app becomes UNKNOWN for the rest of the process, silently downgrading every uninstall rail. | `PackageSafetyLoader.kt`, the `catch` branch |
+| P1-11 | **Work-only apps get a fabricated uid**: `userId * 100000 + 10000 + packageName.hashCode().and(0xFFFF)`. That can produce an appId up to 75535, outside the real app range. Since 2026-08-25 both Shizuku backends skip anything outside `10000..19999`, so these fake uids are now silently dropped rather than sent — better, but the value is still invented. | `HiddenApiHelper.kt:438` |
+| P1-14 | **`onDestroy` cancels the scope the teardown runs in.** `stopFirewall()` launches the real `stopInternal()` into `serviceScope`, and `onDestroy` calls `serviceScope.cancel()` on the very next line. | `PrivilegedFirewallService.kt:180-182, 329` |
+| P1-22 | **"Import uninstalled apps" applies no criticality check.** The file is filtered only on non-empty, not-a-comment, contains-a-dot, then batch-uninstalled. There is a preview and a confirm step now, which the original finding predates, but nothing stops an ESSENTIAL package. | `SettingsViewModel.kt:844, 890-946` |
+| P1-23 | **Nothing survives reinstall.** `allowBackup="false"`, `exportSchema = false`, `fallbackToDestructiveMigration()` with only two migrations written. Partly mitigated by the JSON rules backup, which is a manual, opt-in export. | `AndroidManifest.xml:49`, `De1984Database.kt:13`, `De1984Dependencies.kt:140-141` |
+| P1-24 | **No `withContext` anywhere in `FirewallManager`** — zero occurrences in the whole file. All backend work still runs on the caller's dispatcher, which for UI callers is the main thread. | `FirewallManager.kt`, 0 matches |
+| P1-26 | **Backend switches are non-atomic outside `startFirewall`.** `restartFirewallIfRunning` still stops then starts, so picking a backend in Settings unblocks every app in between. | `SettingsViewModel.kt:548` |
+
+## Unresolved — 4, need a closer look than a grep
+
+| ID | Finding | Why it is unresolved |
+|---|---|---|
+| P1-3 | Privilege-gain switch stops VPN first and on failure only logs | The surrounding code was heavily rewritten by the `reportStartFailure` work. Whether this specific exit now reports down was not established. |
+| P1-9 | Batch confirmation counts only visible selections but uninstalls all selected | `PackagesFragmentViews.kt:1133` uses `selectedPackages.size`. Whether that set is the visible subset or the full selection needs the selection-mode code read end to end. |
+| P1-13 | Failed rule writes revert by reloading, which may replay the mutated cache | `onFailure` calls `loadNetworkPackages()`. If that re-reads the repository the revert is correct; if it serves a cache the finding stands. Not settled. |
+| P1-21 | Uninstall friction is inverted — batch-of-50 is one button, one ESSENTIAL app needs typing "UNINSTALL" | A product judgement as much as a defect. Needs a decision, not a grep. |
+
+## Closed — 12 fixed
+
+| ID | What fixed it |
+|---|---|
+| P1-4 | `MainActivity.renderFirewallHealthBanner` + `FirewallHealthPresenter`. Health is rendered, and the banner is deliberately not dismissible. |
+| P1-5 | `De1984Application.cleanupOrphanedFirewallRules()` sweeps orphaned rules when `KEY_FIREWALL_ENABLED` is false. **Partial:** it clears rules, does not stop the service and does not touch VPN. |
+| P1-7 | `allowAllApps` / `blockAllApps` now set wifi + mobile + roaming + **lan**, with a comment stating the rule. |
+| P1-12 | ConnectivityManager keys by `"$packageName:$userId"`. |
+| P1-15 | `FirewallVpnService` returns `START_NOT_STICKY` on every failure path; `BackendMonitoringService.onStartCommand` uses `when (intent?.action)`, so a null redelivered intent no-ops instead of calling `stopSelf`. |
+| P1-16 | `stopInternal` deletes the chains and then **asks the kernel** rather than trusting exit codes. Process-kill leftovers are covered by the startup sweep. |
+| P1-17 | `stop()` is still fire-and-forget by design, but the real teardown now calls `reportTeardownFailure`, which raises `FirewallHealth.StopFailed`. The lie the finding described — "stopped successfully" over live DROP rules — is gone. |
+| P1-18 | `stopInternal` calls `restoreBlockedPackages()`. |
+| P1-19 | The tunnel adds `fd00:1984::2/64` and routes `::/0`. |
+| P1-20 | `FirewallToggleReceiver` and `VpnPermissionActivity` both use `getCurrentMode()`, and write `KEY_FIREWALL_ENABLED=true` only on success. |
+| P1-25 | `ErrorHandler.handleError` re-throws `CancellationException` before anything else, marked CRITICAL in a comment. |
+| P1-27 | Network and screen monitoring moved into `PrivilegedFirewallService.startMonitoring()`, which runs for iptables. (`FirewallManager.startMonitoring()` is the one with zero callers — see section 4.) |
+
+## Never defects — 2
+
+- **P1-6 `migrateRulesToSimple` rewrites partial rules to block-all.** This is the documented,
+  deliberate conservative rule for granular → simple transitions. "Switching back does not restore"
+  is still true and still accepted. Recorded in FIREWALL.md section 3.
+- **P1-8 "Block all networks leaves LAN open".** Two different operations were being compared.
+  `updateAllNetworkBlocking` backs the **Internet Access** toggle — WiFi, Mobile, Roaming — and its
+  DAO comment says so. **Block All** in the policy sense goes through `blockAllApps` /
+  `FirewallRule.blockAll()`, which do include LAN. Consistent with the settled decision.
+
+---
+
+# The rest of the 2026-08-22 catalogue — NOT re-verified
 
 ## dev.sh traps
 
