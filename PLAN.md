@@ -2,99 +2,77 @@
 
 What is **still wrong or still undecided**. Closed findings are not here.
 
-Anything fixed, or decided and left alone, has been removed. Nothing is lost — the full 3,527-line
-audit log and every closed finding live in git:
-
-```
-git show f8f45d2:PLAN.md      # the original log
-git log --follow -p PLAN.md   # what was removed, and when
-```
-
-Settled decisions are not findings; they are kept under **Reference** below because future work needs
-them.
-
 **Trust order: current code and tests first, this file second.** Every claim below was true when
 written. Verify against code before acting on any of it.
 
 Status key: `VERIFIED` = read in code, line cited. `NEEDS-RUNTIME` = needs a real device.
 `INFERRED` = strongly implied by code, not directly observed.
 
-Last distilled: 2026-08-25 · against v2.6.5 (versionCode 36)
+Last distilled: 2026-08-25 · against v2.6.5 (versionCode 36) + 10 unreleased commits
+
+Nothing is lost. The full 3,527-line audit log and every closed finding live in git:
+
+```
+git show f8f45d2:PLAN.md      # the original log
+git log --follow -p PLAN.md   # what was removed, and when
+```
 
 ---
 
-# 1. Boot protection (P0-1)
+# Open — 1
 
-Part A (self-healing script), Part B (forced reboot on both toggles) and the scenario 5 recovery are
-implemented. What remains:
+Everything else was closed on 2026-08-25 (see **Closed** at the end). This one was kept because it is
+a live wrong answer from a function the firewall trusts.
 
-- **The scenario 5 recovery is NOT verified on hardware.** `NEEDS-RUNTIME`. Staging it needs boot
-  protection installed *and* root revoked at the same time; the test device has root and no script,
-  so the branch never renders there. Build, lint and the hidden-by-default state are verified. The
-  removal itself, the "root is really gone" message and the restart screen are code-review only.
-- **Lockout scenario 4 is still live**, bounded to ~120s by the self-heal timer rather than
-  permanent. Trigger: root not ready at boot, or a third-party VPN connected, so `startFirewall()`
-  fails. The app now lifts the block on that failure path — but lifting it *also* needs root, so
-  when root is the thing that is missing, the script's own timer is the only way out.
-- `clearBootBlockIfInstalled` calls `forceRecheckRootStatus()` when privilege is missing; libsu is
-  configured with a 30s timeout, inside a BroadcastReceiver's ~10s budget. Not bounded: at boot the
-  root wake genuinely can take seconds, and cutting it short would fail the lift it exists to do.
-- `BootWorker:91-105` still has a preference-gated `resetIptablesPolicies()` that is redundant.
-  Harmless and idempotent, but it is a second way to do the same thing. Not removed: in the case
-  "preference true, script absent" the two differ, and that difference has not been reasoned through.
+## 1. `getInstalledApplicationsAsUser` is flaky for the work profile
 
-**The lock screen makes this worse.** The boot script runs at `post-fs-data`, before decryption. The
-app's recovery runs on `BOOT_COMPLETED`, which on an encrypted device fires only **after the user
-unlocks**. A phone that reboots overnight has no app network until morning; a user who cannot unlock
-never recovers at all. The 120-second timer is the only backstop.
+Observed twice on 2026-08-25: `Profile 10 (Work): ... returned 0 packages` from the hidden API,
+before a Shizuku fallback found 216.
 
-**Open decision.** The normal enable/disable toggles restart with no "Restarting…" screen; the
-scenario 5 recovery has one. The toggles sit behind a warning dialog the user has just read, which is
-why they were built that way. Making it one rule for all three would edit settled decision 1.
+Nothing is known to break today, but it is a **live wrong answer from a function the firewall
+trusts**, and it is the root cause under two other entries:
+
+- it is why `AndroidPackageDataSource.hasNetworkPermissions` must stay a per-package call and cannot
+  read a whole-profile scan (see the comment there);
+- it caps the `getPackageInfoAsUser` cache at a ~49% hit rate, because the UI sweep never caches
+  work-profile packages it was told do not exist.
+
+Work-profile package events also reach neither receiver, which is the same subsystem and is why
+`clearInstalledAppsCache()` on the UI path cannot simply be dropped.
 
 ---
 
-# 2. Firewall health and error reporting
+# Verified on hardware 2026-08-25 — scenario 5
 
-- **Scroll jump during a real backend failure on device.** `NEEDS-RUNTIME`. Not the banner, not a
-  state change. Suspect the work-profile package query failing while Shizuku is down. Needs a repro.
-- **No `-w` on any iptables command.** `IptablesFirewallBackend` builds every command without the
-  xtables lock-wait flag — verified 2026-08-25 across all of `createCustomChains`,
-  `deleteCustomChains`, `blockApp`, `unblockApp` and the batch paths. The process-wide mutex added
-  on 2026-08-25 fixes contention *inside* De1984 only; another app or the system touching iptables
-  at the same moment still fails outright. **No such failure has been observed in any log**, so this
-  is recorded, not fixed — adding `-w` touches every command and should be backed by evidence.
-  (`BootProtectionManager` already uses `-w 5`, so the pattern exists if it is ever needed.)
+Both halves of the boot-protection recovery have now executed on a real device.
 
----
+**Failure path.** Staged by revoking De1984's Shizuku authorisation — root was already denied for the
+debug build, so Shizuku running as root was the actual privilege source, and `pm revoke` does not
+reach it because Shizuku holds its own list. With `bootProtectionAvailable=false` and the preference
+true: the stuck row rendered with text that no longer says to run `su`; the "Try to remove" button
+appeared and only there; it reused the disable warning, which already says the device will restart;
+on Continue, `BootProtectionManager.kt:305` threw `NoPrivilegeException` and the user was told
+*"Could not remove it. De1984 still has no root access… Restore root and try again."* **No `rm` ran
+and no reboot happened.**
 
-# 3. Performance and architecture
+**Success path.** With the button already rendered, De1984's Magisk policy was flipped to allow while
+the app was running — exactly the real case, where privilege was gone when the screen drew and back
+by the time the button was pressed. On Continue:
 
-- **`clearInstalledAppsCache()` on the UI path defeats the firewall's cache.** Dropping it would let
-  the cache survive, but **work-profile package events reach neither receiver**, so the UI's clear is
-  currently the only thing that notices a work-profile install between TTL expiries. Removing it
-  without replacing that coverage would be a correctness regression. A real fix needs work-profile
-  aware invalidation.
-- `commit()`'s return value is not checked in either durable write. Disk-full territory only.
-- **`getInstalledApplicationsAsUser` is flaky for the work profile.** Observed twice on 2026-08-25:
-  `Profile 10 (Work): ... returned 0 packages` from the hidden API, before a Shizuku fallback found
-  216. Nothing is known to break because of it today, but it means a whole-profile scan is not a
-  safe substitute for a per-package query — see the comment on
-  `AndroidPackageDataSource.hasNetworkPermissions`, which was reverted to a direct call for exactly
-  this reason.
-- **Follow-up candidate, not a defect:** `NetworkPolicyManagerFirewallBackend.originalPolicyLock` is
-  now a second guard over the same window as the process-wide `mutex`. Kept because it enforces the
-  invariant at the exact read-modify-write, and that path has already destroyed a real user policy
-  once. Removing it is a cleanup.
+```
+Boot protection preference (true) disagreed with the script on disk (false) - trusting disk
+✅ Boot protection removed on retry - restarting
+BootProtectionManager: Rebooting device to apply boot protection change
+```
 
----
+The device rebooted (38 s uptime afterwards confirmed it), and prefs and rules were **identical to
+the pre-test baseline**. `forceRecheckRootStatus()` recovering privilege at tap time is proven, and
+so is the disk reconciliation trusting the disk over a stale preference.
 
-# 4. Multi-user and work profile
-
-Settled as **best-effort**: not a guaranteed dimension, bugs there are real but not release blockers,
-and the UI must not promise enforcement it cannot deliver.
-
-- Work-profile package events reach neither receiver.
+**One caveat, honestly.** The "Restarting…" screen was **not** visually confirmed. Eight consecutive
+screen dumps immediately after Continue all returned "device gone" — the reboot lands in well under a
+second. The dialog is created and shown before `rebootDevice()` is called, but whether a user
+actually sees it is unproven, and it may be too brief to serve its purpose.
 
 ---
 
@@ -134,6 +112,30 @@ Kept because the knowledge is load-bearing, not because there is work to do.
   without root.
 - **Two expiry timers stacking** is unproven: Magisk runs `post-fs-data.d` once and no double run has
   been observed. Left alone — that script can take a device off the network, so no speculative edits.
+
+## Rules written in more than one place
+
+Traps, not tasks. Nothing here is scheduled, but anything touching these areas should know the same
+rule lives elsewhere too. One of them (the network-permission list) was found the hard way on
+2026-08-25 and is now settled decision 20.
+
+1. `userId = 0` is a **Kotlin default parameter** repeated across ~15 signatures. There is no
+   multi-profile policy; every new call site silently targets the personal profile.
+2. "Is this a VPN app" is re-implemented as a private `hasVpnService` in five files.
+3. The screen-off rule is written out six times across four backends.
+4. Roaming is derived on read but the flags are written independently by SQL — storage can hold a
+   state the read model calls invalid.
+5. Backend monitoring is wired three different ways for the same rules.
+6. The two protection tiers are membership tests on two hardcoded sets, and consumers pick different
+   sets for the same intent.
+7. `KEY_FIREWALL_ENABLED` has four writers.
+8. **CLOSED 2026-08-25.** "Has a network permission" was asked two ways: `AndroidPackageDataSource`
+   checked three permissions inline while `Constants.Firewall.NETWORK_PERMISSIONS`, used by every
+   firewall backend, holds five. An app requesting only `CHANGE_WIFI_STATE` or
+   `CHANGE_NETWORK_STATE` was shown as having no network permission while the firewall applied a
+   policy to it. Now reads the shared constant. Measured on hardware: **0 apps change** — nothing
+   requests those two without one of the original three — so this prevents future divergence rather
+   than fixing a visible bug.
 
 ---
 
@@ -354,47 +356,32 @@ toggle is stored, shown, and never enforced.
 
 ---
 
-# The 2026-08-22 P1 catalogue — RE-VERIFIED 2026-08-25
+---
 
-All 26 entries re-checked against code at v2.6.4 / versionCode 35. Line numbers from the original
-audit had all shifted, so each was verified by pattern, not by line.
+# Closed 2026-08-25
 
-**20 fixed · 4 were never defects · 1 still live · 0 unresolved.** Closed entries are not listed;
-`git show f8f45d2:PLAN.md` and the log hold them.
+Retired deliberately, not fixed. Each was judged not worth carrying: no observed failure, no
+user-visible effect, or a settled decision already covers it. All recoverable from git history.
 
-## Still live — 1
-
-| ID | Finding | Evidence today |
-|---|---|---|
-| P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
-
-# The rest of the 2026-08-22 catalogue — NOT re-verified
-
-## Cross-cutting rules that can drift apart
-
-1. `userId = 0` is a **Kotlin default parameter** repeated across ~15 signatures. There is no
-   multi-profile policy; every new call site silently targets the personal profile.
-2. "Is this a VPN app" is re-implemented as a private `hasVpnService` in five files.
-3. The screen-off rule is written out six times across four backends.
-4. Roaming is derived on read but the flags are written independently by SQL — storage can hold a
-   state the read model calls invalid.
-5. Backend monitoring is wired three different ways for the same rules.
-6. The two protection tiers are membership tests on two hardcoded sets, and consumers pick different
-   sets for the same intent.
-7. `KEY_FIREWALL_ENABLED` has four writers.
-8. **CLOSED 2026-08-25.** "Has a network permission" was asked two ways: `AndroidPackageDataSource`
-   checked three permissions inline while `Constants.Firewall.NETWORK_PERMISSIONS`, used by every
-   firewall backend, holds five. An app requesting only `CHANGE_WIFI_STATE` or
-   `CHANGE_NETWORK_STATE` was shown as having no network permission while the firewall applied a
-   policy to it. Now reads the shared constant. Measured on hardware: **0 apps change** — nothing
-   requests those two without one of the original three — so this prevents future divergence rather
-   than fixing a visible bug.
-
-## Project health
-
-- **No test source set at all.** `app/src/` contains only `main`.
-- CI disabled since 2025-11-04 — `.github/workflows/build.yml-temporary-disabled`.
-- Release builds unminified and unshrunk (R8 issue).
-- Production keystore + `keystore.properties` in the working tree. Gitignored and untracked, but one
-  `git add -f` from exposure. Off-machine backup confirmed 2026-08-22.
-- RULES.md is stale: claims ProGuard enabled (off), API 21 (min is 26), Compose UI (XML views only).
+- **Lockout scenario 4.** Root not ready at boot, or a third-party VPN connected, so
+  `startFirewall()` fails and the block stays. The app lifts it on that path, but lifting also needs
+  root — when root is the missing thing, the script's own ~120-second timer is the only way out, and
+  on an encrypted device the app's recovery does not run until the user unlocks. **Accepted
+  2026-08-25:** the timer is the backstop and that is deemed sufficient.
+- **No `-w` on any iptables command.** Real, but no such failure has ever appeared in a log, and
+  adding it touches every command. `BootProtectionManager` already uses `-w 5` if it is ever needed.
+- **Scroll jump during a backend failure.** Never reproduced. A suspicion, not a finding.
+- **`commit()` return value unchecked** in both durable writes. Disk-full territory only.
+- **`originalPolicyLock` is redundant** now that the backend mutex is process-wide. Kept on purpose:
+  it enforces the invariant at the exact read-modify-write, on the one path that has already
+  destroyed a real user policy.
+- **`BootWorker`'s preference-gated `resetIptablesPolicies()`.** Harmless and idempotent.
+- **"Restarting…" screen consistency.** The enable/disable toggles have no such screen; the
+  scenario 5 recovery does. The toggles sit behind a warning the user has just read.
+- **P1-24's remaining half.** `FirewallManager.isActive()` reaches `ActivityManager` on the main
+  thread from `MainActivity:205` and `FirewallTileService:80`. Cold-start jank is **not attributed**
+  to it, so the work could be done and change nothing.
+- **Cross-cutting drift** — see *Known and accepted* below, kept as traps rather than tasks.
+- **Project health**: no test source set and CI off are settled decision 7; release builds are
+  unminified (R8) and F-Droid reproduces them as-is; the production keystore is gitignored,
+  untracked and backed up off-machine.
