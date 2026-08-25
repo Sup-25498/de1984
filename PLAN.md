@@ -315,7 +315,7 @@ risk, not a contained fix.
 | ID | Finding | Evidence today |
 |---|---|---|
 | P1-23 | **Nothing survives reinstall.** `allowBackup="false"`, `exportSchema = false`, `fallbackToDestructiveMigration()` with only two migrations written. Partly mitigated by the JSON rules backup, which is manual and opt-in. | `AndroidManifest.xml:49`, `De1984Database.kt:13`, `De1984Dependencies.kt:140-141` |
-| P1-24 | **No `withContext` anywhere in `FirewallManager`** — zero occurrences in the whole file. All backend work runs on the caller's dispatcher, which for UI callers is the main thread. | `FirewallManager.kt`, 0 matches |
+| P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`; `MainActivity:873` reached `startFirewall()` from `lifecycleScope`, which is Main. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
 | P1-26 | **Backend switches are non-atomic outside `startFirewall`.** `restartFirewallIfRunning` stops then starts, so picking a backend in Settings unblocks every app in between. | `SettingsViewModel.kt:548` |
 
 ## Unresolved — 4, need a closer look than a grep
