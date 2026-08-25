@@ -99,6 +99,21 @@ class SettingsViewModel(
     val shizukuStatus: StateFlow<ShizukuStatus> = shizukuManager.shizukuStatus
     val activeBackendType: StateFlow<FirewallBackendType?> = firewallManager.activeBackendType
 
+    /**
+     * Modes the device can genuinely run, as reported by the backends themselves.
+     *
+     * null until the first probe finishes - the picker treats that as "no opinion yet" and falls
+     * back to the privilege-only guess, so the list is never empty on first draw.
+     */
+    private val _usableModes = MutableStateFlow<Set<FirewallMode>?>(null)
+    val usableModes: StateFlow<Set<FirewallMode>?> = _usableModes.asStateFlow()
+
+    fun refreshUsableModes() {
+        viewModelScope.launch {
+            _usableModes.value = firewallManager.getUsableModes()
+        }
+    }
+
 
 
     init {
@@ -108,12 +123,15 @@ class SettingsViewModel(
         cleanupOrphanedPreferences()
         requestRootPermission()
         requestShizukuPermission()
+        refreshUsableModes()
 
         viewModelScope.launch {
             rootStatus.collect {
                 AppLogger.d(TAG, "Root status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
                 updateCaptivePortalPrivileges()
+                // Gaining or losing root changes which backends can run at all.
+                refreshUsableModes()
             }
         }
 
@@ -122,6 +140,7 @@ class SettingsViewModel(
                 AppLogger.d(TAG, "Shizuku status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
                 updateCaptivePortalPrivileges()
+                refreshUsableModes()
             }
         }
 
@@ -653,6 +672,35 @@ class SettingsViewModel(
                 // We want to preserve user intent so handlePrivilegeChange() can attempt recovery.
                 // FirewallManager will set isFirewallDown=true to track the error state.
 
+                // A hand-picked backend that this device cannot run must not cost the user their
+                // firewall. Choosing ConnectivityManager on a ROM whose `cmd connectivity` has no
+                // set-chain3-enabled did exactly that: the start failed and nothing took over, so
+                // every app was left unblocked until someone noticed the banner.
+                //
+                // FirewallToggleReceiver already falls back to AUTO for the same reason; this path
+                // simply never did. AUTO ends at the VPN backend, which needs no privilege, so the
+                // fallback can only fail if the user declines the VPN prompt.
+                if (newMode != FirewallMode.AUTO) {
+                    AppLogger.w(TAG, "Backend $newMode failed to start (${error.message}) - falling back to AUTO")
+                    firewallManager.setMode(FirewallMode.AUTO)
+                    _uiState.value = _uiState.value.copy(firewallMode = FirewallMode.AUTO)
+
+                    if (firewallManager.startFirewall(FirewallMode.AUTO).isSuccess) {
+                        AppLogger.i(TAG, "Fallback to AUTO succeeded - firewall is running again")
+                        _uiState.value = _uiState.value.copy(
+                            message = context.getString(
+                                io.github.dorumrr.de1984.R.string.backend_fell_back_to_auto,
+                                displayNameFor(newMode)
+                            )
+                        )
+                        // The probe clearly disagreed with the picker, so re-ask the backends and
+                        // let the list grey out what just proved unusable.
+                        refreshUsableModes()
+                        return@onFailure
+                    }
+                    AppLogger.e(TAG, "Fallback to AUTO also failed - reporting the original error")
+                }
+
                 _uiState.value = _uiState.value.copy(
                     error = context.getString(io.github.dorumrr.de1984.R.string.error_firewall_restart_failed, error.message ?: context.getString(io.github.dorumrr.de1984.R.string.error_unknown))
                 )
@@ -661,6 +709,17 @@ class SettingsViewModel(
             AppLogger.e(TAG, "Failed to restart firewall", e)
         }
     }
+
+    /** The same names the backend picker shows, so a message never invents a second vocabulary. */
+    private fun displayNameFor(mode: FirewallMode): String = context.getString(
+        when (mode) {
+            FirewallMode.AUTO -> io.github.dorumrr.de1984.R.string.backend_auto_name
+            FirewallMode.VPN -> io.github.dorumrr.de1984.R.string.backend_vpn_name
+            FirewallMode.IPTABLES -> io.github.dorumrr.de1984.R.string.backend_iptables_name
+            FirewallMode.CONNECTIVITY_MANAGER -> io.github.dorumrr.de1984.R.string.backend_connectivity_manager_name
+            FirewallMode.NETWORK_POLICY_MANAGER -> io.github.dorumrr.de1984.R.string.backend_network_policy_manager_name
+        }
+    )
 
     fun clearVpnPermissionRequired() {
         _uiState.value = _uiState.value.copy(vpnPermissionRequired = false)

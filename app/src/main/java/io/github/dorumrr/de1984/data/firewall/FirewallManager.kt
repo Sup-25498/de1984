@@ -959,6 +959,42 @@ class FirewallManager(
         backend.checkAvailability().isSuccess
     }
 
+    /**
+     * The modes this device can actually run, asked of the backends themselves.
+     *
+     * The Settings picker used to decide this from privileges alone - "Shizuku plus Android 13"
+     * for ConnectivityManager, for instance - but a backend can need more than privilege.
+     * ConnectivityManager also needs `cmd connectivity` to expose set-chain3-enabled, which plenty
+     * of ROMs do not. The picker offered it, selecting it failed, and the firewall went down with
+     * no fallback. Asking the backend is the only answer that cannot drift from the truth.
+     *
+     * AUTO and VPN are always in: AUTO ends at VPN, and VPN needs no privilege at all.
+     *
+     * Every probe is read-only - a version string, a help listing, a reflection lookup - and each
+     * is guarded, so one backend that throws cannot hide the others.
+     */
+    suspend fun getUsableModes(): Set<FirewallMode> = withContext(Dispatchers.IO) {
+        val usable = mutableSetOf(FirewallMode.AUTO, FirewallMode.VPN)
+
+        runCatching {
+            IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler)
+                .checkAvailability().isSuccess
+        }.getOrDefault(false).let { if (it) usable += FirewallMode.IPTABLES }
+
+        runCatching {
+            ConnectivityManagerFirewallBackend(context, shizukuManager, errorHandler)
+                .checkAvailability().isSuccess
+        }.getOrDefault(false).let { if (it) usable += FirewallMode.CONNECTIVITY_MANAGER }
+
+        runCatching {
+            NetworkPolicyManagerFirewallBackend(context, shizukuManager, errorHandler)
+                .checkAvailability().isSuccess
+        }.getOrDefault(false).let { if (it) usable += FirewallMode.NETWORK_POLICY_MANAGER }
+
+        AppLogger.d(TAG, "Usable backends on this device: $usable")
+        usable
+    }
+
     private suspend fun selectBackend(mode: FirewallMode): Result<FirewallBackend> {
         return try {
             AppLogger.d(TAG, "Selecting backend for mode: $mode")

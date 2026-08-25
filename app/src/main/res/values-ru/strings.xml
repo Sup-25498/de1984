@@ -764,4 +764,6 @@
 
     <!-- Notification Actions -->
 
+    <string name="backend_not_supported_on_device">Не поддерживается на этом устройстве</string>
+    <string name="backend_fell_back_to_auto">%1$s недоступен на этом устройстве. Выполнено переключение на «Авто», чтобы брандмауэр продолжал работать.</string>
 </resources>

@@ -768,5 +768,7 @@
 
     <!-- Notification Actions -->
 
+    <string name="backend_not_supported_on_device">Nu este acceptat pe acest dispozitiv</string>
+    <string name="backend_fell_back_to_auto">%1$s nu este disponibil pe acest dispozitiv. S-a comutat la Automat pentru ca firewallul să rămână activ.</string>
 </resources>
 

@@ -722,7 +722,27 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
             requirementText = if (!networkPolicyManagerAvailable) getString(R.string.backend_network_policy_manager_requirement) else null
         ))
 
-        return backends
+        // Everything above is a guess from privileges alone, and a privilege is not a capability.
+        // ConnectivityManager needs Shizuku AND Android 13 AND a `cmd connectivity` that exposes
+        // set-chain3-enabled; plenty of ROMs have the first two and not the third. The picker
+        // offered it anyway, selecting it failed, and the firewall went down. So the backends get
+        // the last word: anything the probe could not start is shown as unusable, with a reason.
+        //
+        // A null probe result means it has not answered yet - keep the guess rather than emptying
+        // the list on first draw.
+        val usable = viewModel.usableModes.value
+        if (usable == null) return backends
+
+        return backends.map { option ->
+            if (option.isAvailable && option.mode !in usable) {
+                option.copy(
+                    isAvailable = false,
+                    requirementText = getString(R.string.backend_not_supported_on_device)
+                )
+            } else {
+                option
+            }
+        }
     }
 
     private fun updateBackendStatus() {
@@ -799,6 +819,14 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
                 launch {
                     viewModel.activeBackendType.collect { _ ->
                         updateBackendStatus()
+                    }
+                }
+                launch {
+                    // The real availability probe answers after the first draw, so redraw the
+                    // picker when it lands - otherwise a backend this device cannot run stays
+                    // selectable until the next privilege change.
+                    viewModel.usableModes.collect { _ ->
+                        setupBackendSelectionDropdown()
                     }
                 }
             }
