@@ -859,14 +859,13 @@ class AndroidPackageDataSource(
         }
     }
 
-    private fun hasNetworkPermissions(packageName: String, userId: Int = 0): Boolean {
-        val permissions = getAppPermissions(packageName, userId)
-        return permissions.any { permission ->
-            permission == "android.permission.INTERNET" ||
-            permission == "android.permission.ACCESS_NETWORK_STATE" ||
-            permission == "android.permission.ACCESS_WIFI_STATE"
-        }
-    }
+    /**
+     * Delegates rather than asking again. See [HiddenApiHelper.hasNetworkPermission] for why: this
+     * used to make its own binder call per package, duplicating the one applyRules makes moments
+     * later, and it checked three permissions where the firewall checks five.
+     */
+    private fun hasNetworkPermissions(packageName: String, userId: Int = 0): Boolean =
+        HiddenApiHelper.hasNetworkPermission(context, packageName, userId)
 
     override suspend fun setNetworkAccess(packageName: String, userId: Int, allowed: Boolean): Boolean {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
