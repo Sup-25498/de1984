@@ -1643,6 +1643,17 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
     }
 
+    /**
+     * ConnectivityManager and NetworkPolicyManager have one switch per app, not one per network.
+     * On those the row's WiFi/Mobile/Roaming icons cannot mean three separate things, so a tap on
+     * any of them has to act on all three - the same thing the bottom sheet's single "Internet
+     * Access" switch does. See issue #72.
+     */
+    private fun supportsGranularControl(): Boolean {
+        val app = requireActivity().application as De1984Application
+        return app.dependencies.firewallManager.supportsGranularControl()
+    }
+
     private fun handleQuickToggle(pkg: NetworkPackage, networkType: NetworkType) {
         val prefs = requireContext().getSharedPreferences(
             Constants.Settings.PREFS_NAME,
@@ -1653,7 +1664,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             Constants.Settings.DEFAULT_CONFIRM_RULE_CHANGES
         )
 
-        val isCurrentlyBlocked = when (networkType) {
+        val isCurrentlyBlocked = if (!supportsGranularControl()) {
+            pkg.wifiBlocked || pkg.mobileBlocked || pkg.roamingBlocked
+        } else when (networkType) {
             NetworkType.WIFI -> pkg.wifiBlocked
             NetworkType.MOBILE -> pkg.mobileBlocked
             NetworkType.ROAMING -> pkg.roamingBlocked
@@ -1672,7 +1685,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         networkType: NetworkType,
         willBlock: Boolean
     ) {
-        val networkTypeName = when (networkType) {
+        val granular = supportsGranularControl()
+        val networkTypeName = if (!granular) {
+            getString(R.string.firewall_network_label_internet_access)
+        } else when (networkType) {
             NetworkType.WIFI -> getString(R.string.firewall_network_label_wifi)
             NetworkType.MOBILE -> getString(R.string.firewall_network_label_mobile)
             NetworkType.ROAMING -> getString(R.string.firewall_network_label_roaming)
@@ -1689,7 +1705,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             getString(R.string.dialog_quick_toggle_action_allow)
         }
 
-        val message = when (networkType) {
+        val message = if (!granular) {
+            getString(R.string.dialog_quick_toggle_message_internet, action, pkg.name)
+        } else when (networkType) {
             NetworkType.WIFI -> getString(R.string.dialog_quick_toggle_message_wifi, action, pkg.name)
             NetworkType.MOBILE -> getString(R.string.dialog_quick_toggle_message_mobile, action, pkg.name)
             NetworkType.ROAMING -> getString(R.string.dialog_quick_toggle_message_roaming, action, pkg.name)
@@ -1713,7 +1731,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     ) {
         AppLogger.d(TAG, "🔘 QUICK TOGGLE: ${networkType.name} for ${pkg.packageName} - willBlock: $willBlock")
 
-        when (networkType) {
+        if (!supportsGranularControl()) {
+            viewModel.setAllNetworkBlocking(pkg.packageName, pkg.userId, willBlock)
+        } else when (networkType) {
             NetworkType.WIFI -> viewModel.setWifiBlocking(pkg.packageName, pkg.userId, willBlock)
             NetworkType.MOBILE -> viewModel.setMobileBlocking(pkg.packageName, pkg.userId, willBlock)
             NetworkType.ROAMING -> viewModel.setRoamingBlocking(pkg.packageName, pkg.userId, willBlock)
@@ -1729,7 +1749,14 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         networkType: NetworkType,
         wasBlocked: Boolean
     ) {
-        val message = when (networkType) {
+        val granular = supportsGranularControl()
+        val message = if (!granular) {
+            if (wasBlocked) {
+                getString(R.string.snackbar_internet_blocked, pkg.name)
+            } else {
+                getString(R.string.snackbar_internet_allowed, pkg.name)
+            }
+        } else when (networkType) {
             NetworkType.WIFI -> if (wasBlocked) {
                 getString(R.string.snackbar_wifi_blocked, pkg.name)
             } else {
@@ -1750,7 +1777,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG)
             .setAction(getString(R.string.snackbar_undo)) {
                 AppLogger.d(TAG, "🔄 UNDO QUICK TOGGLE: ${networkType.name} for ${pkg.packageName}")
-                when (networkType) {
+                if (!granular) {
+                    viewModel.setAllNetworkBlocking(pkg.packageName, pkg.userId, !wasBlocked)
+                } else when (networkType) {
                     NetworkType.WIFI -> viewModel.setWifiBlocking(pkg.packageName, pkg.userId, !wasBlocked)
                     NetworkType.MOBILE -> viewModel.setMobileBlocking(pkg.packageName, pkg.userId, !wasBlocked)
                     NetworkType.ROAMING -> viewModel.setRoamingBlocking(pkg.packageName, pkg.userId, !wasBlocked)

@@ -67,6 +67,9 @@
     <string name="snackbar_mobile_allowed">Dados móveis permitidos para %s</string>
     <string name="snackbar_roaming_blocked">Roaming bloqueado para %s</string>
     <string name="snackbar_roaming_allowed">Roaming permitido para %s</string>
+    <string name="dialog_quick_toggle_message_internet">Isto vai %1$s o acesso à Internet para %2$s</string>
+    <string name="snackbar_internet_blocked">Internet bloqueada para %s</string>
+    <string name="snackbar_internet_allowed">Internet permitida para %s</string>
     <string name="snackbar_undo">Desfazer</string>
 
     <string name="firewall_system_package_warning">⚠️ Aviso de Pacote do Sistema</string>

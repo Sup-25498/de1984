@@ -67,6 +67,9 @@
     <string name="snackbar_mobile_allowed">Données mobiles autorisées pour %s</string>
     <string name="snackbar_roaming_blocked">Itinérance bloquée pour %s</string>
     <string name="snackbar_roaming_allowed">Itinérance autorisée pour %s</string>
+    <string name="dialog_quick_toggle_message_internet">Cela va %1$s l\'accès Internet pour %2$s</string>
+    <string name="snackbar_internet_blocked">Internet bloqué pour %s</string>
+    <string name="snackbar_internet_allowed">Internet autorisé pour %s</string>
     <string name="snackbar_undo">Annuler</string>
 
     <string name="firewall_system_package_warning">⚠️ Avertissement paquet système</string>

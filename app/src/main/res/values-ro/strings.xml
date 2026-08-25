@@ -68,6 +68,9 @@
     <string name="snackbar_mobile_allowed">Date mobile permise pentru %s</string>
     <string name="snackbar_roaming_blocked">Roaming blocat pentru %s</string>
     <string name="snackbar_roaming_allowed">Roaming permis pentru %s</string>
+    <string name="dialog_quick_toggle_message_internet">Aceasta va %1$s accesul la Internet pentru %2$s</string>
+    <string name="snackbar_internet_blocked">Internet blocat pentru %s</string>
+    <string name="snackbar_internet_allowed">Internet permis pentru %s</string>
     <string name="snackbar_undo">Anulează</string>
 
     <string name="firewall_system_package_warning">⚠️ Avertisment Pachet de Sistem</string>

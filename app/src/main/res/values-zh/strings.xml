@@ -67,6 +67,9 @@
     <string name="snackbar_mobile_allowed">已允许 %s 的移动数据</string>
     <string name="snackbar_roaming_blocked">已阻止 %s 的漫游</string>
     <string name="snackbar_roaming_allowed">已允许 %s 的漫游</string>
+    <string name="dialog_quick_toggle_message_internet">这将%1$s %2$s 的互联网访问</string>
+    <string name="snackbar_internet_blocked">已阻止 %s 的互联网</string>
+    <string name="snackbar_internet_allowed">已允许 %s 的互联网</string>
     <string name="snackbar_undo">撤销</string>
 
     <string name="firewall_system_package_warning">⚠️ 系统软件包警告</string>

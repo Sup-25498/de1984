@@ -67,6 +67,9 @@
     <string name="snackbar_mobile_allowed">Мобильные данные разрешены для %s</string>
     <string name="snackbar_roaming_blocked">Роуминг заблокирован для %s</string>
     <string name="snackbar_roaming_allowed">Роуминг разрешён для %s</string>
+    <string name="dialog_quick_toggle_message_internet">Это %1$s доступ в интернет для %2$s</string>
+    <string name="snackbar_internet_blocked">Интернет заблокирован для %s</string>
+    <string name="snackbar_internet_allowed">Интернет разрешён для %s</string>
     <string name="snackbar_undo">Отменить</string>
 
     <string name="firewall_system_package_warning">⚠️ Предупреждение о системном пакете</string>
