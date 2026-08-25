@@ -36,6 +36,26 @@ class IptablesFirewallBackend(
         private const val IPTABLES = "iptables"
         private const val IP6TABLES = "ip6tables"
 
+        // Hoisted out of applyLanRulesBatch so resyncChain writes the same ranges it deletes.
+        // Two lists would drift, and a range only one of them knew about would be unremovable.
+        private val LAN_RANGES_V4 = listOf("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
+        private val LAN_RANGES_V6 = listOf("fc00::/7", "fe80::/10")
+
+        // Printed by any resync command that fails. The script's exit code cannot carry this: a
+        // shell reports the status of its LAST line, so a command that fails in the middle is
+        // invisible behind a successful final one. Proved on device - a script whose second of
+        // three -A commands failed still exited 0, with only 2 of 3 rules installed.
+        //
+        // Split by family because the two failures mean different things. A rejected IPv4 rule is
+        // a hole in the firewall and must fail the apply; a rejected IPv6 rule usually means a ROM
+        // without the IPv6 owner match, which the old diff path tolerated by degrading to v4-only.
+        private const val RESYNC_FAIL_V4 = "DE1984_RESYNC_FAIL4"
+        private const val RESYNC_FAIL_V6 = "DE1984_RESYNC_FAIL6"
+
+        // A stale rule that would not delete. Protection is intact - the new rules are already in
+        // front of it - but a leftover duplicate is what breaks unblocking, so it must be retried.
+        private const val TRIM_FAIL = "DE1984_TRIM_FAIL"
+
         private const val PROBE_PRESENT = "DE1984_CHAIN_PRESENT"
         private const val PROBE_ABSENT = "DE1984_CHAIN_ABSENT"
         private const val PROBE_NOPRIV = "DE1984_CHAIN_NOPRIV"
@@ -61,6 +81,19 @@ class IptablesFirewallBackend(
     private val blockedUids = mutableSetOf<Int>()
 
     private val blockedLanUids = mutableSetOf<Int>()
+
+    /**
+     * True while the kernel chain may hold rules this instance never wrote.
+     *
+     * iptables state lives in the kernel, so it survives a crash, a force-stop and the app itself;
+     * `blockedUids` above does not. Six places build their own IptablesFirewallBackend
+     * (FirewallManager x5, PrivilegedFirewallService), each starting with an empty set, so
+     * "what this object has applied" is never "what the chain contains" on a first apply.
+     *
+     * Starts true for exactly that reason, and is reset by startInternal() because a start can
+     * adopt a chain a previous process left behind.
+     */
+    private var chainNeedsResync = true
 
     override suspend fun start(): Result<Unit> = mutex.withLock {
         return try {
@@ -100,6 +133,11 @@ class IptablesFirewallBackend(
             // unverifiable teardown is "nothing to do" or "we just failed to remove live rules".
             // commit(), not apply(): the chains exist now, so the record must exist now too.
             setChainsInstalled(true)
+
+            // createCustomChains() is "-N ... || true": if the chain was already there it is
+            // adopted as-is, contents and all. Whatever it holds was written by a process that is
+            // gone, so the next applyRules must rewrite it rather than diff against it.
+            chainNeedsResync = true
 
             AppLogger.d(TAG, "✅ iptables chains created")
             Result.success(Unit)
@@ -149,6 +187,12 @@ class IptablesFirewallBackend(
 
             blockedUids.clear()
             blockedLanUids.clear()
+
+            // Both sets were just emptied and the chains were just deleted, so this instance no
+            // longer knows anything about kernel state. startInternal() arms the flag on the way
+            // up; without arming it here too, an instance that stops and is then handed a rule
+            // apply would diff against a chain that is gone.
+            chainNeedsResync = true
 
             // Ask the kernel instead of trusting the commands we just ran. Every teardown command
             // ends in "|| true" and none of them has its exit code inspected, which is deliberate -
@@ -413,6 +457,36 @@ class IptablesFirewallBackend(
                 }
             }
 
+            // Diffing against blockedUids assumes the chain holds exactly what this instance put
+            // there. On a first apply it does not - see chainNeedsResync - so every rule the chain
+            // already had was appended a second time, roughly two copies per start.
+            //
+            // That is not untidiness. Unblocking emits ONE `-D` per uid and `-D` removes ONE
+            // matching rule, so the surplus copies outlived the unblock: the app kept losing every
+            // packet while the UI reported it allowed. Rewrite the chain instead of diffing it.
+            if (chainNeedsResync) {
+                val lanUidsForResync = computeLanUidsToBlock(rulesByUid)
+
+                // A rewrite driven by an empty answer would delete every rule in the chain. Both
+                // callers read the rule list with getAllRules().first(), a single Room emission,
+                // and an empty one is indistinguishable here from "the user blocks nothing". Wiping
+                // a populated chain on that reading is fail-open; keeping stale rules until a real
+                // answer arrives is fail-closed, which is the correct direction for a firewall.
+                // The flag stays armed, so the next apply with actual rules does the rewrite.
+                if (rules.isEmpty() && uidsToBlock.isEmpty() && lanUidsForResync.isEmpty()) {
+                    AppLogger.w(TAG, "Chain resync skipped: rule list is empty, refusing to clear the chain on that basis")
+                    return Result.success(Unit)
+                }
+                AppLogger.d(TAG, "🔥 [TIMING] Chain resync: ${uidsToBlock.size} internet + ${lanUidsForResync.size} LAN UIDs (append new, then trim old)")
+                resyncChain(uidsToBlock, lanUidsForResync).getOrElse { error ->
+                    AppLogger.e(TAG, "Chain resync failed, leaving it armed for the next apply: ${error.message}")
+                    return Result.failure(error)
+                }
+                AppLogger.d(TAG, "🔥 [TIMING] IptablesBackend.applyRules COMPLETE (resync): total=${System.currentTimeMillis() - startTime}ms")
+                AppLogger.d(TAG, "🔥 [TIMING] Final state: ${blockedUids.size} apps blocked (Internet), ${blockedLanUids.size} apps blocked (LAN)")
+                return Result.success(Unit)
+            }
+
             val uidsToAdd = uidsToBlock - blockedUids
             val uidsToRemove = blockedUids - uidsToBlock
 
@@ -435,25 +509,7 @@ class IptablesFirewallBackend(
             }
 
 
-            val userProfilesForLan = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
-            val allPackagesForLan = userProfilesForLan.flatMap { profile ->
-                io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
-                    context, PackageManager.GET_META_DATA, profile.userId
-                )
-            }
-
-            val uidsToBlockLan = mutableSetOf<Int>()
-
-            for ((uid, rulesForUid) in rulesByUid) {
-                if (isUidExempted(uid, allPackagesForLan)) {
-                    continue
-                }
-
-                val shouldBlockLan = rulesForUid.any { rule -> rule.lanBlocked }
-                if (shouldBlockLan) {
-                    uidsToBlockLan.add(uid)
-                }
-            }
+            val uidsToBlockLan = computeLanUidsToBlock(rulesByUid)
 
             val uidsToAddLan = uidsToBlockLan - blockedLanUids
             val uidsToRemoveLan = blockedLanUids - uidsToBlockLan
@@ -739,6 +795,143 @@ class IptablesFirewallBackend(
         }
     }
     
+    /**
+     * Which UIDs should have their LAN traffic dropped.
+     *
+     * Pulled out of applyRules because the resync path needs the answer BEFORE it touches the
+     * chain, and the diff path needs it after. Two copies of this loop would be two chances to
+     * disagree about who gets blocked.
+     */
+    private fun computeLanUidsToBlock(rulesByUid: Map<Int, List<FirewallRule>>): Set<Int> {
+        val userProfilesForLan = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)
+        val allPackagesForLan = userProfilesForLan.flatMap { profile ->
+            io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getInstalledApplicationsAsUser(
+                context, PackageManager.GET_META_DATA, profile.userId
+            )
+        }
+
+        val uidsToBlockLan = mutableSetOf<Int>()
+
+        for ((uid, rulesForUid) in rulesByUid) {
+            if (isUidExempted(uid, allPackagesForLan)) {
+                continue
+            }
+
+            if (rulesForUid.any { rule -> rule.lanBlocked }) {
+                uidsToBlockLan.add(uid)
+            }
+        }
+
+        return uidsToBlockLan
+    }
+
+    /**
+     * Rewrite the chain to exactly `uidsToBlock` + `uidsToBlockLan`, in ONE script, WITHOUT ever
+     * leaving it emptier than it already is.
+     *
+     * The obvious shape - flush, then re-add - is wrong twice over. It drops protection for the
+     * entire refill: an iptables exec costs ~18ms on real hardware, so 200 blocked apps spend
+     * ~7 seconds with the chain empty and still linked into OUTPUT. And if the script dies partway
+     * the chain STAYS empty while FirewallManager goes on reporting Running.
+     *
+     * So: append the new rules first, then delete the old ones BY POSITION - rule 1, N times, N
+     * counted before anything was added. At every instant the chain holds the old set, or the old
+     * set plus the new one; never less than it started with. A failure before the trim leaves the
+     * previous rules untouched, which is the safe direction for a firewall.
+     *
+     * Nothing here trusts the exit code. A shell reports the status of its LAST line, so a rule
+     * rejected in the middle - xtables lock contention while netd rewrites during a network change,
+     * for instance - hides behind a successful final line. Verified on device: a script whose
+     * second of three -A commands failed still exited 0. Every command that matters prints a
+     * marker instead.
+     *
+     * The chain is created and linked here too, idempotently. Another instance's teardown sweep can
+     * delete it between startInternal() and the first apply, and without this every -A would fail.
+     *
+     * IPv6 add failures warn rather than fail: ROMs lacking the IPv6 owner match predate this
+     * change, and the old diff path degraded to working v4 rules instead of refusing to start.
+     */
+    private suspend fun resyncChain(
+        uidsToBlock: Set<Int>,
+        uidsToBlockLan: Set<Int>
+    ): Result<Unit> = withContext(NonCancellable) {
+        return@withContext try {
+            // Kotlin would swallow a bare $ as a template; this keeps the shell's own variables
+            // readable in the lines below.
+            val sh = "${'$'}"
+            val script = StringBuilder()
+
+            script.appendLine("$IPTABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
+            script.appendLine("$IPTABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IPTABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $RESYNC_FAIL_V4")
+            script.appendLine("V4OLD=$sh($IPTABLES -S $CHAIN_OUTPUT 2>/dev/null | grep -c '^-A $CHAIN_OUTPUT')")
+
+            script.appendLine("$IP6TABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
+            script.appendLine("$IP6TABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IP6TABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $RESYNC_FAIL_V6")
+            script.appendLine("V6OLD=$sh($IP6TABLES -S $CHAIN_OUTPUT 2>/dev/null | grep -c '^-A $CHAIN_OUTPUT')")
+
+            for (uid in uidsToBlock) {
+                script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $RESYNC_FAIL_V4")
+                script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $RESYNC_FAIL_V6")
+            }
+
+            for (uid in uidsToBlockLan) {
+                for (range in LAN_RANGES_V4) {
+                    script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $RESYNC_FAIL_V4")
+                }
+                for (range in LAN_RANGES_V6) {
+                    script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $RESYNC_FAIL_V6")
+                }
+            }
+
+            // Only now is the old set redundant. Deleting by position rather than by rule text is
+            // what makes duplicates go away: -D <spec> removes ONE match and would leave the rest.
+            script.appendLine("i=0; while [ \"${sh}i\" -lt \"${sh}V4OLD\" ]; do $IPTABLES -D $CHAIN_OUTPUT 1 2>/dev/null || echo $TRIM_FAIL; i=$sh((i+1)); done")
+            script.appendLine("i=0; while [ \"${sh}i\" -lt \"${sh}V6OLD\" ]; do $IP6TABLES -D $CHAIN_OUTPUT 1 2>/dev/null || echo $TRIM_FAIL; i=$sh((i+1)); done")
+
+            val (exitCode, output) = executeCommand(script.toString())
+            val failedV4 = output.split(RESYNC_FAIL_V4).size - 1
+            val failedV6 = output.split(RESYNC_FAIL_V6).size - 1
+            val failedTrim = output.split(TRIM_FAIL).size - 1
+
+            if (exitCode != 0 || failedV4 > 0) {
+                // The old rules are still in place - the trim runs last and a broken script never
+                // reaches it - so this is fail-stale, not fail-open. Say so honestly and stay
+                // armed; the next apply will try the whole rewrite again.
+                AppLogger.e(TAG, "Chain resync failed: exitCode=$exitCode, v4Failures=$failedV4, v6Failures=$failedV6, output=$output")
+                return@withContext Result.failure(
+                    errorHandler.handleError(
+                        IllegalStateException(
+                            "iptables resync failed: exitCode=$exitCode, $failedV4 IPv4 rule(s) rejected: $output"
+                        ),
+                        "resync iptables chain"
+                    )
+                )
+            }
+
+            if (failedV6 > 0) {
+                AppLogger.w(TAG, "⚠️ $failedV6 IPv6 rule(s) rejected - IPv6 traffic for those apps is NOT blocked (device may lack the IPv6 owner match)")
+            }
+            if (failedTrim > 0) {
+                AppLogger.w(TAG, "⚠️ $failedTrim stale rule(s) could not be removed - staying armed so the next apply retries")
+            }
+
+            blockedUids.clear()
+            blockedUids.addAll(uidsToBlock)
+            blockedLanUids.clear()
+            blockedLanUids.addAll(uidsToBlockLan)
+            // Duplicates may survive a failed trim, and duplicates are exactly what breaks
+            // unblocking, so an incomplete trim keeps the rewrite armed for next time.
+            chainNeedsResync = failedTrim > 0
+
+            AppLogger.d(TAG, "✅ Chain resynced: ${uidsToBlock.size} internet, ${uidsToBlockLan.size} LAN, stillArmed=$chainNeedsResync")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to resync chain", e)
+            val error = errorHandler.handleError(e, "resync iptables chain")
+            Result.failure(error)
+        }
+    }
+
     private suspend fun applyRulesBatch(
         uidsToBlock: Set<Int>,
         uidsToUnblock: Set<Int>
@@ -783,8 +976,8 @@ class IptablesFirewallBackend(
         return@withContext try {
             val script = StringBuilder()
 
-            val ipv4Ranges = listOf("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
-            val ipv6Ranges = listOf("fc00::/7", "fe80::/10")
+            val ipv4Ranges = LAN_RANGES_V4
+            val ipv6Ranges = LAN_RANGES_V6
 
             for (uid in uidsToUnblock) {
                 for (range in ipv4Ranges) {
