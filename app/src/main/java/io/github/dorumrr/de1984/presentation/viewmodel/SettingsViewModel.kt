@@ -710,7 +710,10 @@ class SettingsViewModel(
             // AUTO can land on the VPN backend, which needs the system consent dialog. Starting it
             // without asking just burns the activation timeout and fails - no prompt, and no way to
             // reach one from here. The guard further up only covers an explicit VPN pick.
-            if (substituted && plan?.requiresVpnPermission == true) {
+            // Not gated on `substituted`. The guard above only catches an explicit VPN pick, so a
+            // straight AUTO choice that resolves to the VPN backend fell between the two and
+            // started without ever asking for consent.
+            if (plan?.requiresVpnPermission == true) {
                 AppLogger.d(TAG, "Fallback would need VPN permission - asking instead of failing silently")
                 _uiState.value = _uiState.value.copy(vpnPermissionRequired = true)
                 return

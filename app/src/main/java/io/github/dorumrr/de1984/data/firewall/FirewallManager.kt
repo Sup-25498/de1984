@@ -1220,7 +1220,13 @@ class FirewallManager(
                             rootManager.forceRecheckRootStatus()
                             shizukuManager.checkShizukuStatus()
 
-                            val planResult = computeStartPlan(FirewallMode.AUTO)
+                            // The stored mode, not a hard-coded AUTO. Reaching here on VPN with a
+                            // manual mode set means the user was moved off their choice by a
+                            // fallback; planning for AUTO would put them on AUTO's favourite rather
+                            // than back on what they picked - an NPM user would silently become an
+                            // iptables user for good. computeStartPlan falls back to AUTO by itself
+                            // if their mode still is not runnable, so this cannot get stuck.
+                            val planResult = computeStartPlan(getCurrentMode())
 
                             if (planResult.isSuccess) {
                                 val plan = planResult.getOrThrow()
@@ -1754,6 +1760,15 @@ class FirewallManager(
             val result = startFirewallInternal(plan.mode)
             result.onSuccess { backendType ->
                 AppLogger.d(TAG, "✅ VPN fallback successful via planner: backend=$backendType")
+                // Say so. startFirewallInternal ends on Healthy, which is true but not the whole
+                // truth: the user is on VPN, not the backend they picked, and nothing else in the
+                // app states that. This is also the only producer of fromManualMode=true -
+                // startVpnFallback's one caller hard-codes false, so the manual message existed
+                // with no way to reach it.
+                _firewallHealth.value = FirewallHealth.SwitchedToVpn(
+                    failedBackend = failedBackendType,
+                    fromManualMode = wasManualSelection
+                )
             }.onFailure { error ->
                 AppLogger.e(TAG, "❌ VPN fallback FAILED via planner: ${error.message}")
                 currentBackend = null
