@@ -697,12 +697,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val dialog = BottomSheetDialog(requireContext())
         currentDialog = dialog
 
-        val app = requireActivity().application as De1984Application
-        val firewallManager = app.dependencies.firewallManager
-
-        val supportsGranular = firewallManager.supportsGranularControl()
-
-        if (supportsGranular) {
+        if (supportsGranularControl()) {
             showGranularControlSheet(dialog, pkg)
         } else {
             showSimpleControlSheet(dialog, pkg)
@@ -1423,25 +1418,44 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val app = requireActivity().application as De1984Application
         val backendType = app.dependencies.firewallManager.activeBackendType.value
         val isIptablesBackend = backendType == FirewallBackendType.IPTABLES
+        val granular = supportsGranularControl()
 
-        val wifiState = calculateToggleState(selectedPkgs) { it.wifiBlocked }
+        // One switch per app, not one per network. The WiFi row is reused as the single "Internet
+        // Access" toggle and the rest are hidden, matching the single-app sheet and FIREWALL.md
+        // section 3: "the UI should NOT show separate WiFi/Mobile/Roaming switches". See issue #72.
+        if (!granular) {
+            sheetBinding.mobileDivider.visibility = View.GONE
+            sheetBinding.mobileToggle.root.visibility = View.GONE
+        }
+
+        val wifiState = if (!granular) {
+            calculateToggleState(selectedPkgs) { it.wifiBlocked || it.mobileBlocked || it.roamingBlocked }
+        } else {
+            calculateToggleState(selectedPkgs) { it.wifiBlocked }
+        }
         val mobileState = calculateToggleState(selectedPkgs) { it.mobileBlocked }
         val roamingState = calculateToggleState(selectedPkgs) { it.roamingBlocked }
         val lanState = calculateToggleState(selectedPkgs) { it.lanBlocked }
 
         setupMultiSelectToggleInitial(
             binding = sheetBinding.wifiToggle,
-            label = getString(R.string.firewall_network_label_wifi),
+            label = if (granular) {
+                getString(R.string.firewall_network_label_wifi)
+            } else {
+                getString(R.string.firewall_network_label_internet_access)
+            },
             state = wifiState
         )
 
-        setupMultiSelectToggleInitial(
-            binding = sheetBinding.mobileToggle,
-            label = getString(R.string.firewall_network_label_mobile),
-            state = mobileState
-        )
+        if (granular) {
+            setupMultiSelectToggleInitial(
+                binding = sheetBinding.mobileToggle,
+                label = getString(R.string.firewall_network_label_mobile),
+                state = mobileState
+            )
+        }
 
-        if (hasCellular) {
+        if (hasCellular && granular) {
             sheetBinding.roamingDivider.visibility = View.VISIBLE
             sheetBinding.roamingToggle.root.visibility = View.VISIBLE
             setupMultiSelectToggleInitial(
@@ -1479,16 +1493,22 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             if (packages.isEmpty()) return
             isUpdatingProgrammatically = true
 
-            val newWifiState = calculateToggleState(packages) { it.wifiBlocked }
+            val newWifiState = if (!granular) {
+                calculateToggleState(packages) { it.wifiBlocked || it.mobileBlocked || it.roamingBlocked }
+            } else {
+                calculateToggleState(packages) { it.wifiBlocked }
+            }
             val newMobileState = calculateToggleState(packages) { it.mobileBlocked }
             val newRoamingState = calculateToggleState(packages) { it.roamingBlocked }
             val newLanState = calculateToggleState(packages) { it.lanBlocked }
 
             updateMultiSelectToggleState(sheetBinding.wifiToggle, newWifiState)
 
-            updateMultiSelectToggleState(sheetBinding.mobileToggle, newMobileState)
+            if (granular) {
+                updateMultiSelectToggleState(sheetBinding.mobileToggle, newMobileState)
+            }
 
-            if (hasCellular) {
+            if (hasCellular && granular) {
                 updateMultiSelectToggleState(sheetBinding.roamingToggle, newRoamingState)
             }
 
@@ -1507,17 +1527,23 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             if (isUpdatingProgrammatically) return@setOnCheckedChangeListener
             sheetBinding.wifiToggle.networkTypeSubtitle.visibility = View.GONE
             updateSwitchColors(sheetBinding.wifiToggle.toggleSwitch, isChecked)
-            viewModel.batchSetWifiBlocking(getSelectedPackagePairs(), isChecked)
+            if (granular) {
+                viewModel.batchSetWifiBlocking(getSelectedPackagePairs(), isChecked)
+            } else {
+                viewModel.batchSetAllNetworkBlocking(getSelectedPackagePairs(), isChecked)
+            }
         }
 
-        sheetBinding.mobileToggle.toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (isUpdatingProgrammatically) return@setOnCheckedChangeListener
-            sheetBinding.mobileToggle.networkTypeSubtitle.visibility = View.GONE
-            updateSwitchColors(sheetBinding.mobileToggle.toggleSwitch, isChecked)
-            viewModel.batchSetMobileBlocking(getSelectedPackagePairs(), isChecked)
+        if (granular) {
+            sheetBinding.mobileToggle.toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
+                if (isUpdatingProgrammatically) return@setOnCheckedChangeListener
+                sheetBinding.mobileToggle.networkTypeSubtitle.visibility = View.GONE
+                updateSwitchColors(sheetBinding.mobileToggle.toggleSwitch, isChecked)
+                viewModel.batchSetMobileBlocking(getSelectedPackagePairs(), isChecked)
+            }
         }
 
-        if (hasCellular) {
+        if (hasCellular && granular) {
             sheetBinding.roamingToggle.toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
                 if (isUpdatingProgrammatically) return@setOnCheckedChangeListener
                 sheetBinding.roamingToggle.networkTypeSubtitle.visibility = View.GONE
@@ -1664,7 +1690,12 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             Constants.Settings.DEFAULT_CONFIRM_RULE_CHANGES
         )
 
-        val isCurrentlyBlocked = if (!supportsGranularControl()) {
+        // Read once and pass it down. Evaluated again at each step, the confirmation dialog could
+        // describe one action and the OK button perform another - the backend can change between
+        // showing the dialog and pressing it.
+        val granular = supportsGranularControl()
+
+        val isCurrentlyBlocked = if (!granular) {
             pkg.wifiBlocked || pkg.mobileBlocked || pkg.roamingBlocked
         } else when (networkType) {
             NetworkType.WIFI -> pkg.wifiBlocked
@@ -1674,18 +1705,18 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         val willBlock = !isCurrentlyBlocked
 
         if (confirmRuleChanges) {
-            showQuickToggleConfirmationDialog(pkg, networkType, willBlock)
+            showQuickToggleConfirmationDialog(pkg, networkType, willBlock, granular)
         } else {
-            executeQuickToggle(pkg, networkType, willBlock, showSnackbar = true)
+            executeQuickToggle(pkg, networkType, willBlock, showSnackbar = true, granular = granular)
         }
     }
 
     private fun showQuickToggleConfirmationDialog(
         pkg: NetworkPackage,
         networkType: NetworkType,
-        willBlock: Boolean
+        willBlock: Boolean,
+        granular: Boolean
     ) {
-        val granular = supportsGranularControl()
         val networkTypeName = if (!granular) {
             getString(R.string.firewall_network_label_internet_access)
         } else when (networkType) {
@@ -1717,7 +1748,7 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                executeQuickToggle(pkg, networkType, willBlock, showSnackbar = false)
+                executeQuickToggle(pkg, networkType, willBlock, showSnackbar = false, granular = granular)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -1727,11 +1758,12 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         pkg: NetworkPackage,
         networkType: NetworkType,
         willBlock: Boolean,
-        showSnackbar: Boolean
+        showSnackbar: Boolean,
+        granular: Boolean
     ) {
         AppLogger.d(TAG, "🔘 QUICK TOGGLE: ${networkType.name} for ${pkg.packageName} - willBlock: $willBlock")
 
-        if (!supportsGranularControl()) {
+        if (!granular) {
             viewModel.setAllNetworkBlocking(pkg.packageName, pkg.userId, willBlock)
         } else when (networkType) {
             NetworkType.WIFI -> viewModel.setWifiBlocking(pkg.packageName, pkg.userId, willBlock)
@@ -1740,16 +1772,16 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
 
         if (showSnackbar) {
-            showQuickToggleSnackbar(pkg, networkType, willBlock)
+            showQuickToggleSnackbar(pkg, networkType, willBlock, granular)
         }
     }
 
     private fun showQuickToggleSnackbar(
         pkg: NetworkPackage,
         networkType: NetworkType,
-        wasBlocked: Boolean
+        wasBlocked: Boolean,
+        granular: Boolean
     ) {
-        val granular = supportsGranularControl()
         val message = if (!granular) {
             if (wasBlocked) {
                 getString(R.string.snackbar_internet_blocked, pkg.name)

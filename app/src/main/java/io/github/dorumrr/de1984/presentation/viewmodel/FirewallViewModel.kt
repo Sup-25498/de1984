@@ -713,6 +713,31 @@ class FirewallViewModel(
     }
 
 
+    /**
+     * The multi-select equivalent of [setAllNetworkBlocking], for backends that report
+     * `supportsGranularControl() == false`. They have one switch per app, so the sheet shows one
+     * "Internet Access" toggle instead of three. See issue #72.
+     */
+    fun batchSetAllNetworkBlocking(packages: List<Pair<String, Int>>, blocked: Boolean) {
+        viewModelScope.launch {
+            AppLogger.d(TAG, "🔥 batchSetAllNetworkBlocking: Setting all networks blocked=$blocked for ${packages.size} packages")
+            for ((packageName, userId) in packages) {
+                updatePackageInList(packageName, userId) { pkg ->
+                    pkg.copy(
+                        wifiBlocked = blocked,
+                        mobileBlocked = blocked,
+                        roamingBlocked = blocked
+                    )
+                }
+                manageNetworkAccessUseCase.setAllNetworkBlocking(packageName, userId, blocked)
+                    .onFailure { error ->
+                        AppLogger.e(TAG, "🔥 batchSetAllNetworkBlocking: Failed for $packageName (user=$userId): ${error.message}")
+                    }
+            }
+            AppLogger.d(TAG, "🔥 batchSetAllNetworkBlocking: Complete")
+        }
+    }
+
     fun batchSetWifiBlocking(packages: List<Pair<String, Int>>, blocked: Boolean) {
         viewModelScope.launch {
             AppLogger.d(TAG, "🔥 batchSetWifiBlocking: Setting WiFi blocked=$blocked for ${packages.size} packages")
