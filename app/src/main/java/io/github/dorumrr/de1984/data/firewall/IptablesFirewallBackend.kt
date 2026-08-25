@@ -49,8 +49,16 @@ class IptablesFirewallBackend(
         // Split by family because the two failures mean different things. A rejected IPv4 rule is
         // a hole in the firewall and must fail the apply; a rejected IPv6 rule usually means a ROM
         // without the IPv6 owner match, which the old diff path tolerated by degrading to v4-only.
-        private const val RESYNC_FAIL_V4 = "DE1984_RESYNC_FAIL4"
-        private const val RESYNC_FAIL_V6 = "DE1984_RESYNC_FAIL6"
+        private const val ADD_FAIL_V4 = "DE1984_ADD_FAIL4"
+        private const val ADD_FAIL_V6 = "DE1984_ADD_FAIL6"
+
+        // Separators for the chain dump appended to every write script. Reading the chain back is
+        // the only way to know what actually landed: iptables writes can fail individually and the
+        // exit code carries only the last one.
+        private const val STATE_V4 = "DE1984_STATE4"
+        private const val STATE_V6 = "DE1984_STATE6"
+
+        private val UID_OWNER_REGEX = Regex("--uid-owner (\\d+)")
 
         // A stale rule that would not delete. Protection is intact - the new rules are already in
         // front of it - but a leftover duplicate is what breaks unblocking, so it must be retried.
@@ -862,24 +870,24 @@ class IptablesFirewallBackend(
             val script = StringBuilder()
 
             script.appendLine("$IPTABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
-            script.appendLine("$IPTABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IPTABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $RESYNC_FAIL_V4")
+            script.appendLine("$IPTABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IPTABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $ADD_FAIL_V4")
             script.appendLine("V4OLD=$sh($IPTABLES -S $CHAIN_OUTPUT 2>/dev/null | grep -c '^-A $CHAIN_OUTPUT')")
 
             script.appendLine("$IP6TABLES -N $CHAIN_OUTPUT 2>/dev/null || true")
-            script.appendLine("$IP6TABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IP6TABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $RESYNC_FAIL_V6")
+            script.appendLine("$IP6TABLES -C OUTPUT -j $CHAIN_OUTPUT 2>/dev/null || $IP6TABLES -I OUTPUT -j $CHAIN_OUTPUT || echo $ADD_FAIL_V6")
             script.appendLine("V6OLD=$sh($IP6TABLES -S $CHAIN_OUTPUT 2>/dev/null | grep -c '^-A $CHAIN_OUTPUT')")
 
             for (uid in uidsToBlock) {
-                script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $RESYNC_FAIL_V4")
-                script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $RESYNC_FAIL_V6")
+                script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $ADD_FAIL_V4")
+                script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $ADD_FAIL_V6")
             }
 
             for (uid in uidsToBlockLan) {
                 for (range in LAN_RANGES_V4) {
-                    script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $RESYNC_FAIL_V4")
+                    script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $ADD_FAIL_V4")
                 }
                 for (range in LAN_RANGES_V6) {
-                    script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $RESYNC_FAIL_V6")
+                    script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $ADD_FAIL_V6")
                 }
             }
 
@@ -889,8 +897,8 @@ class IptablesFirewallBackend(
             script.appendLine("i=0; while [ \"${sh}i\" -lt \"${sh}V6OLD\" ]; do $IP6TABLES -D $CHAIN_OUTPUT 1 2>/dev/null || echo $TRIM_FAIL; i=$sh((i+1)); done")
 
             val (exitCode, output) = executeCommand(script.toString())
-            val failedV4 = output.split(RESYNC_FAIL_V4).size - 1
-            val failedV6 = output.split(RESYNC_FAIL_V6).size - 1
+            val failedV4 = output.split(ADD_FAIL_V4).size - 1
+            val failedV6 = output.split(ADD_FAIL_V6).size - 1
             val failedTrim = output.split(TRIM_FAIL).size - 1
 
             if (exitCode != 0 || failedV4 > 0) {
@@ -932,6 +940,50 @@ class IptablesFirewallBackend(
         }
     }
 
+    /**
+     * Count, per uid, how many rules of one kind the chain actually holds.
+     *
+     * `lanRules = false` counts the blanket DROPs (no `-d`), `true` counts the LAN-range DROPs.
+     * Counts rather than a set, because both failure directions matter: fewer than expected means
+     * a rule never landed, more means a duplicate - and duplicates are what break unblocking,
+     * since `-D` removes exactly one match.
+     */
+    private fun parseChainUids(dump: String, lanRules: Boolean): Map<Int, Int> {
+        val counts = mutableMapOf<Int, Int>()
+        for (line in dump.lineSequence()) {
+            if (!line.startsWith("-A $CHAIN_OUTPUT")) continue
+            if (line.contains(" -d ") != lanRules) continue
+            val uid = UID_OWNER_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            counts[uid] = (counts[uid] ?: 0) + 1
+        }
+        return counts
+    }
+
+    /**
+     * Append a dump of both chains so the caller can see what the writes above actually did.
+     */
+    private fun StringBuilder.appendChainReadback() {
+        appendLine("echo $STATE_V4")
+        appendLine("$IPTABLES -S $CHAIN_OUTPUT 2>/dev/null || true")
+        appendLine("echo $STATE_V6")
+        appendLine("$IP6TABLES -S $CHAIN_OUTPUT 2>/dev/null || true")
+    }
+
+    /**
+     * Add and remove blanket DROP rules, then BELIEVE THE KERNEL, not the commands.
+     *
+     * This used to log a warning on a non-zero exit and carry on, recording every uid it was asked
+     * to block as blocked. Two things made that a lie. A shell reports only its last line's status,
+     * so a rule rejected mid-script - xtables lock contention while netd rewrites during a network
+     * change - was invisible. And once a uid sat in `blockedUids`, the diff path never emitted its
+     * rule again: `uidsToAdd = uidsToBlock - blockedUids` excluded it forever. The app showed the
+     * app as blocked and it had open network for the rest of the session.
+     *
+     * So the script now ends by dumping the chain, and `blockedUids` is set to what is really
+     * there. Anything that does not match what was asked for arms a full rewrite, which is safe
+     * and duplicate-free (see resyncChain). IPv6 failures only warn - ROMs without the IPv6 owner
+     * match must keep working on v4, as they did before.
+     */
     private suspend fun applyRulesBatch(
         uidsToBlock: Set<Int>,
         uidsToUnblock: Set<Int>
@@ -945,22 +997,48 @@ class IptablesFirewallBackend(
             }
 
             for (uid in uidsToBlock) {
-                script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP")
-                script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP")
+                script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $ADD_FAIL_V4")
+                script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -j DROP || echo $ADD_FAIL_V6")
             }
 
-            if (script.isNotEmpty()) {
-                val (exitCode, output) = executeCommand(script.toString())
-                if (exitCode != 0) {
-                    AppLogger.w(TAG, "Batch rule script returned non-zero: exitCode=$exitCode, output=$output")
-                    // Don't fail - some delete commands may fail if rule doesn't exist, that's OK
-                }
+            if (script.isEmpty()) {
+                return@withContext Result.success(Unit)
+            }
+            script.appendChainReadback()
+
+            val (exitCode, output) = executeCommand(script.toString())
+            val failedV6 = output.split(ADD_FAIL_V6).size - 1
+
+            val actualV4 = parseChainUids(output.substringAfter(STATE_V4, "").substringBefore(STATE_V6), lanRules = false)
+            val actualV6 = parseChainUids(output.substringAfter(STATE_V6, ""), lanRules = false)
+
+            blockedUids.clear()
+            blockedUids.addAll(actualV4.keys)
+
+            val missing = uidsToBlock - actualV4.keys
+            val notRemoved = uidsToUnblock.intersect(actualV4.keys)
+            val duplicated = actualV4.filterValues { it > 1 }.keys
+            // A leftover IPv6 rule for a uid we just unblocked still drops that app's traffic, so
+            // it counts as a mismatch. A MISSING IPv6 rule does not - that is the unsupported-ROM
+            // case, and failing there would break devices the old code served.
+            val v6NotRemoved = uidsToUnblock.intersect(actualV6.keys)
+
+            if (missing.isNotEmpty() || notRemoved.isNotEmpty() || duplicated.isNotEmpty() || v6NotRemoved.isNotEmpty()) {
+                AppLogger.w(
+                    TAG,
+                    "⚠️ Chain does not match intent - missing=$missing, stillBlockedV4=$notRemoved, " +
+                        "stillBlockedV6=$v6NotRemoved, duplicated=$duplicated; arming a full rewrite"
+                )
+                chainNeedsResync = true
+            }
+            if (failedV6 > 0) {
+                AppLogger.w(TAG, "⚠️ $failedV6 IPv6 rule(s) rejected - IPv6 traffic for those apps is NOT blocked")
+            }
+            if (exitCode != 0) {
+                AppLogger.w(TAG, "Batch rule script returned non-zero: exitCode=$exitCode")
             }
 
-            blockedUids.removeAll(uidsToUnblock)
-            blockedUids.addAll(uidsToBlock)
-
-            AppLogger.d(TAG, "✅ Batched rules applied: blocked=${uidsToBlock.size}, unblocked=${uidsToUnblock.size}")
+            AppLogger.d(TAG, "✅ Batched rules applied: asked=${uidsToBlock.size} blocked/${uidsToUnblock.size} unblocked, chain now holds ${actualV4.size}, armed=$chainNeedsResync")
             Result.success(Unit)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to apply batched rules", e)
@@ -969,6 +1047,12 @@ class IptablesFirewallBackend(
         }
     }
 
+    /**
+     * Same contract as applyRulesBatch, for the LAN-range rules.
+     *
+     * A uid counts as LAN-blocked only when ALL its ranges are present; a partial set means some
+     * private network is still reachable, so it arms a rewrite rather than being recorded as done.
+     */
     private suspend fun applyLanRulesBatch(
         uidsToBlock: Set<Int>,
         uidsToUnblock: Set<Int>
@@ -976,38 +1060,60 @@ class IptablesFirewallBackend(
         return@withContext try {
             val script = StringBuilder()
 
-            val ipv4Ranges = LAN_RANGES_V4
-            val ipv6Ranges = LAN_RANGES_V6
-
             for (uid in uidsToUnblock) {
-                for (range in ipv4Ranges) {
+                for (range in LAN_RANGES_V4) {
                     script.appendLine("$IPTABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP 2>/dev/null || true")
                 }
-                for (range in ipv6Ranges) {
+                for (range in LAN_RANGES_V6) {
                     script.appendLine("$IP6TABLES -D $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP 2>/dev/null || true")
                 }
             }
 
             for (uid in uidsToBlock) {
-                for (range in ipv4Ranges) {
-                    script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP")
+                for (range in LAN_RANGES_V4) {
+                    script.appendLine("$IPTABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $ADD_FAIL_V4")
                 }
-                for (range in ipv6Ranges) {
-                    script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP")
-                }
-            }
-
-            if (script.isNotEmpty()) {
-                val (exitCode, output) = executeCommand(script.toString())
-                if (exitCode != 0) {
-                    AppLogger.w(TAG, "Batch LAN rule script returned non-zero: exitCode=$exitCode, output=$output")
+                for (range in LAN_RANGES_V6) {
+                    script.appendLine("$IP6TABLES -A $CHAIN_OUTPUT -m owner --uid-owner $uid -d $range -j DROP || echo $ADD_FAIL_V6")
                 }
             }
 
-            blockedLanUids.removeAll(uidsToUnblock)
-            blockedLanUids.addAll(uidsToBlock)
+            if (script.isEmpty()) {
+                return@withContext Result.success(Unit)
+            }
+            script.appendChainReadback()
 
-            AppLogger.d(TAG, "✅ Batched LAN rules applied: blocked=${uidsToBlock.size}, unblocked=${uidsToUnblock.size}")
+            val (exitCode, output) = executeCommand(script.toString())
+            val failedV6 = output.split(ADD_FAIL_V6).size - 1
+
+            val actualV4 = parseChainUids(output.substringAfter(STATE_V4, "").substringBefore(STATE_V6), lanRules = true)
+            val actualV6 = parseChainUids(output.substringAfter(STATE_V6, ""), lanRules = true)
+
+            val fullyBlocked = actualV4.filterValues { it >= LAN_RANGES_V4.size }.keys
+            blockedLanUids.clear()
+            blockedLanUids.addAll(fullyBlocked)
+
+            val missing = uidsToBlock - fullyBlocked
+            val notRemoved = uidsToUnblock.intersect(actualV4.keys)
+            val duplicated = actualV4.filterValues { it > LAN_RANGES_V4.size }.keys
+            val v6NotRemoved = uidsToUnblock.intersect(actualV6.keys)
+
+            if (missing.isNotEmpty() || notRemoved.isNotEmpty() || duplicated.isNotEmpty() || v6NotRemoved.isNotEmpty()) {
+                AppLogger.w(
+                    TAG,
+                    "⚠️ LAN rules do not match intent - missing=$missing, stillBlockedV4=$notRemoved, " +
+                        "stillBlockedV6=$v6NotRemoved, duplicated=$duplicated; arming a full rewrite"
+                )
+                chainNeedsResync = true
+            }
+            if (failedV6 > 0) {
+                AppLogger.w(TAG, "⚠️ $failedV6 IPv6 LAN rule(s) rejected - IPv6 LAN traffic for those apps is NOT blocked")
+            }
+            if (exitCode != 0) {
+                AppLogger.w(TAG, "Batch LAN rule script returned non-zero: exitCode=$exitCode")
+            }
+
+            AppLogger.d(TAG, "✅ Batched LAN rules applied: asked=${uidsToBlock.size} blocked/${uidsToUnblock.size} unblocked, chain now holds ${fullyBlocked.size}, armed=$chainNeedsResync")
             Result.success(Unit)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to apply batched LAN rules", e)
