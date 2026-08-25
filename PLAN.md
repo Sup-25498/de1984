@@ -19,7 +19,7 @@ written. Verify against code before acting on any of it.
 Status key: `VERIFIED` = read in code, line cited. `NEEDS-RUNTIME` = needs a real device.
 `INFERRED` = strongly implied by code, not directly observed.
 
-Last distilled: 2026-08-25 · against v2.6.4 (versionCode 35)
+Last distilled: 2026-08-25 · against v2.6.5 (versionCode 36)
 
 ---
 
@@ -34,8 +34,6 @@ hardware-verified. What remains:
 - `clearBootBlockIfInstalled` calls `forceRecheckRootStatus()` when privilege is missing; libsu is
   configured with a 30s timeout, inside a BroadcastReceiver's ~10s budget. Not bounded: at boot the
   root wake genuinely can take seconds, and cutting it short would fail the lift it exists to do.
-- `LOCKED_BOOT_COMPLETED` does nothing in release: the receiver is `directBootAware` but
-  `<application>` is not, and `AppLogger.init` touches CE storage.
 - `BootWorker:91-105` still has a preference-gated `resetIptablesPolicies()` that is redundant.
   Harmless and idempotent, but it is a second way to do the same thing. Not removed: in the case
   "preference true, script absent" the two differ, and that difference has not been reasoned through.
@@ -45,42 +43,32 @@ app's recovery runs on `BOOT_COMPLETED`, which on an encrypted device fires only
 unlocks**. A phone that reboots overnight has no app network until morning; a user who cannot unlock
 never recovers at all. The 120-second timer is the only backstop.
 
-**Still open sub-decisions:**
-- Scenario 5 — root lost, switch force-disabled. Does a recovery action there also reboot?
-- Is a brief "Rebooting…" toast wanted, or does that count as a delay?
+**DECIDED 2026-08-25, not yet implemented — scenario 5 recovery:**
+
+1. Add a **"Try to remove"** button to the greyed-out Boot Protection row. It re-probes root and
+   deletes the script if it gets it. This is the case worth fixing: "lost root" is usually "root not
+   granted right now" — Magisk not awake yet, or a single Deny — not root genuinely gone.
+2. **Rewrite `settings_boot_protection_stuck`.** It currently tells the user to run `su`, which is
+   precisely what they lost. When the retry fails it must say so plainly: root is really gone, and
+   nothing in the app can delete a file under `/data/adb`.
+3. **A successful removal reboots**, with a "Rebooting…" screen. Deleting the script does not clear
+   the chain already live in this boot's kernel. `resetIptablesPolicies()` could, but that would be a
+   second way to undo the same thing and it breaks the standing rule (reference decision 1). One
+   rule, no exception to remember.
+
+Touches `ui/settings/SettingsFragmentViews.kt:458-474`, `res/values/strings.xml:466` and
+`data/common/BootProtectionManager`.
 
 ---
 
-# 2. NetworkPolicyManager
+# 2. Firewall health and error reporting
 
-## Sweep can race an in-flight apply
-
-`cleanupAllBackends()` can still race an in-flight `applyRules` for **iptables and
-NetworkPolicyManager**. Fixed for ConnectivityManager by the process-wide mutex; the other two have
-the same shape and pre-date that work. No `-w` on any command. A real fix needs the privileged
-service to acknowledge the stop before the sweep begins.
-
----
-
-# 3. Firewall health and error reporting
-
-- **`FirewallHealth.Down` and `FirewallHealth.StopFailed` overwrite each other, and the order is
-  racy.** Killing Shizuku produces both. Observed both orders across runs. They make contradictory
-  claims: "your apps are unblocked" versus "some apps may still be blocked". For NetworkPolicyManager,
-  whose policies persist in `/data/system/netpolicy.xml`, StopFailed is the more truthful of the two.
-  Needs a precedence rule.
-- **A silent unblocked state.** `SettingsViewModel.restartFirewallIfRunning` calls `stopFirewall()`
-  then `startFirewall(newMode)`. A failure returns through `startFirewallInternal`, which sets
-  `FirewallState.Error` but never publishes `FirewallHealth.Down` and never sets `_isFirewallDown`.
-  The firewall is off, apps are unblocked, and only a Settings error string is shown. The comment
-  above it — "FirewallManager will set isFirewallDown=true to track the error state" — is factually
-  wrong.
 - **Scroll jump during a real backend failure on device.** Not the banner, not a state change.
   Suspect the work-profile package query failing while Shizuku is down. Needs a device repro.
 
 ---
 
-# 4. Performance and architecture
+# 3. Performance and architecture
 
 - **The duplicate apply.** Two backend instances each run the full `applyRules` for the same rule
   change: two passes of ~16 s over 87 uids. Correct now that they share a lock, but it doubles the
@@ -96,7 +84,7 @@ service to acknowledge the stop before the sweep begins.
 
 ---
 
-# 5. Multi-user and work profile
+# 4. Multi-user and work profile
 
 Settled as **best-effort**: not a guaranteed dimension, bugs there are real but not release blockers,
 and the UI must not promise enforcement it cannot deliver.
@@ -104,16 +92,34 @@ and the UI must not promise enforcement it cannot deliver.
 - Work-profile package events reach neither receiver.
 ---
 
-# 6. Widget and VPN permission
+# 5. Widget, tile and VPN permission
 
 `VpnPermissionActivity` cannot be launched from `FirewallToggleReceiver`: Android 14 blocks it with
-`BAL_BLOCK` (background activity launch). On a device needing VPN permission, the widget start
-silently does nothing. Pre-existing — and it means the `VpnPermissionActivity` fixes made earlier are
-correct but currently unreachable from the widget.
+`BAL_BLOCK` (background activity launch). On a device needing VPN permission the start silently does
+nothing. Pre-existing — and it means the `VpnPermissionActivity` fixes made earlier are correct but
+currently unreachable.
+
+**Corrected 2026-08-25: this is the tile as well as the widget, not the widget alone.** Both send a
+broadcast to `FirewallToggleReceiver` for the OFF→ON direction — `FirewallWidget:155` and
+`FirewallTileService:109` — and the blocked `startActivity` is in that receiver, at
+`FirewallToggleReceiver:99`. The tile's ON→OFF direction is fine: it uses
+`startActivityAndCollapse(PendingIntent)`, which is the sanctioned path on Android 14.
+
+Options considered, none implemented:
+
+1. **Post the notification instead of launching.** `FirewallManager.showVpnFallbackNotification()`
+   already exists and already opens `MainActivity` with `ACTION_ENABLE_VPN_FALLBACK`. A notification
+   tap is a user gesture, so it is allowed to start an activity. Reuses what is there; the cost is
+   one extra tap and it needs `POST_NOTIFICATIONS`.
+2. **Disable the widget when VPN permission is missing.** Rejected on inspection: the receiver only
+   learns that VPN permission is needed *after* `computeStartPlan`, which needs the privilege probes,
+   so the widget cannot know at draw time. It would also leave a dead control with no explanation.
+3. **Do nothing, document it.** The situation only arises when the VPN backend is the plan, which
+   means no root and no Shizuku.
 
 ---
 
-# 7. Backup and restore
+# 6. Backup and restore
 
 **Restoring a backup chosen from the picker's SEARCH results fails:**
 
@@ -125,6 +131,18 @@ content://media/external_primary/file/1000000143
 Searching hands back a MediaStore URI the app cannot open; browsing to the file yields a
 DocumentsProvider URI instead. **Which paths work is unconfirmed.** The app surfaces the error
 clearly rather than failing silently, which is correct.
+
+**Assessed 2026-08-25: the underlying failure is not ours to fix.** The picker is
+`ActivityResultContracts.OpenDocument()` (`SettingsFragmentViews:140`), which is the correct
+contract, and the read is a plain `contentResolver.openInputStream` (`SettingsViewModel:760`). The
+message says `com.android.externalstorage` has no access to a `content://media/...` URI — the denial
+is inside the provider chain the picker chose, not in our grant. No permission we could hold changes
+it: a `.json` backup is not covered by `READ_MEDIA_*` on API 33+.
+
+What *is* fixable cheaply is the dead end. One new string plus one `catch` on the read failure could
+say "if you picked this from search results, open its folder and choose it there", which is the
+workaround that does work. Not done — it is a wording change, not a fix, and it should be decided
+as such.
 
 ---
 
@@ -177,6 +195,27 @@ Kept because the knowledge is load-bearing, not because there is work to do.
    logged as a warning and nothing surfaces it. Accepted knowingly: the alternative is a warning on
    every ROM that cannot be detected up front, or refusing to run a backend that still blocks
    something. Documented in FIREWALL.md section 4 under "Known gap".
+9. **`LOCKED_BOOT_COMPLETED` is not handled, deliberately.** (2026-08-25) Removed from the manifest
+   and from `BootReceiver`, along with `directBootAware`. It could never do the job: the rules live
+   in a Room database on credential-encrypted storage, so before unlock there is nothing to restore
+   from, and the preferences and WorkManager's own database sit on the same storage. It was not
+   merely inert — on a device with no lock screen credential, credential storage IS readable at that
+   point, so both actions ran and the whole boot restore executed twice. The window before unlock
+   stays covered by the boot script's own 120-second self-heal timer. Closing it properly means
+   moving the rules database and the firewall preferences to device-protected storage.
+10. **`StopFailed` outranks `Down` while the user's intent is OFF.** (2026-08-25) Killing Shizuku
+    raises both and the last writer used to win, so the same failure showed a different banner from
+    run to run. The tiebreak is `KEY_FIREWALL_ENABLED`, which is what separates the two states in the
+    first place. With intent OFF, StopFailed is the truthful one — on iptables, ConnectivityManager
+    and NetworkPolicyManager the rules outlive the backend that wrote them, so "apps are unblocked"
+    is false there. Intent ON is deliberately not suppressed: that is the orphan-after-switch case,
+    where losing the firewall IS the news. Implemented in `FirewallManager.reportFirewallDown`.
+11. **All three privileged backends now share a process-wide lock.** (2026-08-25) `iptables` and
+    `NetworkPolicyManager` had per-instance mutexes, so `cleanupAllBackends()` could sweep while the
+    privileged service was still inside `applyRules`. ConnectivityManager was moved to a companion
+    object mutex when that was found; the other two were simply older than the fix and now match it.
+    Follow-up candidate, not a defect: `NetworkPolicyManagerFirewallBackend.originalPolicyLock` is
+    now a second guard over the same window and could be removed.
 
 # Reference — backend capability matrix
 

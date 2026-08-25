@@ -46,23 +46,36 @@ class NetworkPolicyManagerFirewallBackend(
         private const val SERVICE_NAME = "netpolicy"
 
         /**
-         * Guards the record of "what each UID looked like before this backend touched it".
+         * Process-wide, NOT per-instance. Same shape and same reason as
+         * ConnectivityManagerFirewallBackend's.
          *
-         * FirewallManager, PrivilegedFirewallService and cleanupAllBackends each hold their own
-         * instance of this backend, so the per-instance [mutex] does not make them exclusive. Two
-         * instances applying at the same time would both read the same UID, each see the other's
-         * write as the original value, and destroy the real one.
+         * Everything this backend guards - the system's per-UID policies and the on-disk record of
+         * what each UID looked like first - is shared by every instance. FirewallManager,
+         * PrivilegedFirewallService and cleanupAllBackends each build their own, so a per-instance
+         * lock made none of them exclusive: the sweep could revert every UID and clear the record
+         * while the service was still inside applyRules re-blocking them.
+         *
+         * ConnectivityManager was moved to a process-wide lock when that was found; iptables and
+         * this backend have the identical shape and were simply older than the fix.
+         */
+        private val mutex = Mutex()
+
+        /**
+         * Guards the record of "what each UID looked like before this backend touched it".
          *
          * Observed on hardware: uid 10212 held POLICY_REJECT_ALL (262144). Instance A read it
          * correctly and wrote the blocking policy at 22:04:31.917; instance B read the same uid
          * 3 ms later, got A's value, and saved 1 as the "original". The real value was lost.
          *
-         * Lock order is always instance [mutex] first, then this. Never the other way round.
+         * Now that [mutex] is process-wide this is a second guard over the same window, since every
+         * caller below already holds [mutex]. It is kept because it enforces the invariant at the
+         * exact read-modify-write rather than relying on callers, and this is the one path that has
+         * already destroyed a real user policy. Removing it is a cleanup, not a fix.
+         *
+         * Lock order is always [mutex] first, then this. Never the other way round.
          */
         private val originalPolicyLock = Mutex()
     }
-
-    private val mutex = Mutex()
 
     private val appliedPolicies = mutableMapOf<Int, Boolean>()
 

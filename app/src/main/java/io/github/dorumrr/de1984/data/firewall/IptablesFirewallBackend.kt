@@ -39,9 +39,24 @@ class IptablesFirewallBackend(
         private const val PROBE_PRESENT = "DE1984_CHAIN_PRESENT"
         private const val PROBE_ABSENT = "DE1984_CHAIN_ABSENT"
         private const val PROBE_NOPRIV = "DE1984_CHAIN_NOPRIV"
+
+        /**
+         * Process-wide, NOT per-instance. Same shape and same reason as
+         * ConnectivityManagerFirewallBackend's.
+         *
+         * The de1984_output chains live in the kernel and the "chains are installed" record lives
+         * on disk, so both are shared by every instance. FirewallManager, PrivilegedFirewallService
+         * and cleanupAllBackends each build their own, and a per-instance lock made none of them
+         * exclusive: the sweep could delete the chains while the service was still inside applyRules
+         * adding rules to them.
+         *
+         * ConnectivityManager was moved to a process-wide lock when that was found; this backend and
+         * NetworkPolicyManager have the identical shape and were simply older than the fix.
+         *
+         * None of the locking functions here call another, so widening the scope cannot deadlock.
+         */
+        private val mutex = Mutex()
     }
-    
-    private val mutex = Mutex()
 
     private val blockedUids = mutableSetOf<Int>()
 

@@ -39,12 +39,12 @@ class BootReceiver : BroadcastReceiver() {
         AppLogger.d(TAG, "🔄 BOOT RECEIVER TRIGGERED | Action: $action | Android Version: ${Build.VERSION.SDK_INT} (API ${Build.VERSION.SDK_INT})")
 
         when (action) {
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
-                val bootType = if (action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-                    "LOCKED_BOOT_COMPLETED (before user unlock)"
-                } else {
-                    "BOOT_COMPLETED (after user unlock)"
-                }
+            // LOCKED_BOOT_COMPLETED is deliberately not handled - see the receiver's manifest
+            // entry. Everything below reads credential-encrypted storage, which is unreadable
+            // before the user unlocks, and on a device with no lock screen it made the whole
+            // restore run twice.
+            Intent.ACTION_BOOT_COMPLETED -> {
+                val bootType = "BOOT_COMPLETED (after user unlock)"
                 AppLogger.d(TAG, "📱 Device boot completed - $bootType")
 
                 // iptables rules live in the kernel, so a reboot wipes them - but the

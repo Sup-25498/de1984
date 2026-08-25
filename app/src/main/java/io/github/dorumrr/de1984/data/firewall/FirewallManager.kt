@@ -1251,18 +1251,44 @@ class FirewallManager(
         backend: FirewallBackendType?,
         stateMessage: String
     ) {
-        AppLogger.e(TAG, "🚨 FIREWALL DOWN ($reason, backend=$backend): apps are UNBLOCKED - $stateMessage")
-
-        _firewallHealth.value = FirewallHealth.Down(reason, backend)
-        _firewallState.value = FirewallState.Error(message = stateMessage, lastBackend = backend)
-        emitStateChangeBroadcast(_firewallState.value)
-
         // This flag means "the user wants the firewall on and it is not". Recovery keys off it, so
         // setting it when the user's own intent flag is false turns a failed toggle into a restart
         // attempt on every resume: FirewallViewModel writes KEY_FIREWALL_ENABLED=false on a failed
         // start, and handlePrivilegeChange's `!enabled && !down` guard then stops short-circuiting.
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val userWantsFirewallOn = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, false)
+
+        // PRECEDENCE: a live StopFailed outranks Down while the user's intent is OFF.
+        //
+        // Killing Shizuku raises both. They claim opposite things - "your apps are unblocked"
+        // versus "some apps may still be blocked" - and whichever landed last used to win, so the
+        // same failure showed a different banner from one run to the next.
+        //
+        // The tiebreak is the user's own intent, because that is what separates these two states in
+        // the first place: Down means wanting blocking and getting none, StopFailed means wanting
+        // none and maybe getting some. With intent OFF, StopFailed is the truthful one - and on
+        // iptables, ConnectivityManager and NetworkPolicyManager it is literally true, because
+        // kernel chains, sUidOwnerMap entries and netpolicy.xml all outlive the backend that wrote
+        // them, so "apps are unblocked" is a lie there.
+        //
+        // Intent ON is deliberately NOT suppressed: that is the orphan-after-switch case, where the
+        // firewall is meant to be running and losing it IS the news. The orphan keeps its own
+        // notification, which is the part that survives process death anyway.
+        if (_firewallHealth.value is FirewallHealth.StopFailed && !userWantsFirewallOn) {
+            AppLogger.w(
+                TAG,
+                "Firewall down ($reason, backend=$backend) but a stuck backend warning is live and " +
+                    "the user asked for the firewall off - keeping StopFailed"
+            )
+            return
+        }
+
+        AppLogger.e(TAG, "🚨 FIREWALL DOWN ($reason, backend=$backend): apps are UNBLOCKED - $stateMessage")
+
+        _firewallHealth.value = FirewallHealth.Down(reason, backend)
+        _firewallState.value = FirewallState.Error(message = stateMessage, lastBackend = backend)
+        emitStateChangeBroadcast(_firewallState.value)
+
         _isFirewallDown.value = userWantsFirewallOn
         if (!userWantsFirewallOn) {
             AppLogger.d(TAG, "User intent is off - reporting the failure but not arming recovery")

@@ -145,15 +145,31 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-        <!-- Boot receiver to restore firewall state after device reboot -->
+        <!--
+            Boot receiver to restore firewall state after device reboot.
+
+            LOCKED_BOOT_COMPLETED and directBootAware were removed on purpose. They cannot do this
+            receiver's job: the rules live in a Room database on credential-encrypted storage, so
+            before the user unlocks there is nothing to restore FROM. Everything the old path
+            touched - the shared preferences, WorkManager's own database - is on the same storage
+            and throws there, and <application> was never directBootAware either, so the process
+            could not start cleanly in direct-boot mode regardless.
+
+            It was not merely inert. On a device with no lock screen credential, credential storage
+            IS readable at LOCKED_BOOT_COMPLETED, so both actions ran the full restore and the boot
+            path executed twice.
+
+            The gap before unlock is covered by the boot-protection script's own 120-second
+            self-heal timer, which is what that timer exists for. Closing it properly would mean
+            moving the rules database and the firewall preferences to device-protected storage -
+            a real change, not a manifest line.
+        -->
         <receiver
             android:name=".data.receiver.BootReceiver"
-            android:directBootAware="true"
             android:exported="true"
             android:enabled="true">
             <intent-filter android:priority="999">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
