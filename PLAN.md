@@ -2,12 +2,16 @@
 
 What is **still wrong or still undecided**. Closed findings are not here.
 
-The full audit log — 3,527 lines, 44 fixes, 47 hardware verifications, every session from
-2026-08-22 to 2026-08-24 — lives in git and nothing was lost:
+Anything fixed, or decided and left alone, has been removed. Nothing is lost — the full 3,527-line
+audit log and every closed finding live in git:
 
 ```
-git show f8f45d2:PLAN.md
+git show f8f45d2:PLAN.md      # the original log
+git log --follow -p PLAN.md   # what was removed, and when
 ```
+
+Settled decisions are not findings; they are kept under **Reference** below because future work needs
+them.
 
 **Trust order: current code and tests first, this file second.** Every claim below was true when
 written. Verify against code before acting on any of it.
@@ -174,10 +178,6 @@ and the UI must not promise enforcement it cannot deliver.
   around.
 - `SmartPolicySwitchUseCase` matches critical packages by `packageName` alone, ignoring `userId`, so a
   VPN app present in two profiles gets one copy restored.
-- ConnectivityManager's record is keyed by package name across profiles. **Left, decided:** the
-  command only acts in the current user context, so cross-profile entries are phantoms and unblocking
-  them is a no-op. Changing the on-disk format needs a migration riskier than the bug.
-
 ---
 
 # 7. Widget and VPN permission
@@ -221,48 +221,12 @@ clearly rather than failing silently, which is correct.
 
 ---
 
-# 10. Awaiting a decision
-
-## Trade-offs already taken — Doru should confirm these stand
-
-1. **Flipping the Default Policy now also resets per-app roaming and LAN.** `blockAllApps` /
-   `allowAllApps` already overwrote every enabled rule's wifi and mobile; extending them to roaming
-   and LAN is what closes M076 and follows from the Block All decision. Per-app roaming and LAN
-   choices that used to survive a policy flip no longer do.
-2. **A failed widget/tile start no longer arms automatic recovery.** It used to write
-   `KEY_FIREWALL_ENABLED=true` even on failure. That write is also the M099 defect. The cost: granting
-   Shizuku after a failed widget start no longer auto-starts the firewall; the user must tap again.
-3. **The two non-granular backends block on ALL networks if a rule blocks on any.** Chosen 2026-08-24
-   to close M094. The cost, accepted knowingly: switching FROM iptables or VPN TO one of these
-   backends blocks more apps than before, because a per-network choice they cannot honour is resolved
-   toward blocking. LAN is excluded from the predicate.
-
-## Still unanswered
-
-- **Tests and CI.** Zero test files under `app/src/test` and `app/src/androidTest`. Settled
-  2026-08-24 as "no, not for now"; revisit before the next feature, not before the next bug fix.
-
----
-
-# 11. Translations
+# 10. Translations
 
 - The 7 shipped locales were machine-translated and **need a native review**, especially the strings
   added during the firewall work.
 - A large amount of user-facing copy lives hardcoded in `Constants.kt` and can never translate,
   despite shipping 7 locales.
-
----
-
-# 12. Corrections to the record
-
-**The backup is NOT lossy.** Earlier the backup JSON was reported as dropping `lanBlocked`,
-`blockWhenBackground`, `userId` and `enabled`. **That was wrong, and it changed a decision.**
-kotlinx.serialization omits any field equal to its default; the restore fills them back from the same
-defaults. Proven by setting `lanBlocked` and `blockWhenBackground` to true on one rule and
-re-exporting — both appeared in the JSON immediately.
-
-Same failure mode as the M047 false finding: **absence was read as loss without checking whether the
-value was simply the default.** Twice in one session.
 
 ---
 
@@ -303,20 +267,14 @@ toggle is stored, shown, and never enforced.
 All 26 entries re-checked against code at v2.6.4 / versionCode 35. Line numbers from the original
 audit had all shifted, so each was verified by pattern, not by line.
 
-**17 fixed · 2 were never defects · 3 still live · 4 unresolved.**
+**18 fixed · 2 were never defects · 1 still live · 4 unresolved.** Closed entries are not listed;
+`git show f8f45d2:PLAN.md` and the log hold them.
 
-Five more were fixed on 2026-08-25: P1-2, P1-10, P1-11, P1-14, P1-22. See "Closed" below.
-
-## Still live — 3
-
-These three were left deliberately: each is a refactor of core firewall code with real regression
-risk, not a contained fix.
+## Still live — 1
 
 | ID | Finding | Evidence today |
 |---|---|---|
-| P1-23 | **Nothing survives reinstall.** `allowBackup="false"`, `exportSchema = false`, `fallbackToDestructiveMigration()` with only two migrations written. Partly mitigated by the JSON rules backup, which is manual and opt-in. | `AndroidManifest.xml:49`, `De1984Database.kt:13`, `De1984Dependencies.kt:140-141` |
 | P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`; `MainActivity:873` reached `startFirewall()` from `lifecycleScope`, which is Main. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
-| P1-26 | **Backend switches are non-atomic outside `startFirewall`.** `restartFirewallIfRunning` stops then starts, so picking a backend in Settings unblocks every app in between. | `SettingsViewModel.kt:548` |
 
 ## Unresolved — 4, need a closer look than a grep
 
@@ -326,40 +284,6 @@ risk, not a contained fix.
 | P1-9 | Batch confirmation counts only visible selections but uninstalls all selected | `PackagesFragmentViews.kt:1133` uses `selectedPackages.size`. Whether that set is the visible subset or the full selection needs the selection-mode code read end to end. |
 | P1-13 | Failed rule writes revert by reloading, which may replay the mutated cache | `onFailure` calls `loadNetworkPackages()`. If that re-reads the repository the revert is correct; if it serves a cache the finding stands. Not settled. |
 | P1-21 | Uninstall friction is inverted — batch-of-50 is one button, one ESSENTIAL app needs typing "UNINSTALL" | A product judgement as much as a defect. Needs a decision, not a grep. |
-
-## Closed — 12 fixed
-
-| ID | What fixed it |
-|---|---|
-| P1-2 | **Fixed 2026-08-25.** A `vpnIsHealthy()` guard runs `checkAvailability()` then `isActive()` before either VPN branch can increment the counter, and routes failure through the same `handleBackendFailure` path every other backend uses. |
-| P1-10 | **Fixed 2026-08-25.** The empty result is cached only after `MAX_LOAD_ATTEMPTS` (3) consecutive failures, so one transient asset read no longer downgrades every package to UNKNOWN for the process. Verified on device: 4,983 packages loaded first try. |
-| P1-11 | **Fixed 2026-08-25.** Work-only apps now get their real uid from a cached `pm list packages -U --user N`. When that cannot be answered the uid is `HiddenApiHelper.UID_UNKNOWN` (-1), which fails `isFirewallableAppUid`, so no backend writes a rule against a guessed number. Verified on device: 216 work-profile apps resolved, 0 fell back. |
-| P1-14 | **Fixed 2026-08-25.** `stopFirewall()` records its teardown job and `onDestroy` waits up to 5s for it before cancelling the scope. `serviceScope` is on Dispatchers.IO, so the bounded wait cannot deadlock the main thread it blocks. |
-| P1-22 | **Fixed 2026-08-25.** Import now excludes De1984 itself, system-critical packages and ESSENTIAL packages, and the confirmation dialog lists what it refused rather than dropping them silently. |
-| P1-4 | `MainActivity.renderFirewallHealthBanner` + `FirewallHealthPresenter`. Health is rendered, and the banner is deliberately not dismissible. |
-| P1-5 | `De1984Application.cleanupOrphanedFirewallRules()` sweeps orphaned rules when `KEY_FIREWALL_ENABLED` is false. **Partial:** it clears rules, does not stop the service and does not touch VPN. |
-| P1-7 | `allowAllApps` / `blockAllApps` now set wifi + mobile + roaming + **lan**, with a comment stating the rule. |
-| P1-12 | ConnectivityManager keys by `"$packageName:$userId"`. |
-| P1-15 | `FirewallVpnService` returns `START_NOT_STICKY` on every failure path; `BackendMonitoringService.onStartCommand` uses `when (intent?.action)`, so a null redelivered intent no-ops instead of calling `stopSelf`. |
-| P1-16 | `stopInternal` deletes the chains and then **asks the kernel** rather than trusting exit codes. Process-kill leftovers are covered by the startup sweep. |
-| P1-17 | `stop()` is still fire-and-forget by design, but the real teardown now calls `reportTeardownFailure`, which raises `FirewallHealth.StopFailed`. The lie the finding described — "stopped successfully" over live DROP rules — is gone. |
-| P1-18 | `stopInternal` calls `restoreBlockedPackages()`. |
-| P1-19 | The tunnel adds `fd00:1984::2/64` and routes `::/0`. |
-| P1-20 | `FirewallToggleReceiver` and `VpnPermissionActivity` both use `getCurrentMode()`, and write `KEY_FIREWALL_ENABLED=true` only on success. |
-| P1-25 | `ErrorHandler.handleError` re-throws `CancellationException` before anything else, marked CRITICAL in a comment. |
-| P1-27 | Network and screen monitoring moved into `PrivilegedFirewallService.startMonitoring()`, which runs for iptables. (`FirewallManager.startMonitoring()` is the one with zero callers — see section 4.) |
-
-## Never defects — 2
-
-- **P1-6 `migrateRulesToSimple` rewrites partial rules to block-all.** This is the documented,
-  deliberate conservative rule for granular → simple transitions. "Switching back does not restore"
-  is still true and still accepted. Recorded in FIREWALL.md section 3.
-- **P1-8 "Block all networks leaves LAN open".** Two different operations were being compared.
-  `updateAllNetworkBlocking` backs the **Internet Access** toggle — WiFi, Mobile, Roaming — and its
-  DAO comment says so. **Block All** in the policy sense goes through `blockAllApps` /
-  `FirewallRule.blockAll()`, which do include LAN. Consistent with the settled decision.
-
----
 
 # The rest of the 2026-08-22 catalogue — NOT re-verified
 
@@ -406,14 +330,6 @@ risk, not a contained fix.
 - **No test source set at all.** `app/src/` contains only `main`.
 - CI disabled since 2025-11-04 — `.github/workflows/build.yml-temporary-disabled`.
 - Release builds unminified and unshrunk (R8 issue).
-- Room schema export off, `app/schemas/` empty — migrations cannot be reviewed or diffed.
 - Production keystore + `keystore.properties` in the working tree. Gitignored and untracked, but one
   `git add -f` from exposure. Off-machine backup confirmed 2026-08-22.
 - RULES.md is stale: claims ProGuard enabled (off), API 21 (min is 26), Compose UI (XML views only).
-
-## Superseded
-
-The old "P2 — FIREWALL.md: what to keep, change, and add" drift list is **removed as stale**.
-FIREWALL.md was substantially revised on 2026-08-24 and 2026-08-25, including the NetworkPolicyManager
-section that list asked for. Re-check it section by section against `Primary code paths` rather than
-against that list.

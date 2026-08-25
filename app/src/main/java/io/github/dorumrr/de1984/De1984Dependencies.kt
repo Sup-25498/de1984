@@ -75,6 +75,55 @@ class De1984Dependencies(private val context: Context) {
     }
 
 
+    /**
+     * v1.0.0 shipped database version 3, and version 4 renamed `blockWhenScreenOff` to
+     * `blockWhenBackground`. No 3->4 migration was ever written, so every install from before
+     * 2025-11-17 fell through to fallbackToDestructiveMigration on its next update and lost every
+     * firewall rule, with nothing but a logcat line to show for it.
+     *
+     * SQLite on minSdk 26 predates ALTER TABLE ... RENAME COLUMN, so the column is renamed the same
+     * way MIGRATION_5_6 changes its primary key: create, copy, drop, rename.
+     */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE firewall_rules_new (
+                    packageName TEXT NOT NULL,
+                    uid INTEGER NOT NULL,
+                    appName TEXT NOT NULL,
+                    wifiBlocked INTEGER NOT NULL DEFAULT 0,
+                    mobileBlocked INTEGER NOT NULL DEFAULT 0,
+                    blockWhenBackground INTEGER NOT NULL DEFAULT 0,
+                    blockWhenRoaming INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    isSystemApp INTEGER NOT NULL DEFAULT 0,
+                    hasInternetPermission INTEGER NOT NULL DEFAULT 0,
+                    createdAt INTEGER NOT NULL,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(packageName)
+                )
+            """.trimIndent())
+
+            db.execSQL("""
+                INSERT INTO firewall_rules_new (
+                    packageName, uid, appName, wifiBlocked, mobileBlocked,
+                    blockWhenBackground, blockWhenRoaming, enabled,
+                    isSystemApp, hasInternetPermission, createdAt, updatedAt
+                )
+                SELECT
+                    packageName, uid, appName, wifiBlocked, mobileBlocked,
+                    blockWhenScreenOff, blockWhenRoaming, enabled,
+                    isSystemApp, hasInternetPermission, createdAt, updatedAt
+                FROM firewall_rules
+            """.trimIndent())
+
+            db.execSQL("DROP TABLE firewall_rules")
+            db.execSQL("ALTER TABLE firewall_rules_new RENAME TO firewall_rules")
+
+            AppLogger.i(TAG, "Database migrated to version 4: blockWhenScreenOff renamed to blockWhenBackground")
+        }
+    }
+
     private val MIGRATION_4_5 = object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE firewall_rules ADD COLUMN lanBlocked INTEGER NOT NULL DEFAULT 0")
@@ -137,7 +186,7 @@ class De1984Dependencies(private val context: Context) {
             De1984Database::class.java,
             "de1984_database"
         )
-            .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
