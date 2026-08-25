@@ -17,6 +17,47 @@ class HandleNewAppInstallUseCase constructor(
     
     companion object {
         private const val TAG = "HandleNewAppInstallUseCase"
+
+        /**
+         * Return [rule] pointed at the app as it is installed right now, or [rule] itself if
+         * nothing changed or the package is not installed for that user.
+         *
+         * A reinstall keeps the package name and hands the app a NEW uid. IptablesFirewallBackend
+         * and NetworkPolicyManagerFirewallBackend both group rules by uid, so a stale uid matches
+         * no installed app: the rule is enforced against nothing, and under Block All the app falls
+         * through to the default and is blocked with no way back. Restoring a backup is the one
+         * path that writes rules without coming through here, which is issue #81.
+         *
+         * Pass [appInfo] when the caller already has it; the lookup can go through a shell command
+         * for a non-zero userId.
+         */
+        fun withCurrentIdentity(
+            context: Context,
+            rule: FirewallRule,
+            appInfo: android.content.pm.ApplicationInfo? = null
+        ): FirewallRule {
+            val info = appInfo ?: try {
+                io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
+                    context, rule.packageName, 0, rule.userId
+                )?.applicationInfo
+            } catch (e: Exception) {
+                null
+            } ?: return rule
+
+            val currentName = try {
+                context.packageManager.getApplicationLabel(info).toString()
+            } catch (e: Exception) {
+                rule.appName
+            }
+
+            if (rule.uid == info.uid && rule.appName == currentName) return rule
+
+            return rule.copy(
+                uid = info.uid,
+                appName = currentName,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
     }
     
     suspend fun execute(packageName: String, uid: Int? = null): Result<Unit> {
@@ -122,40 +163,24 @@ class HandleNewAppInstallUseCase constructor(
     }
     
     /**
-     * Re-point an existing rule at the app as it exists now.
-     *
-     * A reinstall keeps the package name and changes the uid. Rules are keyed on
-     * (packageName, userId), so the row survives - carrying a uid that no longer belongs to anyone.
-     * Writes only when something actually changed, to avoid waking every rule observer on boot.
+     * Persist [withCurrentIdentity] for an existing rule. Writes only when something actually
+     * changed, to avoid waking every rule observer on boot.
      */
     private suspend fun refreshRuleIdentity(
         existingRule: FirewallRule,
         packageInfo: android.content.pm.PackageInfo
     ) {
         val appInfo = packageInfo.applicationInfo ?: return
-        val currentUid = appInfo.uid
-        val currentName = try {
-            context.packageManager.getApplicationLabel(appInfo).toString()
-        } catch (e: Exception) {
-            existingRule.appName
-        }
-
-        if (existingRule.uid == currentUid && existingRule.appName == currentName) {
-            return
-        }
+        val refreshed = withCurrentIdentity(context, existingRule, appInfo)
+        if (refreshed === existingRule) return
 
         AppLogger.d(
             TAG,
             "Refreshing rule identity for ${existingRule.packageName}: " +
-                "uid ${existingRule.uid} -> $currentUid, name '${existingRule.appName}' -> '$currentName'"
+                "uid ${existingRule.uid} -> ${refreshed.uid}, " +
+                "name '${existingRule.appName}' -> '${refreshed.appName}'"
         )
-        firewallRepository.updateRule(
-            existingRule.copy(
-                uid = currentUid,
-                appName = currentName,
-                updatedAt = System.currentTimeMillis()
-            )
-        )
+        firewallRepository.updateRule(refreshed)
     }
 
     private fun createDefaultFirewallRule(packageName: String, packageInfo: android.content.pm.PackageInfo, userId: Int): FirewallRule? {

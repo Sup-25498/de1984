@@ -28,6 +28,7 @@ import io.github.dorumrr.de1984.domain.model.Package
 import io.github.dorumrr.de1984.domain.model.UninstallBatchResult
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.domain.repository.PackageRepository
+import io.github.dorumrr.de1984.domain.usecase.HandleNewAppInstallUseCase
 import io.github.dorumrr.de1984.domain.usecase.SmartPolicySwitchUseCase
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
@@ -695,11 +696,23 @@ class SettingsViewModel(
                     return@launch
                 }
 
+                // Re-point every rule at the uid its package holds NOW. The file carries the uid
+                // from export time, and a reinstall since then changed it - the privileged backends
+                // group rules by uid, so a stale one matches no app and Block All then blocks it
+                // with no way back from the UI. See issue #81.
+                val rules = withContext(Dispatchers.IO) {
+                    backup.rules.map { HandleNewAppInstallUseCase.withCurrentIdentity(context, it) }
+                }
+                val repointed = rules.indices.count { rules[it].uid != backup.rules[it].uid }
+                if (repointed > 0) {
+                    AppLogger.i(TAG, "Restore: re-pointed $repointed of ${rules.size} rules at their current uid")
+                }
+
                 if (replaceExisting) {
                     firewallRepository.deleteAllRules()
                 }
 
-                firewallRepository.insertRules(backup.rules)
+                firewallRepository.insertRules(rules)
 
                 val action = if (replaceExisting) "restored" else "merged"
                 _uiState.value = _uiState.value.copy(
