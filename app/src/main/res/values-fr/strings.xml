@@ -286,8 +286,6 @@
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Pare-feu hors service — vos applications sont débloquées</string>
-    <string name="firewall_down_reason_manual_backend">Le moteur %1$s a cessé de fonctionner. Rétablissez ses privilèges ou choisissez un autre moteur.</string>
-    <string name="firewall_down_reason_manual_backend_unknown">Le moteur du pare-feu a cessé de fonctionner. Rétablissez ses privilèges ou choisissez un autre moteur.</string>
     <string name="firewall_down_reason_no_plan">Aucun moteur de pare-feu utilisable n\'est disponible sur cet appareil.</string>
     <string name="firewall_down_reason_fallback_failed">Le moteur de secours n\'a pas démarré. Rien ne bloque l\'accès au réseau.</string>
     <string name="firewall_down_reason_vpn_conflict">Une autre application VPN occupe l\'emplacement VPN. De1984 doit la remplacer pour vous protéger.</string>

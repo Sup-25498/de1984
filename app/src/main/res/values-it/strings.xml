@@ -286,8 +286,6 @@
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall non attivo — le tue app sono sbloccate</string>
-    <string name="firewall_down_reason_manual_backend">Il backend %1$s ha smesso di funzionare. Ripristina i suoi privilegi oppure scegli un altro backend.</string>
-    <string name="firewall_down_reason_manual_backend_unknown">Il backend del firewall ha smesso di funzionare. Ripristina i suoi privilegi oppure scegli un altro backend.</string>
     <string name="firewall_down_reason_no_plan">Su questo dispositivo non è disponibile alcun backend firewall utilizzabile.</string>
     <string name="firewall_down_reason_fallback_failed">Il backend di riserva non è partito. Nulla sta bloccando l\'accesso alla rete.</string>
     <string name="firewall_down_reason_vpn_conflict">Un\'altra app VPN occupa lo slot VPN. De1984 deve sostituirla per proteggerti.</string>

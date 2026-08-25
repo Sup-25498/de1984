@@ -1424,9 +1424,18 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
             return view
         }
 
-        override fun isEnabled(position: Int): Boolean {
-            return backends[position].isAvailable
-        }
+        /**
+         * Deliberately always true, while the row still LOOKS disabled (greyed, half alpha).
+         *
+         * Returning false made AbsListView swallow the tap before onItemClick ran, which quietly
+         * killed the one thing that explains the greying: the click handler's "not available"
+         * branch, with the reason dialog, could never fire. Tapping a greyed row did nothing at
+         * all, and the reason survived only as a parenthetical the dropdown truncates.
+         *
+         * The handler already refuses to select an unavailable backend and restores the previous
+         * text, so letting the tap through costs nothing and buys the user an answer.
+         */
+        override fun isEnabled(position: Int): Boolean = true
     }
 
     private fun showCriticalUninstallWarning(onConfirm: () -> Unit) {

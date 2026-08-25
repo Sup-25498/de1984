@@ -280,7 +280,26 @@ class FirewallManager(
     suspend fun computeStartPlan(mode: FirewallMode = getCurrentMode()): Result<FirewallStartPlan> = withContext(Dispatchers.IO) {
         AppLogger.d(TAG, "computeStartPlan: Computing start plan for mode: $mode")
 
-        val backendResult = selectBackend(mode)
+        var effectiveMode = mode
+        var backendResult = selectBackend(effectiveMode)
+
+        // A stored manual mode whose backend this device cannot run used to be a hard failure, and
+        // every caller answered it differently: the widget fell back to AUTO, Settings fell back to
+        // AUTO, and boot restore and the in-app Start button simply gave up. The two that gave up
+        // were the ones that mattered - a mode that stops working (root lost, a rule restored from
+        // another device) meant a reboot with no firewall at all.
+        //
+        // The fallback belongs here, the single point every start path funnels through, rather than
+        // in a third copy. The plan reports the mode it actually resolved to, so a caller that cares
+        // - Settings tells the user - can see the substitution instead of being handed a quiet lie.
+        if (backendResult.isFailure && effectiveMode != FirewallMode.AUTO) {
+            AppLogger.w(
+                TAG,
+                "computeStartPlan: $effectiveMode is unavailable (${backendResult.exceptionOrNull()?.message}) - falling back to AUTO"
+            )
+            effectiveMode = FirewallMode.AUTO
+            backendResult = selectBackend(effectiveMode)
+        }
 
         if (backendResult.isFailure) {
             val error = backendResult.exceptionOrNull()
@@ -294,12 +313,12 @@ class FirewallManager(
 
         AppLogger.d(
             TAG,
-            "computeStartPlan: mode=$mode, backendType=$backendType, requiresVpnPermission=$requiresVpnPermission"
+            "computeStartPlan: requested=$mode, resolved=$effectiveMode, backendType=$backendType, requiresVpnPermission=$requiresVpnPermission"
         )
 
         Result.success(
             FirewallStartPlan(
-                mode = mode,
+                mode = effectiveMode,
                 selectedBackendType = backendType,
                 requiresVpnPermission = requiresVpnPermission
             )
@@ -1646,17 +1665,22 @@ class FirewallManager(
         val wasManualSelection = currentMode != FirewallMode.AUTO
 
         if (wasManualSelection) {
-            AppLogger.e(TAG, "Manually selected backend ($currentMode) failed. Waiting for user action or privilege recovery")
-
-            currentBackend = null
-            _activeBackendType.value = null
-            reportFirewallDown(
-                reason = FirewallHealth.Down.Reason.MANUAL_BACKEND_FAILED,
-                backend = failedBackendType,
-                stateMessage = "$failedBackendType backend not available"
+            // A hand-picked backend that stops working used to stop here: report DOWN and wait for
+            // the user. For a firewall that means OFF rather than "protected by something else",
+            // and the phone may sit in a pocket for hours before anyone reads the notification.
+            // A weaker backend beats no backend, so it switches on its own now.
+            //
+            // Nothing special is needed to do it - the AUTO machinery below is already careful, and
+            // computeStartPlan falls back to AUTO by itself when the stored mode's backend is
+            // unavailable. So the manual case now gets exactly what AUTO always got: VPN permission
+            // checked, a third-party VPN respected, real failures still reported.
+            //
+            // The stored mode is deliberately NOT rewritten. It is what handlePrivilegeChange uses
+            // to put the user back on their real choice the moment its privileges return.
+            AppLogger.w(
+                TAG,
+                "Manual backend $currentMode ($failedBackendType) failed - switching automatically rather than staying down; keeping $currentMode as the stored choice"
             )
-            dismissVpnFallbackNotification()
-            return@withLock
         }
 
         val effectiveMode = currentMode

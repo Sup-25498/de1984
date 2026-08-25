@@ -25,7 +25,6 @@ sealed interface FirewallHealth {
     ) : FirewallHealth {
 
         enum class Reason {
-            MANUAL_BACKEND_FAILED,
 
             NO_FALLBACK_PLAN,
 

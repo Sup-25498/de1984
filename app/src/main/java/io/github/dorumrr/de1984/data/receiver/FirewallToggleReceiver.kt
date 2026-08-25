@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import io.github.dorumrr.de1984.De1984Application
-import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.ui.MainActivity
 import io.github.dorumrr.de1984.ui.widget.FirewallWidget
 import io.github.dorumrr.de1984.utils.AppLogger
@@ -65,20 +64,17 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                     val persistedMode = firewallManager.getCurrentMode()
                     AppLogger.d(TAG, "Using persisted firewall mode: $persistedMode")
 
-                    var mode = persistedMode
-                    var planResult = firewallManager.computeStartPlan(mode)
-
-                    // A manual mode whose backend is no longer available - root lost, Shizuku gone -
-                    // makes computeStartPlan fail outright. Hard-coded AUTO used to reach VPN here,
-                    // so honouring the mode without this would cost the user the ability to start
-                    // the firewall from the widget at all. Honour the choice, then fall back.
-                    if (planResult.isFailure && mode != FirewallMode.AUTO) {
-                        AppLogger.w(TAG, "Persisted mode $mode is unavailable (${planResult.exceptionOrNull()?.message}); falling back to AUTO")
-                        mode = FirewallMode.AUTO
-                        planResult = firewallManager.computeStartPlan(mode)
-                    }
-
+                    // computeStartPlan falls back to AUTO itself when the stored mode's backend is
+                    // unavailable - root lost, Shizuku gone - and reports the mode it settled on.
+                    // This used to be a second copy of that fallback living here; the widget was the
+                    // only start path that had one, which is exactly why boot restore and the in-app
+                    // Start button did not.
+                    val planResult = firewallManager.computeStartPlan(persistedMode)
                     val plan = planResult.getOrNull()
+                    val mode = plan?.mode ?: persistedMode
+                    if (plan != null && plan.mode != persistedMode) {
+                        AppLogger.w(TAG, "Persisted mode $persistedMode is unavailable; plan resolved to ${plan.mode}")
+                    }
                     AppLogger.d(TAG, "computeStartPlan result: $plan")
                     AppLogger.d(TAG, "requiresVpnPermission: ${plan?.requiresVpnPermission}")
 

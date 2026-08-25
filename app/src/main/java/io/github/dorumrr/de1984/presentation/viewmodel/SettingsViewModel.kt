@@ -700,62 +700,50 @@ class SettingsViewModel(
             }
             delay(500)
 
+            // Ask what will actually happen before doing it. computeStartPlan falls back to AUTO
+            // on its own when this device cannot run the chosen backend, and reports the mode it
+            // settled on - so comparing the two is how we learn the user's pick was substituted.
+            // Without this the start would quietly succeed on a different backend and say nothing.
+            val plan = firewallManager.computeStartPlan(newMode).getOrNull()
+            val substituted = plan != null && plan.mode != newMode
+
+            // AUTO can land on the VPN backend, which needs the system consent dialog. Starting it
+            // without asking just burns the activation timeout and fails - no prompt, and no way to
+            // reach one from here. The guard further up only covers an explicit VPN pick.
+            if (substituted && plan?.requiresVpnPermission == true) {
+                AppLogger.d(TAG, "Fallback would need VPN permission - asking instead of failing silently")
+                _uiState.value = _uiState.value.copy(vpnPermissionRequired = true)
+                return
+            }
+
             val result = firewallManager.startFirewall(newMode)
 
-            result.onFailure { error ->
-                // IMPORTANT: Do NOT clear KEY_FIREWALL_ENABLED here!
-                // We want to preserve user intent so handlePrivilegeChange() can attempt recovery.
-                // FirewallManager will set isFirewallDown=true to track the error state.
-
-                // A hand-picked backend that this device cannot run must not cost the user their
-                // firewall. Choosing ConnectivityManager on a ROM whose `cmd connectivity` has no
-                // set-chain3-enabled did exactly that: the start failed and nothing took over, so
-                // every app was left unblocked until someone noticed the banner.
-                //
-                // FirewallToggleReceiver already falls back to AUTO for the same reason; this path
-                // simply never did. AUTO ends at the VPN backend, which needs no privilege, so the
-                // fallback can only fail if the user declines the VPN prompt.
-                if (newMode != FirewallMode.AUTO) {
-                    // Fall back for THIS START ONLY. setMode() writes KEY_FIREWALL_MODE to disk,
-                    // and the manual choice is load-bearing: handlePrivilegeChange restarts exactly
-                    // that backend when privileges come back. Persisting AUTO here threw the choice
-                    // away for good over a failure that is usually temporary - a Magisk prompt
-                    // dismissed once, Shizuku mid-restart. FirewallToggleReceiver falls back with a
-                    // local variable for precisely this reason; this path must match it.
-                    AppLogger.w(TAG, "Backend $newMode failed to start (${error.message}) - starting AUTO instead, keeping $newMode as the stored choice")
-
-                    // computeStartPlan, not a blind startFirewall. AUTO can land on the VPN backend,
-                    // which needs the system consent dialog, and starting it without asking just
-                    // burns the 10s activation timeout and fails - no prompt, and no way to reach
-                    // one from here. The guard above only covers an explicit VPN pick.
-                    val autoPlan = firewallManager.computeStartPlan(FirewallMode.AUTO).getOrNull()
-                    if (autoPlan?.requiresVpnPermission == true) {
-                        AppLogger.d(TAG, "AUTO fallback needs VPN permission - asking instead of failing silently")
-                        _uiState.value = _uiState.value.copy(vpnPermissionRequired = true)
-                        return@onFailure
-                    }
-
-                    if (autoPlan != null && firewallManager.startFirewall(FirewallMode.AUTO).isSuccess) {
-                        AppLogger.i(TAG, "Fallback to AUTO succeeded - firewall is running again")
-                        // Remember what would not start. Re-probing cannot discover this: every
-                        // checkAvailability() here already PASSED, which is how the mode reached
-                        // the picker at all. Without this the user can pick it again, fail again,
-                        // and loop.
-                        _startFailedModes.value = _startFailedModes.value + newMode
-                        _uiState.value = _uiState.value.copy(
-                            message = context.getString(
-                                io.github.dorumrr.de1984.R.string.backend_fell_back_to_auto,
-                                displayNameFor(newMode)
-                            ),
-                            // Not a success. The fragment titles every plain message "Success",
-                            // which would announce a forced downgrade as an accomplishment.
-                            messageTitleRes = io.github.dorumrr.de1984.R.string.backend_changed_title
-                        )
-                        return@onFailure
-                    }
-                    AppLogger.e(TAG, "Fallback to AUTO also failed - reporting the original error")
+            result.onSuccess {
+                if (substituted) {
+                    AppLogger.w(TAG, "$newMode is unavailable here - running ${plan?.mode} instead, keeping $newMode as the stored choice")
+                    // Remember it so the picker stops offering it. The availability probe agreed it
+                    // was usable, which is how it reached the picker at all, so re-probing cannot
+                    // discover this - and without it the user can pick, be substituted, and pick
+                    // again forever.
+                    _startFailedModes.value = _startFailedModes.value + newMode
+                    _uiState.value = _uiState.value.copy(
+                        message = context.getString(
+                            io.github.dorumrr.de1984.R.string.backend_fell_back_to_auto,
+                            displayNameFor(newMode)
+                        ),
+                        // Not a success. The fragment titles every plain message "Success", which
+                        // would announce a forced downgrade as an accomplishment.
+                        messageTitleRes = io.github.dorumrr.de1984.R.string.backend_changed_title
+                    )
                 }
+            }
 
+            result.onFailure { error ->
+                // IMPORTANT: Do NOT clear KEY_FIREWALL_ENABLED here, and do NOT rewrite the mode
+                // preference. The manual choice is load-bearing - handlePrivilegeChange restarts
+                // exactly that backend when privileges come back - and a start can fail for reasons
+                // that pass, like a Magisk prompt dismissed once.
+                _startFailedModes.value = _startFailedModes.value + newMode
                 _uiState.value = _uiState.value.copy(
                     error = context.getString(io.github.dorumrr.de1984.R.string.error_firewall_restart_failed, error.message ?: context.getString(io.github.dorumrr.de1984.R.string.error_unknown))
                 )

@@ -296,8 +296,6 @@
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">防火墙已停止 — 你的应用已解除封锁</string>
-    <string name="firewall_down_reason_manual_backend">%1$s 后端已停止工作。请恢复它的权限，或选择其他后端。</string>
-    <string name="firewall_down_reason_manual_backend_unknown">防火墙后端已停止工作。请恢复它的权限，或选择其他后端。</string>
     <string name="firewall_down_reason_no_plan">本设备上没有可用的防火墙后端。</string>
     <string name="firewall_down_reason_fallback_failed">备用后端未能启动。目前没有任何网络限制。</string>
     <string name="firewall_down_reason_vpn_conflict">另一个 VPN 应用占用了 VPN 位。De1984 必须替换它才能保护你。</string>

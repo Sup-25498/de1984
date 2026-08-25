@@ -40,14 +40,6 @@ object FirewallHealthPresenter {
         is FirewallHealth.Healthy -> null
 
         is FirewallHealth.Down -> when (health.reason) {
-            FirewallHealth.Down.Reason.MANUAL_BACKEND_FAILED -> {
-                val backendName = health.backend?.displayName(context)
-                if (backendName != null) {
-                    context.getString(R.string.firewall_down_reason_manual_backend, backendName)
-                } else {
-                    context.getString(R.string.firewall_down_reason_manual_backend_unknown)
-                }
-            }
             FirewallHealth.Down.Reason.NO_FALLBACK_PLAN ->
                 context.getString(R.string.firewall_down_reason_no_plan)
             FirewallHealth.Down.Reason.FALLBACK_FAILED ->
@@ -87,7 +79,6 @@ object FirewallHealthPresenter {
         is FirewallHealth.StopFailed -> FirewallHealthAction.RETRY_STOP
 
         is FirewallHealth.Down -> when (health.reason) {
-            FirewallHealth.Down.Reason.MANUAL_BACKEND_FAILED -> FirewallHealthAction.CHOOSE_BACKEND
             FirewallHealth.Down.Reason.NO_FALLBACK_PLAN -> FirewallHealthAction.CHOOSE_BACKEND
             FirewallHealth.Down.Reason.FALLBACK_FAILED -> FirewallHealthAction.RETRY
             FirewallHealth.Down.Reason.VPN_CONFLICT -> FirewallHealthAction.REPLACE_VPN

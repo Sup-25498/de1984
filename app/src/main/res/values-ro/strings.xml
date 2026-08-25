@@ -288,8 +288,6 @@
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall picat — aplicațiile tale sunt deblocate</string>
-    <string name="firewall_down_reason_manual_backend">Backendul %1$s a încetat să funcționeze. Reface-i privilegiile sau alege alt backend.</string>
-    <string name="firewall_down_reason_manual_backend_unknown">Backendul firewallului a încetat să funcționeze. Reface-i privilegiile sau alege alt backend.</string>
     <string name="firewall_down_reason_no_plan">Pe acest dispozitiv nu există niciun backend de firewall utilizabil.</string>
     <string name="firewall_down_reason_fallback_failed">Backendul de rezervă nu a pornit. Nimic nu blochează accesul la rețea.</string>
     <string name="firewall_down_reason_vpn_conflict">Altă aplicație VPN ocupă slotul VPN. De1984 trebuie să o înlocuiască pentru a te proteja.</string>
