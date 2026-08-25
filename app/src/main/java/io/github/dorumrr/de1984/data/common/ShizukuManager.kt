@@ -22,11 +22,6 @@ class ShizukuManager(private val context: Context) {
         private const val TAG = "ShizukuManager"
         private const val SHIZUKU_PACKAGE_NAME = "moe.shizuku.privileged.api"
         private const val REQUEST_CODE_PERMISSION = 1001
-
-        private const val PREFS_NAME = "de1984_shizuku"
-
-        /** Sticky record that we have asked at least once. Mirrors RootManager's equivalent. */
-        private const val KEY_PERMISSION_REQUESTED = "shizuku_permission_requested"
     }
 
     private val _shizukuStatus = MutableStateFlow(ShizukuStatus.CHECKING)
@@ -61,34 +56,17 @@ class ShizukuManager(private val context: Context) {
     val hasShizukuPermission: Boolean
         get() = _shizukuStatus.value == ShizukuStatus.RUNNING_WITH_PERMISSION
 
-    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-
     // Track if user explicitly denied permission to avoid prompt spam (Issue #68)
+    // This is reset when Shizuku restarts (binder received) to allow retry
     @Volatile
     private var userExplicitlyDeniedPermission = false
 
-    /**
-     * Whether De1984 should stop asking for Shizuku on its own.
-     *
-     * The in-memory denial flag alone was not enough, twice over. It died with the process, so
-     * every cold start asked again; and the binder-received listener deliberately cleared it, so a
-     * Shizuku restart or a reboot asked again too. That is the prompt spam users reported - the
-     * #68 guard only ever held for the length of one run.
-     *
-     * The durable half asks a different question: have we asked before and still not been granted?
-     * That needs no callback at all, which matters because Shizuku's deny callback does not always
-     * fire. Same shape as RootManager's KEY_ROOT_PERMISSION_REQUESTED.
-     *
-     * The way back in is the Grant button in Settings, which calls [resetPermissionDenial].
-     */
     val hasUserDeniedPermission: Boolean
-        get() = userExplicitlyDeniedPermission ||
-                (prefs.getBoolean(KEY_PERMISSION_REQUESTED, false) && !hasShizukuPermission)
+        get() = userExplicitlyDeniedPermission
 
     fun resetPermissionDenial() {
-        AppLogger.d(TAG, "🔄 Resetting permission denial - user asked for the prompt again")
+        AppLogger.d(TAG, "🔄 Resetting permission denial flag - user can be prompted again")
         userExplicitlyDeniedPermission = false
-        prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, false).apply()
     }
 
     private val binderDeathRecipient = IBinder.DeathRecipient {
@@ -103,9 +81,6 @@ class ShizukuManager(private val context: Context) {
                 AppLogger.d(TAG, "✅ hasShizukuPermission will now return TRUE")
                 _shizukuStatus.value = ShizukuStatus.RUNNING_WITH_PERMISSION
                 userExplicitlyDeniedPermission = false
-                // Granted, so the sticky record has done its job. Clearing it means a LATER
-                // revocation gets one fresh prompt instead of silence.
-                prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, false).apply()
             } else {
                 AppLogger.d(TAG, "❌ Shizuku permission DENIED - updating status to RUNNING_NO_PERMISSION")
                 AppLogger.d(TAG, "❌ hasShizukuPermission will now return FALSE")
@@ -120,10 +95,7 @@ class ShizukuManager(private val context: Context) {
         AppLogger.d(TAG, "🔧 SYSTEM EVENT: Shizuku binder received (Shizuku started)")
 
         if (userExplicitlyDeniedPermission) {
-            // Clears the in-session half only. The sticky "we already asked" record deliberately
-            // survives: a Shizuku restart is not consent, and treating it as consent is what made
-            // the prompt come back after every reboot. Settings' Grant button is the way back.
-            AppLogger.d(TAG, "🔄 Shizuku restarted - clearing the in-session denial flag")
+            AppLogger.d(TAG, "🔄 Shizuku restarted - resetting permission denial flag to allow new prompt")
             userExplicitlyDeniedPermission = false
         }
 
@@ -304,10 +276,6 @@ class ShizukuManager(private val context: Context) {
             AppLogger.d(TAG, "requestShizukuPermission() called")
             if (isShizukuRunning()) {
                 AppLogger.d(TAG, "Shizuku is running - requesting permission via Shizuku.requestPermission()")
-                // Recorded BEFORE asking. The deny callback is not reliable - it does not fire on
-                // every Shizuku build - so "we asked and were not granted" has to be inferred from
-                // the ask itself, not from a result we may never hear about.
-                prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, true).apply()
                 Shizuku.requestPermission(REQUEST_CODE_PERMISSION)
             } else {
                 AppLogger.d(TAG, "Shizuku is not running - cannot request permission")
