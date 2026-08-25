@@ -31,12 +31,6 @@ class ConnectivityManagerFirewallBackend(
         private const val MIN_API_LEVEL = Build.VERSION_CODES.TIRAMISU // Android 13
         private const val FIREWALL_CHAIN_OEM_DENY_3 = 3 // OEM-specific deny chain
 
-        // Android packs a UID as userId * 100000 + appId, and only an appId in this range is an
-        // installed app. "cmd connectivity set-package-networking-enabled" refuses anything else
-        // with "Can't set package firewall rule for system app <pkg> with appId <n>".
-        private const val PER_USER_RANGE = 100000
-        private val APP_APP_ID_RANGE = 10000..19999
-
         /**
          * Process-wide, NOT per-instance.
          *
@@ -243,7 +237,7 @@ class ConnectivityManagerFirewallBackend(
                 val uid = appInfo.uid
                 val userId = uid / 100000
 
-                if (uid % PER_USER_RANGE !in APP_APP_ID_RANGE) {
+                if (!Constants.Firewall.isFirewallableAppUid(uid)) {
                     systemUidCount++
                     return@forEach
                 }

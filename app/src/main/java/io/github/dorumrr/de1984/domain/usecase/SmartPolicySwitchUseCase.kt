@@ -111,7 +111,7 @@ class SmartPolicySwitchUseCase(
     private fun getCriticalPackageNames(): Set<String> {
         val criticalPackages = mutableSetOf<String>()
 
-        criticalPackages.addAll(Constants.Firewall.SYSTEM_WHITELIST)
+        criticalPackages.addAll(Constants.Firewall.systemWhitelist())
 
         try {
             val userProfiles = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getUsers(context)

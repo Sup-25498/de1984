@@ -45,11 +45,6 @@ class NetworkPolicyManagerFirewallBackend(
 
         private const val SERVICE_NAME = "netpolicy"
 
-        // Android packs a UID as userId * 100000 + appId, and only an appId in this range is
-        // an installed app. NetworkPolicyManagerService throws for anything else.
-        private const val PER_USER_RANGE = 100000
-        private val APP_APP_ID_RANGE = 10000..19999
-
         /**
          * Guards the record of "what each UID looked like before this backend touched it".
          *
@@ -288,9 +283,12 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
+    /**
+     * Both callers hold [originalPolicyLock], so the prune below may write.
+     */
     private fun loadOriginalPolicies(): Map<Int, Int> {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
+        val stored = prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
             ?.mapNotNull { entry ->
                 val parts = entry.split(":")
                 val uid = parts.getOrNull(0)?.toIntOrNull()
@@ -299,6 +297,18 @@ class NetworkPolicyManagerFirewallBackend(
             }
             ?.toMap()
             ?: emptyMap()
+
+        // Entries for uids Android will never let us write. The original was recorded first and the
+        // write refused, so these were never changed and dropping them loses nothing. Left in, the
+        // stop path replays every one of them - a doomed Shizuku process each, on every stop.
+        // Measured on a work-profile device: 6 of 8 entries. See issue #93.
+        val firewallable = stored.filterKeys { Constants.Firewall.isFirewallableAppUid(it) }
+        if (firewallable.size != stored.size) {
+            AppLogger.d(TAG, "Pruned ${stored.size - firewallable.size} original-policy entries " +
+                    "for UIDs Android will not firewall")
+            saveOriginalPolicies(firewallable, durable = true)
+        }
+        return firewallable
     }
 
     /**
@@ -365,6 +375,7 @@ class NetworkPolicyManagerFirewallBackend(
 
             var appliedCount = 0
             var errorCount = 0
+            var systemUidCount = 0
 
             val rulesByUid = rules.filter { it.enabled }.groupBy { it.uid }
 
@@ -390,6 +401,15 @@ class NetworkPolicyManagerFirewallBackend(
 
             allPackages.forEach { appInfo ->
                 val uid = appInfo.uid
+
+                // setUidPolicy throws "cannot apply policy to UID <uid>" for any appId outside the
+                // installed-app range, and the throw still costs a Shizuku process. Measured on a
+                // work-profile device: 6 of these on every pass, forever. Same guard, same reason as
+                // ConnectivityManagerFirewallBackend. See issue #93.
+                if (!Constants.Firewall.isFirewallableAppUid(uid)) {
+                    systemUidCount++
+                    return@forEach
+                }
 
                 // Never block UIDs that contain system-critical packages or VPN apps
                 // This prevents shared UID bypass (e.g., Gboard sharing UID with system package)
@@ -547,7 +567,8 @@ class NetworkPolicyManagerFirewallBackend(
             }
 
                 AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, " +
-                        "left $untouchedCount foreign policies alone, $errorCount errors")
+                        "left $untouchedCount foreign policies alone, $systemUidCount system UIDs " +
+                        "Android will not firewall, $errorCount errors")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply rules", e)
@@ -714,11 +735,12 @@ class NetworkPolicyManagerFirewallBackend(
      * background data only - while the UI kept saying the app was Blocked.
      *
      * @return the policy to block with, or null if this UID could not settle the question. Null must
-     * not latch a verdict: [desiredPolicies] contains system and work-profile system UIDs, and
-     * calibrating on one of those would throw and pin the weakest policy for the whole process.
+     * not latch a verdict: calibrating on a UID that throws would pin the weakest policy for the
+     * whole process. applyRules now filters non-app UIDs out before they reach here, so the check
+     * below is defence in depth rather than the only guard.
      */
     private suspend fun calibrateBlockingPolicy(networkPolicyManager: Any, uid: Int): Int? {
-        if (uid % PER_USER_RANGE !in APP_APP_ID_RANGE) {
+        if (!Constants.Firewall.isFirewallableAppUid(uid)) {
             AppLogger.d(TAG, "UID $uid is not an app UID - not calibrating on it")
             return null
         }

@@ -1,6 +1,7 @@
 package io.github.dorumrr.de1984.data.common
 
 import io.github.dorumrr.de1984.utils.AppLogger
+import io.github.dorumrr.de1984.utils.Constants
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.IBinder
@@ -25,6 +26,9 @@ class ShizukuManager(private val context: Context) {
 
     private val _shizukuStatus = MutableStateFlow(ShizukuStatus.CHECKING)
     val shizukuStatus: StateFlow<ShizukuStatus> = _shizukuStatus.asStateFlow()
+
+    @Volatile
+    private var cachedShizukuOwner: String? = null
 
     private var hasCheckedOnce = false
     private var listenersRegistered = false
@@ -199,6 +203,8 @@ class ShizukuManager(private val context: Context) {
     }
 
     fun isShizukuInstalled(): Boolean {
+        val owner = shizukuOwnerPackage()
+
         if (isSuiAvailable) {
             AppLogger.d(TAG, "isShizukuInstalled: SUI is available (no package needed)")
             return true
@@ -209,10 +215,6 @@ class ShizukuManager(private val context: Context) {
             AppLogger.d(TAG, "isShizukuInstalled: Standalone Shizuku package found")
             true
         } catch (e: Exception) {
-            // A "hide Shizuku from other apps" build renames the package, so the fixed id above
-            // finds nothing while Shizuku is running fine. The permission it declares keeps its
-            // name, and its owner is the manager. See issue #92.
-            val owner = shizukuPackageFromPermission()
             if (owner != null) {
                 AppLogger.d(TAG, "isShizukuInstalled: Shizuku found via permission owner: $owner")
                 true
@@ -223,12 +225,30 @@ class ShizukuManager(private val context: Context) {
         }
     }
 
-    private fun shizukuPackageFromPermission(): String? {
-        return try {
+    /**
+     * The package that declares the Shizuku permission, cached for the process.
+     *
+     * A "hide Shizuku from other apps" build renames the package, so [SHIZUKU_PACKAGE_NAME] finds
+     * nothing while Shizuku is running fine - issue #92. The permission name does not change, and
+     * its declaring package is the manager.
+     *
+     * Registering it as critical is done here rather than at the call site so that every path which
+     * asks whether Shizuku exists also protects it: Block All would otherwise cut the renamed
+     * package, and with it the wireless ADB the user needs to start Shizuku again. A failed lookup
+     * is not cached, so a Shizuku installed later is still picked up.
+     */
+    private fun shizukuOwnerPackage(): String? {
+        cachedShizukuOwner?.let { return it }
+
+        val owner = try {
             context.packageManager.getPermissionInfo(ShizukuProvider.PERMISSION, 0).packageName
         } catch (e: Exception) {
             null
-        }
+        } ?: return null
+
+        cachedShizukuOwner = owner
+        Constants.Firewall.registerShizukuPackage(owner)
+        return owner
     }
 
     fun isShizukuRunning(): Boolean {

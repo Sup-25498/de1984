@@ -306,7 +306,7 @@ object Constants {
          *
          * If you find a device where the network stack can be blocked, please report it with the package name.
          */
-        val SYSTEM_WHITELIST = setOf(
+        private val SYSTEM_WHITELIST = setOf(
             // De1984 itself
             App.PACKAGE_NAME,
             App.PACKAGE_NAME_DEBUG,
@@ -381,9 +381,49 @@ object Constants {
             "com.google.android.gms",              // Google Play Services - hosts FCM for push notifications
         )
 
-        fun isSystemCritical(packageName: String): Boolean {
-            return SYSTEM_WHITELIST.contains(packageName)
+        /**
+         * [SYSTEM_WHITELIST] plus anything discovered at runtime. Swapped whole, never mutated in
+         * place, so a reader always sees a complete set.
+         */
+        @Volatile
+        private var effectiveWhitelist: Set<String> = SYSTEM_WHITELIST
+
+        /**
+         * Record the package that actually provides Shizuku on this device.
+         *
+         * [SYSTEM_WHITELIST] carries the stock id. A "hide Shizuku from other apps" build renames
+         * the package, so the literal entry misses it and Block All can cut the service the user
+         * relies on to start Shizuku over wireless ADB. ShizukuManager calls this once it knows the
+         * real name. Adds only - protection is never taken away.
+         */
+        fun registerShizukuPackage(packageName: String) {
+            if (packageName.isBlank() || packageName in effectiveWhitelist) return
+            effectiveWhitelist = SYSTEM_WHITELIST + packageName
         }
+
+        /**
+         * Every package that must never be blocked. Use this rather than [SYSTEM_WHITELIST], which
+         * is the static half only and misses a renamed Shizuku.
+         */
+        fun systemWhitelist(): Set<String> = effectiveWhitelist
+
+        fun isSystemCritical(packageName: String): Boolean {
+            return effectiveWhitelist.contains(packageName)
+        }
+
+        /**
+         * Android packs a uid as `userId * PER_USER_RANGE + appId`, and only an appId in
+         * [APP_APP_ID_RANGE] belongs to an installed app - AOSP's FIRST/LAST_APPLICATION_UID.
+         *
+         * Both Shizuku backends are refused for anything outside it. ConnectivityManager answers
+         * "Can't set package firewall rule for system app <pkg> with appId <n>";
+         * NetworkPolicyManager throws "cannot apply policy to UID <uid>". Each refusal still costs a
+         * Shizuku process, and enough of those kill the daemon - which is what issue #93 was.
+         */
+        private const val PER_USER_RANGE = 100000
+        private val APP_APP_ID_RANGE = 10000..19999
+
+        fun isFirewallableAppUid(uid: Int): Boolean = uid % PER_USER_RANGE in APP_APP_ID_RANGE
 
         fun isSystemRecommendedAllow(packageName: String): Boolean {
             return SYSTEM_RECOMMENDED_ALLOW.contains(packageName)

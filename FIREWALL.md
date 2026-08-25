@@ -291,7 +291,7 @@ Uses Android system commands to enable or disable networking for entire apps. Th
 The ConnectivityManager firewall chain API operates at the app level, not the network interface level. When you disable networking for an app, Android blocks it from accessing ANY network interface (WiFi, Mobile, VPN, Ethernet, etc.). There is no API to selectively block only certain network types. This is a fundamental limitation of the Android ConnectivityManager API.
 
 **Switch dependencies:**
-- **No WiFi/Mobile/Roaming switches**: Since this backend cannot do per-network blocking, the UI should NOT show separate WiFi/Mobile/Roaming switches. Instead, show a single "Block Network" toggle that blocks ALL networks.
+- **No WiFi/Mobile/Roaming switches**: This backend cannot do per-network blocking, so the UI does not offer separate WiFi/Mobile/Roaming controls. The single-app sheet and the multi-select sheet each show one "Internet Access" toggle that sets all three flags together. The list row still draws three network icons as indicators, but a tap on any of them applies to all three.
 - **Migration from granular backends**: When switching from VPN or iptables (which have separate switches), convert rules using this logic:
   - **Partially blocked** (1-2 networks blocked): Treat as **fully blocked** (block all networks)
   - **Mixed** (some networks blocked, some allowed): Treat as **fully blocked** — `migrateRulesToSimple` sets all three flags to `true` whenever any one of them is blocked. Migration never converts a rule to fully allowed.
