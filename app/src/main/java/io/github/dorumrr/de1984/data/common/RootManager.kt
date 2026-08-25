@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 enum class RootStatus {
@@ -27,6 +28,12 @@ class RootManager(private val context: Context) {
         private const val TAG = "RootManager"
         private const val PREFS_NAME = "de1984_root"
         private const val KEY_ROOT_PERMISSION_REQUESTED = "root_permission_requested"
+
+        /** Attempts before a missing root shell is recorded as NOT_ROOTED. See checkRootStatusInternal. */
+        private const val MAX_ROOT_ATTEMPTS = 3
+
+        /** Breathing room for a root manager that is still starting - KernelSU LKM, a slow grant dialog. */
+        private const val ROOT_RETRY_DELAY_MS = 800L
     }
 
     private val prefs: SharedPreferences by lazy {
@@ -154,13 +161,49 @@ class RootManager(private val context: Context) {
             // - Create new shell if none exists (shows toast ONCE on first grant)
             // - Show permission dialog if never granted
             AppLogger.d(TAG, "Getting main shell (may show toast on first creation)...")
-            val shell = Shell.getShell()
+
+            // Retry before concluding the device has no root.
+            //
+            // A single failed attempt does NOT mean NOT_ROOTED. It also covers "the root manager was
+            // not ready yet", and that is a real case rather than a theoretical one: KernelSU in LKM
+            // mode loads its module during boot, so an app that asks early gets a non-root shell from
+            // a device that is perfectly rooted. libsu then CACHES that shell, and every later check
+            // reads the cached answer - which is how a user ends up with "none of the root features
+            // are available" for the whole session. Reported in issue #79 on KernelSU v1.1.1, LKM
+            // mode, stock kernel.
+            //
+            // Each attempt closes the cached non-root shell first, so the retry genuinely re-asks
+            // instead of re-reading the same stale answer.
+            //
+            // Same shape as PackageSafetyLoader's MAX_LOAD_ATTEMPTS: try a bounded number of times,
+            // and only then record the negative. A user who has actually denied root pays a short
+            // delay once per check, which is the cheaper mistake of the two.
+            var shell = Shell.getShell()
+            var attempt = 1
+
+            while (!shell.isRoot && attempt < MAX_ROOT_ATTEMPTS) {
+                AppLogger.d(TAG, "No root on attempt $attempt of $MAX_ROOT_ATTEMPTS - the manager may not be ready, retrying")
+                delay(ROOT_RETRY_DELAY_MS)
+
+                Shell.getCachedShell()?.let { stale ->
+                    if (!stale.isRoot) {
+                        try {
+                            stale.close()
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Could not close the cached non-root shell: ${e.message}")
+                        }
+                    }
+                }
+
+                attempt++
+                shell = Shell.getShell()
+            }
 
             return@withContext if (shell.isRoot) {
-                AppLogger.d(TAG, "✅ Root access GRANTED - ROOTED_WITH_PERMISSION")
+                AppLogger.d(TAG, "✅ Root access GRANTED - ROOTED_WITH_PERMISSION (attempt $attempt)")
                 RootStatus.ROOTED_WITH_PERMISSION
             } else {
-                AppLogger.d(TAG, "❌ Root access DENIED or not available - NOT_ROOTED")
+                AppLogger.d(TAG, "❌ No root after $attempt attempts - NOT_ROOTED")
                 RootStatus.NOT_ROOTED
             }
         } catch (e: Exception) {
