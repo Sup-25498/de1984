@@ -777,5 +777,6 @@
     <!-- Notification Actions -->
 
     <string name="backend_not_supported_on_device">此设备不支持</string>
-    <string name="backend_fell_back_to_auto">%1$s 在此设备上不可用。已切换到自动模式以保持防火墙运行。</string>
+    <string name="backend_fell_back_to_auto">%1$s 无法在此设备上启动。防火墙已改用自动模式运行。</string>
+    <string name="backend_changed_title">后端已更改</string>
 </resources>

@@ -36,6 +36,8 @@ import io.github.dorumrr.de1984.utils.Constants
 import io.github.dorumrr.de1984.utils.PackageSafetyLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -108,9 +110,39 @@ class SettingsViewModel(
     private val _usableModes = MutableStateFlow<Set<FirewallMode>?>(null)
     val usableModes: StateFlow<Set<FirewallMode>?> = _usableModes.asStateFlow()
 
+    /**
+     * Modes whose availability probe passed but whose start then failed, this session.
+     *
+     * Re-probing cannot discover these: checkAvailability() already said yes, which is how the mode
+     * reached the picker at all. Without remembering it, a user can pick a backend that always
+     * fails, get dropped to AUTO, and pick it again forever. Deliberately not persisted - a start
+     * can fail for reasons that pass, so the slate clears with the process.
+     */
+    private val _startFailedModes = MutableStateFlow<Set<FirewallMode>>(emptySet())
+    val startFailedModes: StateFlow<Set<FirewallMode>> = _startFailedModes.asStateFlow()
+
+    /**
+     * Only ever one probe in flight.
+     *
+     * Four callers can fire this, and both status flows replay their current value to a new
+     * collector, so opening Settings used to launch three overlapping passes before any privilege
+     * had even resolved. Worse than wasteful: with no ordering, a pass started BEFORE root was
+     * revoked can land after the one started after, leaving the picker offering a backend the
+     * device no longer has - the exact failure this probe exists to prevent.
+     */
+    private var usableModesJob: Job? = null
+
     fun refreshUsableModes() {
-        viewModelScope.launch {
-            _usableModes.value = firewallManager.getUsableModes()
+        usableModesJob?.cancel()
+        usableModesJob = viewModelScope.launch {
+            val modes = firewallManager.getUsableModes()
+            // cancel() alone is not enough. Writing a StateFlow is not a suspension point, so a
+            // pass that was cancelled while its last shell call was in flight would still publish
+            // its answer - and an answer computed before root resolved says [AUTO, VPN], which
+            // greys out iptables on a rooted device. ensureActive() makes a cancelled pass throw
+            // here instead of overwriting a newer one.
+            ensureActive()
+            _usableModes.value = modes
         }
     }
 
@@ -130,7 +162,9 @@ class SettingsViewModel(
                 AppLogger.d(TAG, "Root status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
                 updateCaptivePortalPrivileges()
-                // Gaining or losing root changes which backends can run at all.
+                // Gaining or losing root changes which backends can run at all, and a start that
+                // failed for want of root deserves another go once root is back.
+                _startFailedModes.value = emptySet()
                 refreshUsableModes()
             }
         }
@@ -140,6 +174,7 @@ class SettingsViewModel(
                 AppLogger.d(TAG, "Shizuku status changed: $it, re-checking boot protection availability")
                 checkBootProtectionAvailability()
                 updateCaptivePortalPrivileges()
+                _startFailedModes.value = emptySet()
                 refreshUsableModes()
             }
         }
@@ -681,21 +716,41 @@ class SettingsViewModel(
                 // simply never did. AUTO ends at the VPN backend, which needs no privilege, so the
                 // fallback can only fail if the user declines the VPN prompt.
                 if (newMode != FirewallMode.AUTO) {
-                    AppLogger.w(TAG, "Backend $newMode failed to start (${error.message}) - falling back to AUTO")
-                    firewallManager.setMode(FirewallMode.AUTO)
-                    _uiState.value = _uiState.value.copy(firewallMode = FirewallMode.AUTO)
+                    // Fall back for THIS START ONLY. setMode() writes KEY_FIREWALL_MODE to disk,
+                    // and the manual choice is load-bearing: handlePrivilegeChange restarts exactly
+                    // that backend when privileges come back. Persisting AUTO here threw the choice
+                    // away for good over a failure that is usually temporary - a Magisk prompt
+                    // dismissed once, Shizuku mid-restart. FirewallToggleReceiver falls back with a
+                    // local variable for precisely this reason; this path must match it.
+                    AppLogger.w(TAG, "Backend $newMode failed to start (${error.message}) - starting AUTO instead, keeping $newMode as the stored choice")
 
-                    if (firewallManager.startFirewall(FirewallMode.AUTO).isSuccess) {
+                    // computeStartPlan, not a blind startFirewall. AUTO can land on the VPN backend,
+                    // which needs the system consent dialog, and starting it without asking just
+                    // burns the 10s activation timeout and fails - no prompt, and no way to reach
+                    // one from here. The guard above only covers an explicit VPN pick.
+                    val autoPlan = firewallManager.computeStartPlan(FirewallMode.AUTO).getOrNull()
+                    if (autoPlan?.requiresVpnPermission == true) {
+                        AppLogger.d(TAG, "AUTO fallback needs VPN permission - asking instead of failing silently")
+                        _uiState.value = _uiState.value.copy(vpnPermissionRequired = true)
+                        return@onFailure
+                    }
+
+                    if (autoPlan != null && firewallManager.startFirewall(FirewallMode.AUTO).isSuccess) {
                         AppLogger.i(TAG, "Fallback to AUTO succeeded - firewall is running again")
+                        // Remember what would not start. Re-probing cannot discover this: every
+                        // checkAvailability() here already PASSED, which is how the mode reached
+                        // the picker at all. Without this the user can pick it again, fail again,
+                        // and loop.
+                        _startFailedModes.value = _startFailedModes.value + newMode
                         _uiState.value = _uiState.value.copy(
                             message = context.getString(
                                 io.github.dorumrr.de1984.R.string.backend_fell_back_to_auto,
                                 displayNameFor(newMode)
-                            )
+                            ),
+                            // Not a success. The fragment titles every plain message "Success",
+                            // which would announce a forced downgrade as an accomplishment.
+                            messageTitleRes = io.github.dorumrr.de1984.R.string.backend_changed_title
                         )
-                        // The probe clearly disagreed with the picker, so re-ask the backends and
-                        // let the list grey out what just proved unusable.
-                        refreshUsableModes()
                         return@onFailure
                     }
                     AppLogger.e(TAG, "Fallback to AUTO also failed - reporting the original error")
@@ -729,7 +784,7 @@ class SettingsViewModel(
 
     
     fun clearMessage() {
-        _uiState.value = _uiState.value.copy(message = null)
+        _uiState.value = _uiState.value.copy(message = null, messageTitleRes = null)
     }
 
     fun clearError() {
@@ -1370,6 +1425,8 @@ data class SettingsUiState(
 
     val isLoading: Boolean = false,
     val message: String? = null,
+    /** Title for [message]; null falls back to the generic success title. */
+    val messageTitleRes: Int? = null,
     val error: String? = null,
 
     val hasBasicPermissions: Boolean = true,

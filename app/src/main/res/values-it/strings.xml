@@ -767,5 +767,6 @@
     <!-- Notification Actions -->
 
     <string name="backend_not_supported_on_device">Non supportato su questo dispositivo</string>
-    <string name="backend_fell_back_to_auto">%1$s non è disponibile su questo dispositivo. Passato ad Automatico per mantenere attivo il firewall.</string>
+    <string name="backend_fell_back_to_auto">%1$s non è riuscito ad avviarsi su questo dispositivo. Il firewall è in esecuzione in modalità Automatica.</string>
+    <string name="backend_changed_title">Backend cambiato</string>
 </resources>

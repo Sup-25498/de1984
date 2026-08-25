@@ -767,5 +767,6 @@
     <!-- Notification Actions -->
 
     <string name="backend_not_supported_on_device">Non pris en charge sur cet appareil</string>
-    <string name="backend_fell_back_to_auto">%1$s n\'est pas disponible sur cet appareil. Basculement vers Automatique pour maintenir le pare-feu actif.</string>
+    <string name="backend_fell_back_to_auto">%1$s n\'a pas pu démarrer sur cet appareil. Le pare-feu fonctionne en mode Automatique à la place.</string>
+    <string name="backend_changed_title">Backend modifié</string>
 </resources>

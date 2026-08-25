@@ -973,23 +973,40 @@ class FirewallManager(
      * Every probe is read-only - a version string, a help listing, a reflection lookup - and each
      * is guarded, so one backend that throws cannot hide the others.
      */
+    /**
+     * One availability probe, guarded - but NOT with runCatching.
+     *
+     * runCatching catches Throwable, cancellation included, which would turn "the user left the
+     * screen" into "this backend is unavailable" and then carry on running the remaining privileged
+     * probes on a dead scope. IptablesFirewallBackend.checkAvailability goes out of its way to
+     * rethrow both CancellationException types; swallowing them here would undo that.
+     */
+    private suspend fun probeBackend(name: String, check: suspend () -> Result<Unit>): Boolean =
+        try {
+            check().isSuccess
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Availability probe for $name threw: ${e.message}")
+            false
+        }
+
     suspend fun getUsableModes(): Set<FirewallMode> = withContext(Dispatchers.IO) {
         val usable = mutableSetOf(FirewallMode.AUTO, FirewallMode.VPN)
 
-        runCatching {
-            IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler)
-                .checkAvailability().isSuccess
-        }.getOrDefault(false).let { if (it) usable += FirewallMode.IPTABLES }
+        if (probeBackend("iptables") {
+                IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler).checkAvailability()
+            }) usable += FirewallMode.IPTABLES
 
-        runCatching {
-            ConnectivityManagerFirewallBackend(context, shizukuManager, errorHandler)
-                .checkAvailability().isSuccess
-        }.getOrDefault(false).let { if (it) usable += FirewallMode.CONNECTIVITY_MANAGER }
+        if (probeBackend("ConnectivityManager") {
+                ConnectivityManagerFirewallBackend(context, shizukuManager, errorHandler).checkAvailability()
+            }) usable += FirewallMode.CONNECTIVITY_MANAGER
 
-        runCatching {
-            NetworkPolicyManagerFirewallBackend(context, shizukuManager, errorHandler)
-                .checkAvailability().isSuccess
-        }.getOrDefault(false).let { if (it) usable += FirewallMode.NETWORK_POLICY_MANAGER }
+        if (probeBackend("NetworkPolicyManager") {
+                NetworkPolicyManagerFirewallBackend(context, shizukuManager, errorHandler).checkAvailability()
+            }) usable += FirewallMode.NETWORK_POLICY_MANAGER
 
         AppLogger.d(TAG, "Usable backends on this device: $usable")
         usable

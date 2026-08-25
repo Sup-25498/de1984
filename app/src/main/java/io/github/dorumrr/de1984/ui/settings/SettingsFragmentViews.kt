@@ -524,7 +524,7 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
             viewModel.clearMessage()
             StandardDialog.showInfo(
                 context = requireContext(),
-                title = getString(R.string.dialog_success),
+                title = getString(state.messageTitleRes ?: R.string.dialog_success),
                 message = message
             )
         }
@@ -733,14 +733,44 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
         val usable = viewModel.usableModes.value
         if (usable == null) return backends
 
+        val failedToStart = viewModel.startFailedModes.value
+
+        // Never grey out what is RUNNING. A probe is one `su` call and it can flicker; when it
+        // does, the row would read "iptables (Not supported on this device)" directly above a
+        // status line reading "Active: iptables", and the user could not re-select their own
+        // running backend. Whatever is live is, by demonstration, supported.
+        //
+        // Only the active backend earns this, not the merely selected one. After a failed start
+        // the failed backend IS the selected one, and exempting it would undo the whole point of
+        // remembering the failure - the user could pick it again and fail again.
+        val activeMode = when (viewModel.activeBackendType.value) {
+            io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.IPTABLES ->
+                io.github.dorumrr.de1984.domain.firewall.FirewallMode.IPTABLES
+            io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.CONNECTIVITY_MANAGER ->
+                io.github.dorumrr.de1984.domain.firewall.FirewallMode.CONNECTIVITY_MANAGER
+            io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.NETWORK_POLICY_MANAGER ->
+                io.github.dorumrr.de1984.domain.firewall.FirewallMode.NETWORK_POLICY_MANAGER
+            io.github.dorumrr.de1984.domain.firewall.FirewallBackendType.VPN ->
+                io.github.dorumrr.de1984.domain.firewall.FirewallMode.VPN
+            null -> null
+        }
+        val exempt = setOfNotNull(activeMode)
+
         return backends.map { option ->
-            if (option.isAvailable && option.mode !in usable) {
-                option.copy(
+            when {
+                option.mode in exempt -> option
+                option.isAvailable && option.mode !in usable -> option.copy(
                     isAvailable = false,
                     requirementText = getString(R.string.backend_not_supported_on_device)
                 )
-            } else {
-                option
+                // Passed its probe but would not actually start. The probe cannot see this, so the
+                // failure is remembered instead - otherwise the user picks it, drops to AUTO, and
+                // picks it again forever.
+                option.isAvailable && option.mode in failedToStart -> option.copy(
+                    isAvailable = false,
+                    requirementText = getString(R.string.backend_not_supported_on_device)
+                )
+                else -> option
             }
         }
     }
@@ -826,6 +856,11 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
                     // picker when it lands - otherwise a backend this device cannot run stays
                     // selectable until the next privilege change.
                     viewModel.usableModes.collect { _ ->
+                        setupBackendSelectionDropdown()
+                    }
+                }
+                launch {
+                    viewModel.startFailedModes.collect { _ ->
                         setupBackendSelectionDropdown()
                     }
                 }
