@@ -367,6 +367,11 @@
     <string name="vpn_fallback_notification_title">De1984 Firewall Oprit</string>
     <string name="vpn_fallback_notification_text">Backend-ul privilegiat a eșuat. Apasă pentru a activa conectarea prin VPN și a restabili protecția firewall.</string>
     <string name="vpn_fallback_notification_action_text">Activează conectarea prin VPN</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Pornește De1984 Firewall</string>
+    <string name="vpn_permission_notification_text">De1984 are nevoie de permisiunea dvs. pentru a crea o conexiune VPN. Atingeți pentru a permite și a porni firewallul.</string>
+    <string name="vpn_permission_notification_action_text">Permite și pornește</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall picat — aplicațiile tale sunt deblocate</string>

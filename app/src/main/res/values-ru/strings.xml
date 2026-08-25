@@ -368,6 +368,11 @@
     <string name="vpn_fallback_notification_title">Файрволл De1984 отключён</string>
     <string name="vpn_fallback_notification_text">Привилегированный бэкенд не работает. Нажмите для включения резервного VPN и восстановления защиты файрволла.</string>
     <string name="vpn_fallback_notification_action_text">Включить резервный VPN</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Запустить брандмауэр De1984</string>
+    <string name="vpn_permission_notification_text">De1984 нужно ваше разрешение на создание VPN-подключения. Нажмите, чтобы разрешить и запустить брандмауэр.</string>
+    <string name="vpn_permission_notification_action_text">Разрешить и запустить</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Брандмауэр не работает — ваши приложения разблокированы</string>

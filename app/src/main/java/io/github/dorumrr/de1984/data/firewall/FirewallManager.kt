@@ -27,6 +27,7 @@ import io.github.dorumrr.de1984.domain.firewall.FirewallHealthPresenter
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.ui.MainActivity
+import io.github.dorumrr.de1984.ui.VpnPermissionActivity
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.CoroutineScope
@@ -1253,13 +1254,18 @@ class FirewallManager(
      * This runs on every Android version, not only 14+. The direct launch still works below 14, but
      * keeping it would be a second way to do one thing, and the notification works everywhere. The
      * cost is one extra tap on older devices.
+     *
+     * @param resolvedMode the mode the receiver actually planned with, which is NOT always the
+     *   stored preference: a manual mode whose backend is gone makes it fall back to AUTO. Carried
+     *   all the way to VpnPermissionActivity so that fallback is not recomputed and lost.
      */
-    fun reportVpnPermissionRequiredFromBackground() {
-        AppLogger.w(TAG, "Widget/tile start needs VPN permission - a receiver cannot open the dialog, notifying instead")
+    fun reportVpnPermissionRequiredFromBackground(resolvedMode: FirewallMode) {
+        AppLogger.w(TAG, "Widget/tile start needs VPN permission (mode=$resolvedMode) - a receiver cannot open the dialog, notifying instead")
         reportFirewallDown(
             reason = FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED,
             backend = FirewallBackendType.VPN,
-            stateMessage = "VPN permission required"
+            stateMessage = "VPN permission required",
+            vpnPermissionResolvedMode = resolvedMode
         )
     }
 
@@ -1276,7 +1282,14 @@ class FirewallManager(
         reason: FirewallHealth.Down.Reason,
         backend: FirewallBackendType?,
         stateMessage: String,
-        afterStartAttempt: Boolean = false
+        afterStartAttempt: Boolean = false,
+        /**
+         * Set only by [reportVpnPermissionRequiredFromBackground]. Its presence is what marks this
+         * as "the user asked the widget or tile to start the firewall", as opposed to "a privileged
+         * backend died and we are falling back" - two situations that need different words and a
+         * different destination. See [showVpnFallbackNotification].
+         */
+        vpnPermissionResolvedMode: FirewallMode? = null
     ) {
         // This flag means "the user wants the firewall on and it is not". Recovery keys off it, so
         // setting it when the user's own intent flag is false turns a failed toggle into a restart
@@ -1337,7 +1350,8 @@ class FirewallManager(
             // These two already have their own actionable notifications, with buttons that drive
             // the VPN permission flow. Reusing them keeps one notification per situation.
             FirewallHealth.Down.Reason.VPN_CONFLICT -> showVpnConflictNotification()
-            FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED -> showVpnFallbackNotification()
+            FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED ->
+                showVpnFallbackNotification(vpnPermissionResolvedMode)
             else -> showFirewallDownNotification(reason, backend)
         }
     }
@@ -1728,8 +1742,29 @@ class FirewallManager(
         }
     }
 
-    private fun showVpnFallbackNotification() {
-        AppLogger.d(TAG, "Showing VPN fallback notification")
+    /**
+     * Ask the user for VPN permission through a notification.
+     *
+     * Two different situations arrive here and they must not be told the same story.
+     *
+     * [resolvedMode] null - a privileged backend that WAS running died, and VPN is the fallback.
+     * The words say a backend failed, because one did, and the tap opens MainActivity, which is
+     * where the user is already looking and where the in-app banner's "Enable VPN" button goes.
+     *
+     * [resolvedMode] set - the user tapped the widget or the tile to START the firewall, and the
+     * plan needs VPN because there is no root and no Shizuku. Nothing failed. Sending that through
+     * the fallback path claimed "privileged backend failed" to a user who never had one, and landed
+     * in startVpnFallbackManually, which publishes SwitchedToVpn(failedBackend = VPN) - a banner
+     * reading "VPN failed, so we switched to VPN".
+     *
+     * So this case goes to VpnPermissionActivity instead: transparent, noHistory, shows only the
+     * system dialog, starts the firewall in the mode the RECEIVER resolved, and finishes. That mode
+     * matters - a manual mode whose backend is gone makes the receiver fall back to AUTO, and
+     * MainActivity's path would recompute from the stored preference and lose it.
+     */
+    private fun showVpnFallbackNotification(resolvedMode: FirewallMode? = null) {
+        val fromBackgroundStart = resolvedMode != null
+        AppLogger.d(TAG, "Showing VPN permission notification (backgroundStart=$fromBackgroundStart, mode=$resolvedMode)")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -1742,11 +1777,18 @@ class FirewallManager(
             notificationManager.createNotificationChannel(channel)
         }
 
-        // Create intent to open MainActivity and request VPN permission
-        // Must explicitly set component (MainActivity) for PendingIntent to work
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = Constants.Notifications.ACTION_ENABLE_VPN_FALLBACK
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // The component must be explicit for the PendingIntent to resolve. The two branches target
+        // different classes, so their PendingIntents never collide on request code 0.
+        val intent = if (resolvedMode != null) {
+            Intent(context, VpnPermissionActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                putExtra(VpnPermissionActivity.EXTRA_RESOLVED_MODE, resolvedMode.name)
+            }
+        } else {
+            Intent(context, MainActivity::class.java).apply {
+                action = Constants.Notifications.ACTION_ENABLE_VPN_FALLBACK
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -1756,9 +1798,21 @@ class FirewallManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notificationTitle = context.getString(R.string.vpn_fallback_notification_title)
-        val notificationText = context.getString(R.string.vpn_fallback_notification_text)
-        val notificationAction = context.getString(R.string.vpn_fallback_notification_action_text)
+        val notificationTitle = if (fromBackgroundStart) {
+            context.getString(R.string.vpn_permission_notification_title)
+        } else {
+            context.getString(R.string.vpn_fallback_notification_title)
+        }
+        val notificationText = if (fromBackgroundStart) {
+            context.getString(R.string.vpn_permission_notification_text)
+        } else {
+            context.getString(R.string.vpn_fallback_notification_text)
+        }
+        val notificationAction = if (fromBackgroundStart) {
+            context.getString(R.string.vpn_permission_notification_action_text)
+        } else {
+            context.getString(R.string.vpn_fallback_notification_action_text)
+        }
 
         val notification = NotificationCompat.Builder(context, Constants.VpnFallback.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield)

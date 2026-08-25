@@ -375,6 +375,11 @@
     <string name="vpn_fallback_notification_title">De1984 防火墙已停止</string>
     <string name="vpn_fallback_notification_text">特权后端失败。点击启用 VPN 回退并恢复防火墙保护。</string>
     <string name="vpn_fallback_notification_action_text">启用 VPN 回退</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">启动 De1984 防火墙</string>
+    <string name="vpn_permission_notification_text">De1984 需要您的许可才能创建 VPN 连接。点按以允许并启动防火墙。</string>
+    <string name="vpn_permission_notification_action_text">允许并启动</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">防火墙已停止 — 你的应用已解除封锁</string>

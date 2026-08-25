@@ -365,6 +365,11 @@
     <string name="vpn_fallback_notification_title">Pare-feu De1984 inactif</string>
     <string name="vpn_fallback_notification_text">Le backend privilégié a échoué. Appuyez pour activer le basculement VPN et restaurer la protection du pare-feu.</string>
     <string name="vpn_fallback_notification_action_text">Activer le basculement VPN</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Démarrer le pare-feu De1984</string>
+    <string name="vpn_permission_notification_text">De1984 a besoin de votre autorisation pour créer une connexion VPN. Appuyez pour l’autoriser et démarrer le pare-feu.</string>
+    <string name="vpn_permission_notification_action_text">Autoriser et démarrer</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Pare-feu hors service — vos applications sont débloquées</string>

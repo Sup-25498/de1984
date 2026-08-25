@@ -92,15 +92,12 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                         // gesture Android accepts as a reason to open an activity. FirewallManager
                         // already owns that notification and the state that goes with it.
                         //
-                        // The notification opens MainActivity with ACTION_ENABLE_VPN_FALLBACK,
-                        // which is the same path the in-app banner's "Enable VPN" button uses.
-                        // That leaves VpnPermissionActivity - the transparent activity written for
-                        // exactly this tap - with no launcher at all. It is correct code and its
-                        // lighter flow suits a widget tap better than opening the whole app, so it
-                        // is left in place and recorded in PLAN.md as a decision: re-point the
-                        // notification at it, or delete it. Not silently orphaned.
+                        // The notification's tap lands in VpnPermissionActivity - transparent,
+                        // shows only the system dialog, then finishes - and carries `mode`, which
+                        // is the mode resolved ABOVE, not the stored preference. The AUTO fallback
+                        // computed a few lines up would otherwise be recomputed and lost.
                         AppLogger.w(TAG, "🔐 VPN permission required - a receiver cannot open the dialog, notifying instead")
-                        firewallManager.reportVpnPermissionRequiredFromBackground()
+                        firewallManager.reportVpnPermissionRequiredFromBackground(mode)
                     } else {
                         AppLogger.d(TAG, "🚀 No VPN permission needed, starting firewall directly...")
                         val startResult = firewallManager.startFirewall(mode)

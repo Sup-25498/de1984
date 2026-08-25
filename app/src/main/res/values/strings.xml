@@ -366,6 +366,11 @@
     <string name="vpn_fallback_notification_title">De1984 Firewall Down</string>
     <string name="vpn_fallback_notification_text">Privileged backend failed. Tap to enable VPN fallback and restore firewall protection.</string>
     <string name="vpn_fallback_notification_action_text">Enable VPN Fallback</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Start De1984 Firewall</string>
+    <string name="vpn_permission_notification_text">De1984 needs your permission to create a VPN connection. Tap to allow it and start the firewall.</string>
+    <string name="vpn_permission_notification_action_text">Allow and start</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall down — your apps are unblocked</string>

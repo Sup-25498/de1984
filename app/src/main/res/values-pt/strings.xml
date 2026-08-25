@@ -365,6 +365,11 @@
     <string name="vpn_fallback_notification_title">De1984 Firewall Inativo</string>
     <string name="vpn_fallback_notification_text">Backend privilegiado falhou. Toque para ativar fallback VPN e restaurar proteção do firewall.</string>
     <string name="vpn_fallback_notification_action_text">Ativar Fallback VPN</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Iniciar o De1984 Firewall</string>
+    <string name="vpn_permission_notification_text">O De1984 precisa da sua permissão para criar uma conexão VPN. Toque para permitir e iniciar o firewall.</string>
+    <string name="vpn_permission_notification_action_text">Permitir e iniciar</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall inativa — as suas apps estão desbloqueadas</string>

@@ -365,6 +365,11 @@
     <string name="vpn_fallback_notification_title">Firewall Non Attivo</string>
     <string name="vpn_fallback_notification_text">Il backend privilegiato è fallito. Tocca per abilitare il fallback VPN.</string>
     <string name="vpn_fallback_notification_action_text">Abilita VPN Fallback</string>
+    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
+         above: nothing has failed here, the user just asked to turn the firewall on. -->
+    <string name="vpn_permission_notification_title">Avvia De1984 Firewall</string>
+    <string name="vpn_permission_notification_text">De1984 ha bisogno del tuo permesso per creare una connessione VPN. Tocca per consentirlo e avviare il firewall.</string>
+    <string name="vpn_permission_notification_action_text">Consenti e avvia</string>
 
     <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall non attivo — le tue app sono sbloccate</string>

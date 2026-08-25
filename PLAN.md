@@ -98,35 +98,6 @@ and the UI must not promise enforcement it cannot deliver.
 
 ---
 
-# 5. `VpnPermissionActivity` has no launcher
-
-Since the widget/tile fix (settled decision 13) the notification opens `MainActivity` with
-`ACTION_ENABLE_VPN_FALLBACK`. That leaves `ui/VpnPermissionActivity` with **zero callers**: it is
-`exported="false"` and nothing starts it. `VERIFIED` 2026-08-25.
-
-It is not broken code. It is a transparent, `noHistory`, `excludeFromRecents` activity written for
-exactly this tap, it honours `EXTRA_RESOLVED_MODE`, and it writes `KEY_FIREWALL_ENABLED` only on a
-successful start.
-
-**Deleting it would freeze a wrong banner into the product.** The notification lands in
-`startVpnFallbackManually()`, which is the *"a backend failed, fall back to VPN"* flow. A widget
-start is not that. On success it publishes
-`SwitchedToVpn(failedBackend = VPN, fromManualMode = false)`, both hardcoded, so:
-
-1. the banner reads "VPN failed, so we switched to VPN" — nothing failed, VPN was the plan;
-2. a user who chose VPN manually in Settings is told it was automatic;
-3. the receiver's computed AUTO fallback is discarded — the exact bug `EXTRA_RESOLVED_MODE` exists
-   to fix.
-
-Disproved while checking: the preference is **not** lost. `startVpnFallback` writes
-`KEY_FIREWALL_ENABLED = true` on success.
-
-**Recommended:** re-point the notification at `VpnPermissionActivity` for the background case. Needs
-one optional `resolvedMode` parameter on `showVpnFallbackNotification`, which is shared with the
-in-app banner's "Enable VPN" button.
-
----
-
 # Known and accepted — not actionable
 
 Kept because the knowledge is load-bearing, not because there is work to do.
@@ -147,8 +118,12 @@ Kept because the knowledge is load-bearing, not because there is work to do.
 - **The ConnectivityManager backend cannot be exercised on the test device at all** —
   `cmd connectivity set-chain3-enabled` does not exist on that ROM. Everything about it is
   code-review only, including the issue #93 fix.
-- **The widget/tile VPN permission path cannot be exercised on the test device either.** It has root,
-  so the plan never selects VPN, and the receiver is `exported="false"` so adb cannot drive it.
+- **The widget/tile VPN permission path is only partly testable here.** The device has root, so the
+  plan never selects VPN, and the receiver is `exported="false"` so adb cannot drive it. What WAS
+  verified end to end on 2026-08-25: `VpnPermissionActivity` launches, reads `EXTRA_RESOLVED_MODE`,
+  raises the system dialog, and handles a denial cleanly — logged "VPN permission denied", finished,
+  firewall state untouched, 0 crashes. Unverified: the receiver → notification → tap hop, and the
+  permission-granted branch.
 - **M108 StopFailed** cannot be forced here: revoking the Shizuku permission force-stops the app.
 - **The `StopFailed` over `Down` precedence cannot be forced here either** — it needs the privilege
   provider killed mid-run. No spurious suppression was logged across a full stop/start cycle.
@@ -231,6 +206,16 @@ Kept because the knowledge is load-bearing, not because there is work to do.
     keeping the direct launch below 14 would be a second way to do one thing. Cost: one extra tap on
     older devices. Rejected: disabling the widget when VPN permission is missing, because the receiver
     only learns that after `computeStartPlan`, so the widget cannot know at draw time.
+
+    Completed the same day: the notification for this case targets **`VpnPermissionActivity`**, not
+    `MainActivity`, and carries the mode the receiver resolved. Routing it to MainActivity landed in
+    `startVpnFallbackManually()` — the "a backend failed, fall back to VPN" flow — which publishes
+    `SwitchedToVpn(failedBackend = VPN, fromManualMode = false)`, both hardcoded. That told the user
+    "VPN failed, so we switched to VPN" when nothing had failed, called a manual VPN choice
+    automatic, and discarded the receiver's AUTO fallback. The wording had the same fault: the shared
+    text said "Privileged backend failed" to a user who never had one, so this case now has its own
+    `vpn_permission_notification_*` strings in all 7 locales. `showVpnFallbackNotification` branches
+    on the mode being non-null; the in-app fallback path is unchanged.
 14. **Restore-from-search gets a way out, not a fix.** (2026-08-25) `SettingsViewModel.readFromUri`
     remaps a failure to OPEN a picked file into `error_backup_file_unreadable`, which tells the user
     to open the folder and choose the file there. The underlying failure is not ours: the picker
