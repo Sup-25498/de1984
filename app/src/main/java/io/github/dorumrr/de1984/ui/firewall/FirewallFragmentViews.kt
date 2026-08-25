@@ -538,6 +538,14 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     private fun updateUI(state: io.github.dorumrr.de1984.presentation.viewmodel.FirewallUiState) {
+        // Twelve places set this and nothing ever read it, so a rule write that failed set an error
+        // the user was never shown - the row simply stayed as it was with no explanation. Shown once,
+        // then cleared, so a state emit that changes nothing else cannot repeat it.
+        state.error?.let { message ->
+            Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+            viewModel.clearError()
+        }
+
         if (state.isLoadingData && state.packages.isEmpty()) {
             binding.packagesRecyclerView.visibility = View.INVISIBLE
             binding.loadingState.visibility = View.VISIBLE

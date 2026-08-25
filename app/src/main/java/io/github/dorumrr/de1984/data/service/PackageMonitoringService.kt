@@ -7,8 +7,8 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
 import io.github.dorumrr.de1984.De1984Application
-import io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
 import io.github.dorumrr.de1984.domain.usecase.HandleNewAppInstallUseCase
+import io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
 import kotlinx.coroutines.*
@@ -202,6 +202,12 @@ class PackageMonitoringService : Service() {
             } catch (e: Exception) {
                 null
             }
+            // appId 0 is a placeholder, not a real appId - but the userId half of this value IS
+            // real, and HandleNewAppInstallUseCase derives the profile from it (`uid / 100000`).
+            // A sentinel here was tried and reverted: it made that division yield profile 0, so a
+            // work-profile app whose ApplicationInfo could not be read had its rule created in the
+            // personal profile instead. The placeholder is harmless because the use case re-reads
+            // the real uid itself before writing anything.
             val appId = appInfo?.uid?.rem(100000) ?: 0
             val uid = userId * 100000 + appId
 

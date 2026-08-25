@@ -46,13 +46,18 @@ class SmartPolicySwitchUseCase(
         var defaultedCount = 0
 
         for (packageName in criticalPackages) {
-            val existingRule = allRules.find { it.packageName == packageName }
+            // Every profile's copy, not just the first. `find` preserved one rule for a critical
+            // package present in both the personal and the work profile and left the other at
+            // whatever the bulk policy write had just set.
+            val existingRules = allRules.filter { it.packageName == packageName }
 
-            if (existingRule != null) {
-                // User has explicitly configured this critical package - PRESERVE their preference
-                AppLogger.d(TAG, "Preserving user preference for critical package: $packageName (wifi=${existingRule.wifiBlocked}, mobile=${existingRule.mobileBlocked})")
-                firewallRepository.updateRule(existingRule.copy(updatedAt = System.currentTimeMillis()))
-                preservedCount++
+            if (existingRules.isNotEmpty()) {
+                for (existingRule in existingRules) {
+                    // User has explicitly configured this critical package - PRESERVE their preference
+                    AppLogger.d(TAG, "Preserving user preference for critical package: $packageName (userId=${existingRule.userId}, wifi=${existingRule.wifiBlocked}, mobile=${existingRule.mobileBlocked})")
+                    firewallRepository.updateRule(existingRule.copy(updatedAt = System.currentTimeMillis()))
+                    preservedCount++
+                }
             } else {
                 // No user preference - DEFAULT to ALLOW for system stability
                 // Note: We don't create a rule here because the backend + UI logic will handle allowing it
@@ -95,9 +100,10 @@ class SmartPolicySwitchUseCase(
         var preservedCount = 0
 
         for (packageName in criticalPackages) {
-            val existingRule = allRules.find { it.packageName == packageName }
-
-            if (existingRule != null) {
+            // Every profile's copy, not just the first. `find` preserved one rule for a critical
+            // package present in both the personal and the work profile and left the other at
+            // whatever the bulk policy write had just set.
+            for (existingRule in allRules.filter { it.packageName == packageName }) {
                 // User has explicitly configured this critical package - PRESERVE their preference
                 AppLogger.d(TAG, "Preserving user preference for critical package: $packageName (wifi=${existingRule.wifiBlocked}, mobile=${existingRule.mobileBlocked})")
                 firewallRepository.updateRule(existingRule.copy(updatedAt = System.currentTimeMillis()))

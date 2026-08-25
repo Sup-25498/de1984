@@ -31,16 +31,11 @@ hardware-verified. What remains:
 - **Lockout scenarios 4 and 5 are still live**, now bounded to ~120s by the self-heal timer rather
   than permanent. Scenario 5's switch is still hard-disabled and its help text tells the user to run
   `su`, which is exactly what they lost. No in-app recovery action exists there.
-- `BootReceiver`'s boot coroutine has `try/finally` and **no catch**, so a throw from `startFirewall`
-  skips the block clear entirely.
-- `clearBootBlockIfInstalled` calls `forceRecheckRootStatus()` unconditionally; libsu is configured
-  with a 30s timeout, inside a BroadcastReceiver's ~10s budget.
-- Two expiry timers stack on a re-run and the earliest wins, silently shortening protection.
-- `deleteBootScript` discards the teardown Result and returns success regardless.
+- `clearBootBlockIfInstalled` calls `forceRecheckRootStatus()` when privilege is missing; libsu is
+  configured with a 30s timeout, inside a BroadcastReceiver's ~10s budget. Not bounded: at boot the
+  root wake genuinely can take seconds, and cutting it short would fail the lift it exists to do.
 - `LOCKED_BOOT_COMPLETED` does nothing in release: the receiver is `directBootAware` but
   `<application>` is not, and `AppLogger.init` touches CE storage.
-- Clear-app-data with no root still shows "unavailable" rather than "stuck" — unfixable without root,
-  since `/data/adb` cannot be read.
 - `BootWorker:91-105` still has a preference-gated `resetIptablesPolicies()` that is redundant.
   Harmless and idempotent, but it is a second way to do the same thing. Not removed: in the case
   "preference true, script absent" the two differ, and that difference has not been reasoned through.
@@ -57,39 +52,6 @@ never recovers at all. The 120-second timer is the only backstop.
 ---
 
 # 2. NetworkPolicyManager
-
-## Uninstall leaves apps blocked permanently — CONFIRMED DEFECT, hardware
-
-Blocked `com.aurora.store` (UID 10272), uninstalled De1984 **without stopping first**, rebooted.
-
-| Moment | `netpolicy.xml` |
-| --- | --- |
-| Before anything | UID 10272 absent |
-| Blocked, firewall running | `uid-policy uid="10272" policy="262144"` |
-| After `adb uninstall` | still present |
-| **After reboot** | **still present** |
-
-**The stop path is NOT at fault.** Stopping normally restores correctly. The defect is precisely:
-**stop cleans up, uninstall does not.** It is self-perpetuating — reinstall and De1984 reads the
-current (blocked) state as that UID's "original" and preserves it from then on.
-
-A `service.d` script mirroring the boot-protection pattern could fix it for root users only.
-**Decision 2026-08-24 (Doru): do not build it now. Document the defect and warn the user instead.**
-That warning now lives in FIREWALL.md, "What survives uninstalling De1984".
-
-Manual recovery — `remove` alone is refused when the UID is not on that list, so it takes the pair:
-
-```
-adb shell cmd netpolicy add    restrict-background-blacklist <uid>
-adb shell cmd netpolicy remove restrict-background-blacklist <uid>
-```
-
-## The degraded-blocking honesty gap — needs a product decision
-
-On a ROM **without** `POLICY_REJECT_ALL` the backend degrades to metered-background-only and the UI
-still says Blocked. The degradation is logged loudly and correctly, but nothing surfaces it to the
-user. Options: warn on the backend picker and the firewall screen, refuse to run the backend at all,
-or accept log-only. Not implemented. Documented in FIREWALL.md section 4 under "Known gap".
 
 ## Sweep can race an in-flight apply
 
@@ -113,9 +75,6 @@ service to acknowledge the stop before the sweep begins.
   The firewall is off, apps are unblocked, and only a Settings error string is shown. The comment
   above it — "FirewallManager will set isFirewallDown=true to track the error state" — is factually
   wrong.
-- **`FirewallUiState.error` is written and never read.** No UI surface renders it. Either wire it or
-  delete it; today it is a silent hole that makes "we set an error" look like "the user was told".
-  (`SettingsUiState.error` does render.)
 - **Scroll jump during a real backend failure on device.** Not the banner, not a state change.
   Suspect the work-profile package query failing while Shizuku is down. Needs a device repro.
 
@@ -133,54 +92,19 @@ service to acknowledge the stop before the sweep begins.
   currently the only thing that notices a work-profile install between TTL expiries. Removing it
   without replacing that coverage would be a correctness regression. A real fix needs work-profile
   aware invalidation.
-- **`startMonitoring()` has zero callers**, and the `monitoringJob` / `ruleChangeMonitoringJob` pair
-  exists only for it. `stopMonitoring()` still has 5 callers, so it stays either way. Roughly 35 lines
-  of dead machinery in the file that runs the firewall. Not deleted: the demolition should be
-  deliberate.
-- Dead English constants in `Constants.BackendMonitoring` (`NOTIFICATION_TEXT_SUCCESS_*`,
-  `TOAST_SUCCESS_*`, `NOTIFICATION_TITLE_SUCCESS`) — 0 usages.
 - `commit()`'s return value is not checked in either durable write. Disk-full territory only.
 
 ---
 
-# 5. Captive portal
-
-**NOT FIXED — reinstall or Clear Data destroys the true original.** `KEY_ORIGINAL_CAPTURED` lives in
-the app's own SharedPreferences and `allowBackup=false`. After a reinstall the flag is gone, so the
-next capture records De1984's **own** current values as pristine.
-
-The mitigation proposed earlier — refuse to capture when the current values match a De1984 preset —
-**does not work**, and the test device proves why: its genuine ROM default is
-`http://cp.cloudflare.com`, which *is* the CLOUDFLARE preset. Refusing would break legitimate first
-capture on exactly the ROMs this app targets.
-
-There is no reliable in-app fix: nothing the app owns survives uninstall, and writing a marker into
-`Settings.Global` would add the very device-wide state the finding is about. The workable options are
-UI, not logic — warn at capture time when the values match a preset, and let the user view and edit
-the stored original. Both are new features; not implemented.
-
----
-
-# 6. Multi-user and work profile
+# 5. Multi-user and work profile
 
 Settled as **best-effort**: not a guaranteed dimension, bugs there are real but not release blockers,
 and the UI must not promise enforcement it cannot deliver.
 
-- **`PackageAddedReceiver` never receives `PACKAGE_ADDED` on this ROM.** Reproduced twice with real
-  uninstall + reinstall cycles. The system *did* broadcast it — another app logged it at the same
-  instant. Manifest, `QUERY_ALL_PACKAGES` and process liveness all ruled out. **Root cause not
-  established.** Worked around through `PackageChangedReceiver`, which is what re-points a reinstalled
-  app's uid today.
 - Work-profile package events reach neither receiver.
-- `PackageMonitoringService.processNewPackage` computes `uid = userId * 100000 + 0` for work-profile
-  apps, because `getApplicationInfoAsUser` returns null there and `appId` falls back to 0. Harmless
-  today — `createDefaultFirewallRule` re-reads the uid itself — but the value is wrong and is passed
-  around.
-- `SmartPolicySwitchUseCase` matches critical packages by `packageName` alone, ignoring `userId`, so a
-  VPN app present in two profiles gets one copy restored.
 ---
 
-# 7. Widget and VPN permission
+# 6. Widget and VPN permission
 
 `VpnPermissionActivity` cannot be launched from `FirewallToggleReceiver`: Android 14 blocks it with
 `BAL_BLOCK` (background activity launch). On a device needing VPN permission, the widget start
@@ -189,7 +113,7 @@ correct but currently unreachable from the widget.
 
 ---
 
-# 8. Backup and restore
+# 7. Backup and restore
 
 **Restoring a backup chosen from the picker's SEARCH results fails:**
 
@@ -204,29 +128,34 @@ clearly rather than failing silently, which is correct.
 
 ---
 
-# 9. Not verifiable on the current test device
+# Known and accepted — not actionable
 
-- `cmd connectivity set-chain3-enabled` is absent on this ROM, so the **ConnectivityManager backend
-  cannot be exercised here at all**. Everything about it is code-review only.
-- **M108 StopFailed.** Forcing a real teardown failure needs the backend to break while the process
-  lives. Revoking the Shizuku permission force-stops the app. Code-verified only.
-- **Ethernet mapping in `NetworkStateMonitor.networkTypeOf`** stays reasoned rather than proven —
-  a consequence of the "no tests for now" decision, accepted knowingly.
-- P0-3 deadlock in `handleBackendFailure` (needs root revoked mid-session).
-- M098 IPv6 leak on the **VPN** backend specifically.
-- M055 stale Shizuku granted state.
-- Work-profile behaviour with apps actually present in user 10.
-- The `StandardDialog` change touches 20 call sites; only the boot-protection dialog was hand-tested.
-  The other switch dialogs and the package-management dialogs have not been re-tested.
+Kept because the knowledge is load-bearing, not because there is work to do.
 
----
-
-# 10. Translations
-
-- The 7 shipped locales were machine-translated and **need a native review**, especially the strings
-  added during the firewall work.
-- A large amount of user-facing copy lives hardcoded in `Constants.kt` and can never translate,
-  despite shipping 7 locales.
+- **NetworkPolicyManager leaves apps blocked permanently after an uninstall.** Confirmed on hardware:
+  the policy lives in `/data/system/netpolicy.xml`, survives reboot, and Android never tells a package
+  it is being removed. **Decided 2026-08-24: document, do not build the `service.d` cleaner.** The
+  warning and the manual `cmd netpolicy` recovery are in FIREWALL.md, "What survives uninstalling".
+- **Captive portal: reinstall or Clear Data destroys the true original.** `KEY_ORIGINAL_CAPTURED` lives
+  in the app's own prefs with `allowBackup=false`. There is no reliable in-app fix — nothing the app
+  owns survives uninstall, and a marker in `Settings.Global` would add the very device-wide state the
+  finding is about. The preset-matching mitigation was tested and does not work: the test device's
+  genuine ROM default *is* a De1984 preset.
+- **`PackageAddedReceiver` never receives `PACKAGE_ADDED` on this ROM.** Reproduced twice; the system
+  did broadcast it. Manifest, `QUERY_ALL_PACKAGES` and process liveness all ruled out. **Root cause
+  not established.** This matters: the uid re-point that issue #81 depends on works *because*
+  `PackageChangedReceiver` covers for it.
+- **The ConnectivityManager backend cannot be exercised on the test device at all** —
+  `cmd connectivity set-chain3-enabled` does not exist on that ROM. Everything about it is
+  code-review only, including the issue #93 fix.
+- **M108 StopFailed** cannot be forced here: revoking the Shizuku permission force-stops the app.
+- **Ethernet mapping in `NetworkStateMonitor.networkTypeOf`** stays reasoned, not proven — a
+  consequence of the "no tests for now" decision.
+- **The 7 locales are machine-translated and need a native review.** Not something to fix in code.
+- **Clear-app-data with no root** shows "unavailable" rather than "stuck" — `/data/adb` is unreadable
+  without root.
+- **Two expiry timers stacking** is unproven: Magisk runs `post-fs-data.d` once and no double run has
+  been observed. Left alone — that script can take a device off the network, so no speculative edits.
 
 ---
 
@@ -243,6 +172,11 @@ clearly rather than failing silently, which is correct.
    restore time rather than trust the stored uid. (2026-08-23 — implemented 2026-08-25, issue #81)
 6. **The captive-portal controller stays.** (2026-08-23)
 7. **No tests or CI for now.** (2026-08-24)
+8. **The degraded-blocking gap stays log-only.** (2026-08-25) On a ROM without `POLICY_REJECT_ALL`
+   the backend falls back to metered-background-only and the UI still reads Blocked. The fallback is
+   logged as a warning and nothing surfaces it. Accepted knowingly: the alternative is a warning on
+   every ROM that cannot be detected up front, or refusing to run a backend that still blocks
+   something. Documented in FIREWALL.md section 4 under "Known gap".
 
 # Reference — backend capability matrix
 

@@ -204,6 +204,25 @@ class BootReceiver : BroadcastReceiver() {
 
                                 showBootFailureNotification(context)
                             }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            // Not a failure. Swallowing it here would log a boot-restore error and
+                            // post a failure notification to the user for an ordinary scope shutdown,
+                            // and would break structured concurrency - the same reason ErrorHandler
+                            // re-throws it before anything else.
+                            throw e
+                        } catch (e: Exception) {
+                            // Without this the block below never ran. try/finally alone lets a throw
+                            // from anywhere above - a wedged root probe, a backend blowing up - skip
+                            // every exit that lifts the boot-protection chain, so the device came up
+                            // with no network for any app and nothing in the process left to undo it.
+                            // Only the script's own 120-second timer saved the user.
+                            AppLogger.e(TAG, "❌ BOOT RESTORE THREW | Lifting the boot protection block so the device is not left offline", e)
+                            try {
+                                app.dependencies.bootProtectionManager.clearBootBlockIfInstalled()
+                            } catch (lift: Exception) {
+                                AppLogger.e(TAG, "Failed to lift boot protection block after a throw", lift)
+                            }
+                            showBootFailureNotification(context)
                         } finally {
                             pendingResult.finish()
                         }

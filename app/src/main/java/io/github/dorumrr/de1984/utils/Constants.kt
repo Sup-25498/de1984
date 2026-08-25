@@ -484,20 +484,14 @@ object Constants {
 
         const val NOTIFICATION_TITLE_WAITING = "De1984 Firewall Active (VPN Mode)"
         const val NOTIFICATION_TITLE_SWITCHING = "De1984 is switching backend..."
-        const val NOTIFICATION_TITLE_SUCCESS = "De1984 Firewall backend switched"
         const val NOTIFICATION_TITLE_FAILED = "De1984 Firewall backend switch failed"
 
         const val NOTIFICATION_TEXT_SHIZUKU_NOT_RUNNING = "Waiting for Shizuku to start. Tap to retry."
         const val NOTIFICATION_TEXT_SHIZUKU_NO_PERMISSION = "Waiting for Shizuku permission. Tap to retry."
         const val NOTIFICATION_TEXT_SWITCHING = "Shizuku is now available. Switching to preferred backend..."
-        const val NOTIFICATION_TEXT_SUCCESS_CONNECTIVITY_MANAGER = "De1984 Firewall is now using ConnectivityManager backend"
-        const val NOTIFICATION_TEXT_SUCCESS_IPTABLES = "De1984 Firewall is now using iptables backend"
         const val NOTIFICATION_TEXT_FAILED = "De1984 Firewall failed to switch backend. Still using VPN."
 
         const val ACTION_BUTTON_RETRY = "Retry"
-
-        const val TOAST_SUCCESS_CONNECTIVITY_MANAGER = "De1984 Firewall switched to ConnectivityManager"
-        const val TOAST_SUCCESS_IPTABLES = "De1984 Firewall switched to iptables"
         const val TOAST_FAILED = "De1984 Firewall failed to switch backend"
     }
 
