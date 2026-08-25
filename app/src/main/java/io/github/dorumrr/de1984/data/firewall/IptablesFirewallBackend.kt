@@ -849,6 +849,14 @@ class IptablesFirewallBackend(
     }
 
     private fun isUidExempted(uid: Int, allPackages: List<android.content.pm.ApplicationInfo>): Boolean {
+        // A uid we could not resolve. Unlike the Shizuku backends, iptables deliberately has no
+        // app-uid range guard - it can and should block system uids - but the sentinel is not a uid
+        // at all, and "--uid-owner -1" is a command that can only fail. See HiddenApiHelper.
+        if (uid < 0) {
+            AppLogger.d(TAG, "UID $uid is not a real uid - not writing a rule for it")
+            return true
+        }
+
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val allowCritical = prefs.getBoolean(
             Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,

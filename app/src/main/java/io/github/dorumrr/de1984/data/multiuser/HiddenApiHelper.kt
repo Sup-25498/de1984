@@ -442,7 +442,7 @@ object HiddenApiHelper {
                 // other app, or to nothing at all. UID_UNKNOWN cannot be mistaken for an app: it
                 // fails Constants.Firewall.isFirewallableAppUid, so no privileged backend acts on
                 // it, and iptables rejects it rather than matching something real.
-                val realUid = getPackageUidsForUser(context, userId)[packageName]
+                val realUid = getPackageUidsForUser(userId)[packageName]
                 if (realUid == null) {
                     AppLogger.w(TAG, "No uid available for $packageName in user $userId - " +
                             "marking it UID_UNKNOWN; the firewall will not act on it")
@@ -472,15 +472,16 @@ object HiddenApiHelper {
     private val packageUidsCache = mutableMapOf<Int, Map<String, Int>>()
 
     /**
-     * packageName -> uid for one user, from `pm list packages -U`. One shell call per user, cached
-     * until [clearInstalledAppsCache]. Empty when no privileged shell is available.
+     * Record packageName -> uid from a `pm list packages -U` output.
+     *
+     * Filled as a side effect of the package listing that already runs, so resolving a work-only
+     * app's uid costs no extra shell call. That matters: getApplicationInfoAsUser is reached on the
+     * main thread on some paths, and a second blocking command there is what this avoids.
      */
     @Synchronized
-    private fun getPackageUidsForUser(context: Context, userId: Int): Map<String, Int> {
-        packageUidsCache[userId]?.let { return it }
-
-        val lines = getPackageUidLinesViaShell(userId)
+    private fun recordPackageUids(userId: Int, lines: List<String>) {
         val map = lines.mapNotNull { line ->
+            if (!line.startsWith("package:")) return@mapNotNull null
             val body = line.removePrefix("package:").trim()
             val uid = body.substringAfterLast("uid:", "").trim().toIntOrNull() ?: return@mapNotNull null
             val name = body.substringBefore(" uid:").trim()
@@ -490,40 +491,11 @@ object HiddenApiHelper {
         if (map.isNotEmpty()) {
             packageUidsCache[userId] = map
         }
-        return map
     }
 
-    private fun getPackageUidLinesViaShell(userId: Int): List<String> {
-        val command = "pm list packages -U --user $userId"
-
-        try {
-            val cachedShell = Shell.getCachedShell()
-            if (cachedShell != null && cachedShell.isRoot) {
-                val out = mutableListOf<String>()
-                val result = cachedShell.newJob().add(command).to(out).exec()
-                if (result.isSuccess) return out.filter { it.startsWith("package:") }
-            }
-        } catch (e: Exception) {
-            AppLogger.d(TAG, "Root shell uid query failed for user $userId: ${e.message}")
-        }
-
-        // Same runBlocking shape as getPackageListViaShizuku above, which already reaches this file's
-        // callers, so this adds no new class of risk - and the result is cached per user, so it runs
-        // once. Without it a Shizuku-only user gets UID_UNKNOWN for every work-only app and the
-        // firewall leaves them alone entirely.
-        val manager = shizukuManager
-        if (manager != null && manager.hasShizukuPermission) {
-            return try {
-                val (exitCode, output) = runBlocking { manager.executeShellCommand(command) }
-                if (exitCode == 0) output.lines().filter { it.startsWith("package:") } else emptyList()
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Shizuku uid query failed for user $userId: ${e.message}")
-                emptyList()
-            }
-        }
-
-        return emptyList()
-    }
+    /** packageName -> uid for one user, or empty when no listing has been read yet. */
+    @Synchronized
+    private fun getPackageUidsForUser(userId: Int): Map<String, Int> = packageUidsCache[userId] ?: emptyMap()
 
     private fun getPackageListViaShell(userId: Int): List<String> {
         return try {
@@ -535,7 +507,9 @@ object HiddenApiHelper {
 
             val outputList = mutableListOf<String>()
             val result = cachedShell.newJob()
-                .add("pm list packages --user $userId")
+                // -U so this one call yields the uids too. Asking separately meant a second blocking
+                // shell command on a path that demonstrably runs on the main thread.
+                .add("pm list packages -U --user $userId")
                 .to(outputList)
                 .exec()
 
@@ -544,9 +518,10 @@ object HiddenApiHelper {
                 return emptyList()
             }
 
+            recordPackageUids(userId, outputList)
             outputList
                 .filter { it.startsWith("package:") }
-                .map { it.removePrefix("package:").trim() }
+                .map { it.removePrefix("package:").substringBefore(" uid:").trim() }
                 .filter { it.isNotEmpty() }
         } catch (e: Exception) {
             AppLogger.d(TAG, "Root shell pm list packages failed: ${e.message}")
@@ -570,7 +545,8 @@ object HiddenApiHelper {
             // Use runBlocking since HiddenApiHelper methods are synchronous
             // and Shizuku executeShellCommand is suspend
             val (exitCode, output) = runBlocking {
-                manager.executeShellCommand("pm list packages --user $userId")
+                // -U so this one call yields the uids too - see recordPackageUids.
+                manager.executeShellCommand("pm list packages -U --user $userId")
             }
 
             if (exitCode != 0) {
@@ -578,9 +554,11 @@ object HiddenApiHelper {
                 return emptyList()
             }
 
-            output.lines()
+            val lines = output.lines()
+            recordPackageUids(userId, lines)
+            lines
                 .filter { it.startsWith("package:") }
-                .map { it.removePrefix("package:").trim() }
+                .map { it.removePrefix("package:").substringBefore(" uid:").trim() }
                 .filter { it.isNotEmpty() }
         } catch (e: Exception) {
             AppLogger.d(TAG, "Shizuku shell pm list packages failed: ${e.message}")

@@ -3,6 +3,8 @@ package io.github.dorumrr.de1984.utils
 import android.content.Context
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.domain.model.PackageCriticality
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -40,7 +42,11 @@ object PackageSafetyLoader {
         
         return loadMutex.withLock {
             cachedData?.let { return@withLock it }
-            
+
+            // Parsing ~5,000 packages takes ~800ms, measured on device. The early return above keeps
+            // the cached path free, but this branch must never run on the caller's thread:
+            // SettingsViewModel.importUninstalledApps reaches it from viewModelScope, which is Main.
+            withContext(Dispatchers.IO) {
             try {
                 AppLogger.d(TAG, "Loading package safety data from assets...")
                 
@@ -69,6 +75,7 @@ object PackageSafetyLoader {
                     cachedData = emptyData
                 }
                 emptyData
+            }
             }
         }
     }

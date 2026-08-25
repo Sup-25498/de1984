@@ -1134,23 +1134,13 @@ class FirewallManager(
                         if (availabilityResult.isFailure) {
                             AppLogger.e(TAG, "❌ Health check FAILED: $backendType backend is no longer available!")
                             AppLogger.e(TAG, "Error: ${availabilityResult.exceptionOrNull()?.message}")
-                            AppLogger.e(TAG, "Resetting health check interval to initial value (${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS}ms)")
-
-                            consecutiveSuccessfulHealthChecks = 0
-                            currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
-
-                            handleBackendFailure(backendType)
+                            failHealthCheck(backendType)
                             break
                         }
 
                         if (!backend.isActive()) {
                             AppLogger.e(TAG, "❌ Health check FAILED: $backendType backend is not active!")
-                            AppLogger.e(TAG, "Resetting health check interval to initial value (${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS}ms)")
-
-                            consecutiveSuccessfulHealthChecks = 0
-                            currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS
-
-                            handleBackendFailure(backendType)
+                            failHealthCheck(backendType)
                             break
                         }
 
