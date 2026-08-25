@@ -462,7 +462,10 @@
     <string name="settings_boot_protection_title">Protecție la Pornire</string>
     <string name="settings_boot_protection_description">Blochează tot traficul de rețea în timpul pornirii dispozitivului până când firewall-ul se activează (necesită root și Magisk)</string>
     <string name="settings_boot_protection_unavailable">Necesită root și scripturi de pornire Magisk</string>
-    <string name="settings_boot_protection_stuck">⚠️ Protecția la Pornire este încă instalată, dar De1984 a pierdut accesul root și nu o mai poate elimina de aici. Va bloca aplicațiile până la 2 minute după fiecare pornire, apoi se dezactivează automat. Pentru a o elimina definitiv:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ Protecția la pornire este încă instalată, iar De1984 a pierdut accesul root, deci nu o poate elimina. La fiecare pornire, toate aplicațiile sunt blocate până la 2 minute, apoi scriptul se ridică singur. Încercați eliminarea mai jos — funcționează dacă rootul a fost doar refuzat, nu pierdut.</string>
+    <string name="settings_boot_protection_retry_remove">Încearcă eliminarea</string>
+    <string name="boot_protection_remove_no_root">Nu a putut fi eliminată. De1984 tot nu are acces root, deci nu poate șterge un fișier din /data/adb. Restabiliți rootul și încercați din nou. Până atunci, fiecare pornire blochează aplicațiile până la 2 minute, apoi se eliberează singură.</string>
+    <string name="boot_protection_rebooting">Protecția la pornire a fost eliminată. Se repornește telefonul…</string>
 
     <string name="settings_new_app_notifications_title">Notificare pentru aplicațiile noi</string>
     <string name="settings_new_app_notifications_description">Arată notificări când aplicații noi cu permisiuni de rețea sunt instalate</string>
@@ -768,6 +771,7 @@
     <string name="error_backup_failed">Backup-ul a eșuat: %s</string>
     <string name="error_unsupported_backup_version">Versiune de backup nesuportată: %d</string>
     <string name="error_backup_no_rules">Fișierul de backup nu conține reguli</string>
+    <string name="error_backup_file_unreadable">Fișierul nu a putut fi deschis. Dacă l-ați ales din rezultatele căutării, deschideți folderul în care se află și selectați-l de acolo.</string>
     <string name="error_invalid_backup_format">Format de fișier backup invalid</string>
     <string name="error_restore_failed">Restaurarea a eșuat: %s</string>
 

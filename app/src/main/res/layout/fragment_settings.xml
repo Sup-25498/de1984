@@ -303,6 +303,20 @@
                             android:textSize="12sp"
                             android:textColor="?android:attr/textColorSecondary" />
 
+                        <!--
+                            Lockout scenario 5 only: boot protection is installed and root has been
+                            lost, so the switch above is greyed out and cannot remove it. Hidden in
+                            every other state - see SettingsFragmentViews.
+                        -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/boot_protection_retry_remove"
+                            style="@style/Widget.De1984.Button"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/settings_boot_protection_retry_remove"
+                            android:visibility="gone" />
+
                     </LinearLayout>
 
                     <com.google.android.material.switchmaterial.SwitchMaterial

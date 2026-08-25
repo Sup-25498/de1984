@@ -470,7 +470,10 @@
     <string name="settings_boot_protection_title">启动保护</string>
     <string name="settings_boot_protection_description">在设备启动期间阻止所有网络流量，直到防火墙激活（需要 Root 和 Magisk）</string>
     <string name="settings_boot_protection_unavailable">需要 Root 和 Magisk 启动脚本</string>
-    <string name="settings_boot_protection_stuck">⚠️ 启动保护仍已安装，但 De1984 已失去 root 权限，无法从此处移除。每次启动后它将阻止应用最多 2 分钟，然后自动解除。要永久移除：\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ 启动保护仍已安装，但 De1984 已失去 root 权限，无法将其移除。每次启动都会阻止所有应用最多 2 分钟，然后脚本会自行解除。请在下方尝试移除——如果只是被拒绝授予 root 而非彻底失去，就会成功。</string>
+    <string name="settings_boot_protection_retry_remove">尝试移除</string>
+    <string name="boot_protection_remove_no_root">无法移除。De1984 仍然没有 root 权限，因此无法删除 /data/adb 下的文件。请恢复 root 后重试。在此之前，每次启动都会阻止应用最多 2 分钟，然后自行解除。</string>
+    <string name="boot_protection_rebooting">启动保护已移除。正在重启手机…</string>
 
     <string name="settings_new_app_notifications_title">新应用通知</string>
     <string name="settings_new_app_notifications_description">安装具有网络权限的新应用时显示通知</string>
@@ -776,6 +779,7 @@
     <string name="error_backup_failed">备份失败：%s</string>
     <string name="error_unsupported_backup_version">不支持的备份版本：%d</string>
     <string name="error_backup_no_rules">备份文件不包含规则</string>
+    <string name="error_backup_file_unreadable">无法打开该文件。如果您是从搜索结果中选择的，请打开它所在的文件夹并从那里选择。</string>
     <string name="error_invalid_backup_format">无效的备份文件格式</string>
     <string name="error_restore_failed">恢复失败：%s</string>
 

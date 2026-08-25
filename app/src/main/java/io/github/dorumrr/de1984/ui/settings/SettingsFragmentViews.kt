@@ -459,24 +459,46 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
             binding.bootProtectionSwitch.isEnabled = false
 
             if (state.bootProtection) {
-                // Boot protection was enabled and privileged access has since been lost. The script
-                // is almost certainly still installed, and we cannot even confirm it: /data/adb is
-                // root-only, so without root the app can neither read nor remove it. Showing the
-                // switch as OFF here would be a lie, and offering a Remove button would be a button
-                // that cannot work. Tell the user the truth and give the only recovery that does.
+                // Lockout scenario 5. Boot protection was enabled and privileged access has since
+                // been lost. The script is almost certainly still installed, and we cannot even
+                // confirm it: /data/adb is root-only, so without root the app can neither read nor
+                // remove it. Showing the switch as OFF here would be a lie.
+                //
+                // The button is worth offering even though the switch cannot work, because "lost
+                // root" is usually "root not granted right now" - Magisk not awake, or one Deny -
+                // rather than root genuinely gone. It asks again before giving up, and says so
+                // plainly when the answer is still no. The old help text told the user to run `su`,
+                // which is exactly what they had lost.
                 binding.bootProtectionSwitch.isChecked = true
                 binding.bootProtectionDescription.text =
                     getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_stuck)
+                binding.bootProtectionRetryRemove.visibility = View.VISIBLE
+                binding.bootProtectionRetryRemove.isEnabled = !state.bootProtectionRemovalInProgress
             } else {
                 binding.bootProtectionSwitch.isChecked = false
                 binding.bootProtectionDescription.text =
                     getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_unavailable)
+                binding.bootProtectionRetryRemove.visibility = View.GONE
             }
         } else {
             binding.bootProtectionSwitch.isChecked = state.bootProtection
             binding.bootProtectionSwitch.isEnabled = true
             binding.bootProtectionDescription.text = getString(io.github.dorumrr.de1984.R.string.settings_boot_protection_description)
+            // The switch works here, so the recovery button would be a second control for the same
+            // job. Scenario 5 is the only state it belongs in.
+            binding.bootProtectionRetryRemove.visibility = View.GONE
         }
+
+        // Reuses the normal disable warning, which already says the device restarts immediately.
+        // Writing a second near-identical dialog is how two warnings drift apart.
+        binding.bootProtectionRetryRemove.setOnClickListener {
+            AppLogger.d(TAG, "Boot protection retry-remove tapped - showing the disable warning")
+            showBootProtectionWarning(false) {
+                viewModel.retryRemoveBootProtection()
+            }
+        }
+
+        renderRebootingScreen(state.isRebooting)
 
         binding.bootProtectionSwitch.setOnCheckedChangeListener { _, isChecked ->
             AppLogger.d(TAG, "bootProtectionSwitch listener triggered: isChecked=$isChecked")
@@ -1693,6 +1715,38 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
                 viewModel.clearImportPreview()
             }
         )
+    }
+
+    /**
+     * The "Restarting..." screen shown after a scenario-5 removal succeeds.
+     *
+     * Not cancellable and with no buttons, because nothing the user does now can stop the restart -
+     * offering Cancel would be a control that does nothing. It exists so the screen going black has
+     * an explanation; the normal toggles do not need it, because their warning dialog says the
+     * device will restart and the user has just read it.
+     *
+     * Deliberately NOT reusing [progressDialog]. That field belongs to the batch uninstall, and it
+     * has to be dismissed here when the restart fails - `svc power reboot` can return non-zero, and
+     * a non-cancellable dialog left on screen would trap the user over an error they cannot read.
+     * Sharing the field would mean this dismissal killing a batch uninstall's progress dialog
+     * instead. Two situations, two fields.
+     */
+    private var rebootingDialog: androidx.appcompat.app.AlertDialog? = null
+
+    private fun renderRebootingScreen(isRebooting: Boolean) {
+        if (!isRebooting) {
+            rebootingDialog?.dismiss()
+            rebootingDialog = null
+            return
+        }
+        if (rebootingDialog?.isShowing == true) return
+
+        rebootingDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.settings_boot_protection_title))
+            .setMessage(getString(R.string.boot_protection_rebooting))
+            .setCancelable(false)
+            .create()
+        rebootingDialog?.show()
     }
 
     private fun performBatchUninstall(totalPackages: Int) {

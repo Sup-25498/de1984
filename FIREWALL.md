@@ -597,6 +597,21 @@ When the app starts (or returns from background), it must recover the correct fi
 - When privileges are restored, automatically attempt recovery
 - This allows seamless recovery without user intervention
 
+**Both "down" and "stuck" at once**:
+- Killing Shizuku can raise `FirewallHealth.Down` and `FirewallHealth.StopFailed` together
+- `KEY_FIREWALL_ENABLED` is the tiebreak: with intent OFF, `StopFailed` wins
+- Reason: on iptables, ConnectivityManager and NetworkPolicyManager the rules outlive the
+  backend that wrote them, so "your apps are unblocked" is false there
+- Two cases are NOT suppressed: intent ON (orphan after a backend switch), and a start
+  attempt, which has already proved nothing is enforcing
+
+**VPN permission needed from the widget or the tile**:
+- Both route through `FirewallToggleReceiver`, and a `BroadcastReceiver` cannot open the
+  VPN dialog: with targetSdk 34, Android 14 refuses the launch with `BAL_BLOCK`
+- The receiver reports `Down(VPN_PERMISSION_REQUIRED)` instead, which raises the VPN
+  fallback notification. Tapping a notification is a gesture Android accepts
+- `VpnPermissionActivity` therefore has no launcher today - see PLAN.md
+
 ---
 
 ## Backend Health Check Behavior

@@ -373,6 +373,82 @@ class SettingsViewModel(
     }
 
     /**
+     * Lockout scenario 5: the switch is greyed out and the script is still installed.
+     *
+     * Asks Magisk for root again and, if it comes back, removes the script. Reuses
+     * [BootProtectionManager.retryRemoveBootProtection], which reuses `deleteBootScript` - so the
+     * read-back check and the live-chain teardown are the same ones the normal disable path uses.
+     *
+     * On success the device restarts, for the same reason the normal toggles do: deleting the file
+     * does not clear the chain already live in THIS boot, and calling `resetIptablesPolicies()`
+     * separately would be a second way to undo the same thing. One rule, no exception to remember.
+     *
+     * Unlike the toggles, this one shows a "Restarting..." screen first. The toggles are reached
+     * through a warning dialog that already says the device will restart; this button is pressed by
+     * someone whose phone is already misbehaving, and a screen going black with no explanation is
+     * the wrong thing to hand them.
+     */
+    fun retryRemoveBootProtection() {
+        viewModelScope.launch {
+            try {
+                AppLogger.d(TAG, "retryRemoveBootProtection: attempting recovery from a privilege loss")
+                _uiState.value = _uiState.value.copy(
+                    bootProtectionRemovalInProgress = true,
+                    error = null
+                )
+
+                val result = bootProtectionLock.withLock { bootProtectionManager.retryRemoveBootProtection() }
+
+                if (result.isSuccess) {
+                    // Durable, not apply(): the device is restarted a few lines below, and losing
+                    // this write would leave the preference disagreeing with what is on disk.
+                    withContext(Dispatchers.IO) {
+                        saveSetting(Constants.Settings.KEY_BOOT_PROTECTION, false, durable = true)
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        bootProtection = false,
+                        bootProtectionRemovalInProgress = false,
+                        isRebooting = true
+                    )
+                    AppLogger.d(TAG, "✅ Boot protection removed on retry - restarting")
+
+                    val rebootResult = bootProtectionManager.rebootDevice()
+                    if (rebootResult.isFailure) {
+                        AppLogger.e(TAG, "❌ Reboot failed after removing boot protection", rebootResult.exceptionOrNull())
+                        _uiState.value = _uiState.value.copy(
+                            isRebooting = false,
+                            error = context.getString(io.github.dorumrr.de1984.R.string.boot_protection_reboot_failed)
+                        )
+                    }
+                } else {
+                    val cause = result.exceptionOrNull()
+                    val message = if (cause is BootProtectionManager.NoPrivilegeException) {
+                        // Do not blame the deletion. Root is genuinely gone, and no button in this
+                        // app can delete a file under /data/adb without it.
+                        context.getString(io.github.dorumrr.de1984.R.string.boot_protection_remove_no_root)
+                    } else {
+                        context.getString(
+                            io.github.dorumrr.de1984.R.string.boot_protection_disable_failed,
+                            cause?.message ?: context.getString(io.github.dorumrr.de1984.R.string.error_unknown)
+                        )
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        bootProtectionRemovalInProgress = false,
+                        error = message
+                    )
+                    AppLogger.e(TAG, "❌ Retry removal failed: $message", cause)
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Exception in retryRemoveBootProtection", e)
+                _uiState.value = _uiState.value.copy(
+                    bootProtectionRemovalInProgress = false,
+                    error = e.message ?: context.getString(io.github.dorumrr.de1984.R.string.error_unknown)
+                )
+            }
+        }
+    }
+
+    /**
      * Serialises boot-protection reads and writes.
      *
      * Both the toggle and the disk reconciliation suspend on IO, so without this they interleave: the
@@ -756,10 +832,40 @@ class SettingsViewModel(
         } ?: throw IOException("Failed to open output stream")
     }
 
+    /**
+     * Read a user-picked file, and give a usable message when it cannot be opened at all.
+     *
+     * Picking a backup from the file picker's SEARCH results can hand back a MediaStore URI that
+     * the picker's own provider then refuses:
+     *
+     *     com.android.externalstorage has no access to content://media/external_primary/file/...
+     *
+     * The denial is inside the provider chain the picker chose, not in our grant, and no permission
+     * we could hold changes it - a .json backup is not covered by READ_MEDIA_* on API 33+. Browsing
+     * to the same file yields a DocumentsProvider URI and works. So the fix is not a fix: it is
+     * telling the user the one thing that gets them out of it.
+     *
+     * Only the OPEN is remapped. A failure part-way through reading keeps its own message, because
+     * that is a different problem and "try browsing instead" would be wrong advice for it.
+     *
+     * The cause is kept so the original provider message still reaches the log.
+     */
     private suspend fun readFromUri(uri: Uri): String = withContext(Dispatchers.IO) {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+        val stream = try {
+            context.contentResolver.openInputStream(uri)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Could not open $uri - authority=${uri.authority}", e)
+            throw IOException(
+                context.getString(io.github.dorumrr.de1984.R.string.error_backup_file_unreadable),
+                e
+            )
+        } ?: throw IOException(
+            context.getString(io.github.dorumrr.de1984.R.string.error_backup_file_unreadable)
+        )
+
+        stream.use { inputStream ->
             inputStream.bufferedReader().readText()
-        } ?: throw IOException("Failed to open input stream")
+        }
     }
 
     fun getCurrentDate(): String {
@@ -1212,6 +1318,10 @@ data class SettingsUiState(
     val newAppNotifications: Boolean = Constants.Settings.DEFAULT_NEW_APP_NOTIFICATIONS,
     val bootProtection: Boolean = Constants.Settings.DEFAULT_BOOT_PROTECTION,
     val bootProtectionAvailable: Boolean = false,
+    /** A "Try to remove" attempt is running - lockout scenario 5. */
+    val bootProtectionRemovalInProgress: Boolean = false,
+    /** The device is about to restart. Non-dismissible: nothing the user does can stop it now. */
+    val isRebooting: Boolean = false,
     val firewallMode: FirewallMode = FirewallMode.AUTO,
     val allowCriticalPackageUninstall: Boolean = Constants.Settings.DEFAULT_ALLOW_CRITICAL_UNINSTALL,
     val allowCriticalPackageFirewall: Boolean = Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL,

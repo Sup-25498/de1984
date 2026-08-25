@@ -463,7 +463,10 @@
     <string name="settings_boot_protection_title">Boot Protection</string>
     <string name="settings_boot_protection_description">Block all network traffic during device startup until firewall activates (requires root and Magisk)</string>
     <string name="settings_boot_protection_unavailable">Requires root and Magisk boot scripts</string>
-    <string name="settings_boot_protection_stuck">⚠️ Boot protection is still installed, but De1984 has lost root access and can no longer remove it from here. It will block apps for up to 2 minutes after each boot, then lift itself automatically. To remove it permanently:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ Boot protection is still installed and De1984 has lost root access, so it cannot remove it. Every boot blocks all apps for up to 2 minutes, then the script lifts itself. Try to remove it below — that works if root was only denied, not lost.</string>
+    <string name="settings_boot_protection_retry_remove">Try to remove</string>
+    <string name="boot_protection_remove_no_root">Could not remove it. De1984 still has no root access, so it cannot delete a file under /data/adb. Restore root and try again. Until then each boot blocks apps for up to 2 minutes, then clears itself.</string>
+    <string name="boot_protection_rebooting">Boot protection removed. Restarting your phone…</string>
 
     <string name="settings_new_app_notifications_title">New App Notifications</string>
     <string name="settings_new_app_notifications_description">Show notifications when new apps with network permissions are installed</string>
@@ -775,6 +778,7 @@
     <string name="error_backup_failed">Backup failed: %s</string>
     <string name="error_unsupported_backup_version">Unsupported backup version: %d</string>
     <string name="error_backup_no_rules">Backup file contains no rules</string>
+    <string name="error_backup_file_unreadable">Could not open that file. If you picked it from search results, open the folder it is in and choose it there instead.</string>
     <string name="error_invalid_backup_format">Invalid backup file format</string>
     <string name="error_restore_failed">Restore failed: %s</string>
 

@@ -1238,6 +1238,32 @@ class FirewallManager(
     }
 
     /**
+     * The widget or the tile asked to start the firewall, and the plan needs VPN permission.
+     *
+     * Both of those arrive through FirewallToggleReceiver, and a BroadcastReceiver cannot open the
+     * permission dialog: with targetSdk 34, Android 14 refuses the launch with BAL_BLOCK and the tap
+     * did nothing at all, silently. A notification CAN get there, because tapping one is a user
+     * gesture, and [showVpnFallbackNotification] already exists and already opens MainActivity with
+     * ACTION_ENABLE_VPN_FALLBACK.
+     *
+     * Routed through [reportFirewallDown] rather than calling the notification directly, so the
+     * badge, the banner and the widget all describe the same situation - the user asked for the
+     * firewall and did not get it, which is exactly what Down means.
+     *
+     * This runs on every Android version, not only 14+. The direct launch still works below 14, but
+     * keeping it would be a second way to do one thing, and the notification works everywhere. The
+     * cost is one extra tap on older devices.
+     */
+    fun reportVpnPermissionRequiredFromBackground() {
+        AppLogger.w(TAG, "Widget/tile start needs VPN permission - a receiver cannot open the dialog, notifying instead")
+        reportFirewallDown(
+            reason = FirewallHealth.Down.Reason.VPN_PERMISSION_REQUIRED,
+            backend = FirewallBackendType.VPN,
+            stateMessage = "VPN permission required"
+        )
+    }
+
+    /**
      * Single entry point for "the firewall is no longer enforcing".
      *
      * Publishes the typed health state the UI renders, mirrors it into [_firewallState], tells the
@@ -1249,7 +1275,8 @@ class FirewallManager(
     private fun reportFirewallDown(
         reason: FirewallHealth.Down.Reason,
         backend: FirewallBackendType?,
-        stateMessage: String
+        stateMessage: String,
+        afterStartAttempt: Boolean = false
     ) {
         // This flag means "the user wants the firewall on and it is not". Recovery keys off it, so
         // setting it when the user's own intent flag is false turns a failed toggle into a restart
@@ -1274,7 +1301,13 @@ class FirewallManager(
         // Intent ON is deliberately NOT suppressed: that is the orphan-after-switch case, where the
         // firewall is meant to be running and losing it IS the news. The orphan keeps its own
         // notification, which is the part that survives process death anyway.
-        if (_firewallHealth.value is FirewallHealth.StopFailed && !userWantsFirewallOn) {
+        //
+        // Nor is a start attempt suppressed. [reportStartFailure] only reaches here after proving
+        // `currentBackend.isActive()` is false and nulling the refs, so the app has already decided
+        // nothing is enforcing. Keeping "some apps may still be blocked" over that decision would
+        // contradict it: after a failed stop the user can tap ON again, the start can fail with the
+        // stuck backend now genuinely gone, and the banner would still claim rules are live.
+        if (!afterStartAttempt && _firewallHealth.value is FirewallHealth.StopFailed && !userWantsFirewallOn) {
             AppLogger.w(
                 TAG,
                 "Firewall down ($reason, backend=$backend) but a stuck backend warning is live and " +
@@ -1460,7 +1493,9 @@ class FirewallManager(
 
         currentBackend = null
         _activeBackendType.value = null
-        reportFirewallDown(reason, backend, stateMessage)
+        // afterStartAttempt: the check above is evidence that nothing is enforcing, so this Down
+        // supersedes any standing StopFailed rather than being suppressed by it.
+        reportFirewallDown(reason, backend, stateMessage, afterStartAttempt = true)
     }
 
     /**

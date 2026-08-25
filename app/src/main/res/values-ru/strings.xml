@@ -463,7 +463,10 @@
     <string name="settings_boot_protection_title">Защита при загрузке</string>
     <string name="settings_boot_protection_description">Блокировать весь сетевой трафик при запуске устройства до активации файрволла (требуется root и Magisk)</string>
     <string name="settings_boot_protection_unavailable">Требуется root и скрипты загрузки Magisk</string>
-    <string name="settings_boot_protection_stuck">⚠️ Защита при загрузке всё ещё установлена, но De1984 потерял root-доступ и больше не может удалить её отсюда. После каждой загрузки она будет блокировать приложения до 2 минут, затем отключится сама. Чтобы удалить её навсегда:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ Защита при загрузке всё ещё установлена, а De1984 потерял root-доступ и не может её удалить. При каждой загрузке все приложения блокируются до 2 минут, затем скрипт снимает блокировку сам. Попробуйте удалить её ниже — это сработает, если в root было лишь отказано, а не утрачено.</string>
+    <string name="settings_boot_protection_retry_remove">Попробовать удалить</string>
+    <string name="boot_protection_remove_no_root">Не удалось удалить. У De1984 по-прежнему нет root-доступа, поэтому он не может удалить файл в /data/adb. Восстановите root и повторите попытку. До тех пор каждая загрузка блокирует приложения до 2 минут, затем блокировка снимается сама.</string>
+    <string name="boot_protection_rebooting">Защита при загрузке удалена. Перезапуск телефона…</string>
 
     <string name="settings_new_app_notifications_title">Уведомления о новых приложениях</string>
     <string name="settings_new_app_notifications_description">Показывать уведомления при установке новых приложений с сетевыми разрешениями</string>
@@ -773,6 +776,7 @@
     <string name="error_backup_failed">Ошибка резервного копирования: %s</string>
     <string name="error_unsupported_backup_version">Неподдерживаемая версия резервной копии: %d</string>
     <string name="error_backup_no_rules">Файл резервной копии не содержит правил</string>
+    <string name="error_backup_file_unreadable">Не удалось открыть этот файл. Если вы выбрали его в результатах поиска, откройте папку с ним и выберите файл там.</string>
     <string name="error_invalid_backup_format">Неверный формат файла резервной копии</string>
     <string name="error_restore_failed">Ошибка восстановления: %s</string>
 

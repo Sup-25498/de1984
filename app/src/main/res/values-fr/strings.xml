@@ -460,7 +460,10 @@
     <string name="settings_boot_protection_title">Protection au démarrage</string>
     <string name="settings_boot_protection_description">Bloquer tout le trafic réseau pendant le démarrage de l\'appareil jusqu\'à l\'activation du pare-feu (requiert root et Magisk)</string>
     <string name="settings_boot_protection_unavailable">Requiert root et les scripts de démarrage Magisk</string>
-    <string name="settings_boot_protection_stuck">⚠️ La protection au démarrage est toujours installée, mais De1984 a perdu l\'accès root et ne peut plus la supprimer d\'ici. Elle bloquera les applications jusqu\'à 2 minutes après chaque démarrage, puis se désactivera d\'elle-même. Pour la supprimer définitivement :\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ La protection au démarrage est toujours installée et De1984 a perdu l’accès root, il ne peut donc pas la supprimer. Chaque démarrage bloque toutes les applications pendant 2 minutes au maximum, puis le script se désactive tout seul. Essayez de la supprimer ci-dessous — cela fonctionne si le root a seulement été refusé, pas perdu.</string>
+    <string name="settings_boot_protection_retry_remove">Essayer de supprimer</string>
+    <string name="boot_protection_remove_no_root">Suppression impossible. De1984 n’a toujours pas l’accès root et ne peut donc pas supprimer un fichier dans /data/adb. Rétablissez le root puis réessayez. D’ici là, chaque démarrage bloque les applications pendant 2 minutes au maximum, puis se libère.</string>
+    <string name="boot_protection_rebooting">Protection au démarrage supprimée. Redémarrage du téléphone…</string>
 
     <string name="settings_new_app_notifications_title">Notifications des nouvelles applications</string>
     <string name="settings_new_app_notifications_description">Afficher des notifications lorsque de nouvelles applications avec autorisations réseau sont installées</string>
@@ -766,6 +769,7 @@
     <string name="error_backup_failed">Échec de la sauvegarde: %s</string>
     <string name="error_unsupported_backup_version">Version de sauvegarde non prise en charge: %d</string>
     <string name="error_backup_no_rules">Le fichier de sauvegarde ne contient aucune règle</string>
+    <string name="error_backup_file_unreadable">Impossible d’ouvrir ce fichier. Si vous l’avez choisi dans les résultats de recherche, ouvrez le dossier qui le contient et sélectionnez-le depuis là.</string>
     <string name="error_invalid_backup_format">Format de fichier de sauvegarde invalide</string>
     <string name="error_restore_failed">Échec de la restauration: %s</string>
 

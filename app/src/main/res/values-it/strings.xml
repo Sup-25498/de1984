@@ -460,7 +460,10 @@
     <string name="settings_boot_protection_title">Protezione all\'Avvio</string>
     <string name="settings_boot_protection_description">Blocca tutto il traffico di rete durante l\'avvio del dispositivo fino all\'attivazione del firewall (richiede root e Magisk)</string>
     <string name="settings_boot_protection_unavailable">Richiede root e gli script di avvio Magisk</string>
-    <string name="settings_boot_protection_stuck">⚠️ La Protezione all\'Avvio è ancora installata, ma De1984 ha perso l\'accesso root e non può più rimuoverla da qui. Bloccherà le app fino a 2 minuti dopo ogni avvio, poi si disattiva da sola. Per rimuoverla definitivamente:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ La protezione all\'avvio è ancora installata e De1984 ha perso l\'accesso root, quindi non può rimuoverla. Ogni avvio blocca tutte le app per un massimo di 2 minuti, poi lo script si disattiva da solo. Prova a rimuoverla qui sotto — funziona se il root è stato solo negato, non perso.</string>
+    <string name="settings_boot_protection_retry_remove">Prova a rimuovere</string>
+    <string name="boot_protection_remove_no_root">Impossibile rimuoverla. De1984 non ha ancora accesso root, quindi non può eliminare un file in /data/adb. Ripristina il root e riprova. Fino ad allora ogni avvio blocca le app per un massimo di 2 minuti, poi si sblocca da solo.</string>
+    <string name="boot_protection_rebooting">Protezione all\'avvio rimossa. Riavvio del telefono…</string>
 
     <string name="settings_new_app_notifications_title">Notifiche Nuove App</string>
     <string name="settings_new_app_notifications_description">Mostra notifiche quando vengono installate nuove app con permessi di rete</string>
@@ -766,6 +769,7 @@
     <string name="error_backup_failed">Backup non riuscito: %s</string>
     <string name="error_unsupported_backup_version">Versione backup non supportata: %d</string>
     <string name="error_backup_no_rules">Il file di backup non contiene regole</string>
+    <string name="error_backup_file_unreadable">Impossibile aprire quel file. Se lo hai scelto dai risultati della ricerca, apri la cartella in cui si trova e selezionalo da lì.</string>
     <string name="error_invalid_backup_format">Formato del file di backup non valido</string>
     <string name="error_restore_failed">Ripristino non riuscito: %s</string>
 

@@ -83,21 +83,24 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                     AppLogger.d(TAG, "requiresVpnPermission: ${plan?.requiresVpnPermission}")
 
                     if (plan?.requiresVpnPermission == true) {
-                        AppLogger.d(TAG, "🔐 VPN permission required, launching transparent VpnPermissionActivity...")
-                        // Launch transparent activity in its own task to handle VPN permission dialog only
-                        // Using NEW_TASK + MULTIPLE_TASK + NO_ANIMATION to avoid bringing main app to focus
-                        val activityIntent = Intent(context, io.github.dorumrr.de1984.ui.VpnPermissionActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
-                            // Hand over the mode already resolved above. Without this the activity
-                            // re-read the preference and started the unavailable backend again,
-                            // undoing the AUTO fallback for the case it was written for.
-                            putExtra(
-                                io.github.dorumrr.de1984.ui.VpnPermissionActivity.EXTRA_RESOLVED_MODE,
-                                mode.name
-                            )
-                        }
-                        context.startActivity(activityIntent)
-                        AppLogger.d(TAG, "VpnPermissionActivity launched")
+                        // This used to start VpnPermissionActivity directly. It cannot work from
+                        // here: with targetSdk 34, Android 14 blocks a background activity launch
+                        // from a BroadcastReceiver (BAL_BLOCK), so tapping the widget or the tile
+                        // did nothing whatsoever - no dialog, no error, no notification.
+                        //
+                        // A notification gets there instead, because the user tapping it is a
+                        // gesture Android accepts as a reason to open an activity. FirewallManager
+                        // already owns that notification and the state that goes with it.
+                        //
+                        // The notification opens MainActivity with ACTION_ENABLE_VPN_FALLBACK,
+                        // which is the same path the in-app banner's "Enable VPN" button uses.
+                        // That leaves VpnPermissionActivity - the transparent activity written for
+                        // exactly this tap - with no launcher at all. It is correct code and its
+                        // lighter flow suits a widget tap better than opening the whole app, so it
+                        // is left in place and recorded in PLAN.md as a decision: re-point the
+                        // notification at it, or delete it. Not silently orphaned.
+                        AppLogger.w(TAG, "🔐 VPN permission required - a receiver cannot open the dialog, notifying instead")
+                        firewallManager.reportVpnPermissionRequiredFromBackground()
                     } else {
                         AppLogger.d(TAG, "🚀 No VPN permission needed, starting firewall directly...")
                         val startResult = firewallManager.startFirewall(mode)

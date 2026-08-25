@@ -43,21 +43,29 @@ app's recovery runs on `BOOT_COMPLETED`, which on an encrypted device fires only
 unlocks**. A phone that reboots overnight has no app network until morning; a user who cannot unlock
 never recovers at all. The 120-second timer is the only backstop.
 
-**DECIDED 2026-08-25, not yet implemented — scenario 5 recovery:**
+**BUILT 2026-08-25 — scenario 5 recovery:**
 
-1. Add a **"Try to remove"** button to the greyed-out Boot Protection row. It re-probes root and
-   deletes the script if it gets it. This is the case worth fixing: "lost root" is usually "root not
-   granted right now" — Magisk not awake yet, or a single Deny — not root genuinely gone.
-2. **Rewrite `settings_boot_protection_stuck`.** It currently tells the user to run `su`, which is
-   precisely what they lost. When the retry fails it must say so plainly: root is really gone, and
-   nothing in the app can delete a file under `/data/adb`.
-3. **A successful removal reboots**, with a "Rebooting…" screen. Deleting the script does not clear
-   the chain already live in this boot's kernel. `resetIptablesPolicies()` could, but that would be a
-   second way to undo the same thing and it breaks the standing rule (reference decision 1). One
-   rule, no exception to remember.
+1. **"Try to remove" button** on the greyed-out Boot Protection row, visible only in scenario 5.
+   `BootProtectionManager.retryRemoveBootProtection()` re-asks Magisk for root and, if it comes
+   back, removes the script through the existing `deleteBootScript()` — so it keeps that function's
+   read-back check and its live-chain teardown rather than being a second removal path. A dedicated
+   `NoPrivilegeException` separates "root is really gone" from "the deletion went wrong".
+2. **`settings_boot_protection_stuck` rewritten** in all 7 locales. It no longer tells the user to
+   run `su`, which is precisely what they lost. `boot_protection_remove_no_root` says plainly, when
+   the retry fails, that root is genuinely gone and nothing in the app can delete a file under
+   `/data/adb`.
+3. **A successful removal restarts the device**, with a non-cancellable "Restarting…" screen. The
+   confirmation reuses the existing disable warning, which already says the device restarts
+   immediately — a second near-identical dialog is how two warnings drift apart.
 
-Touches `ui/settings/SettingsFragmentViews.kt:458-474`, `res/values/strings.xml:466` and
-`data/common/BootProtectionManager`.
+**NOT VERIFIED ON HARDWARE.** Staging scenario 5 needs boot protection installed *and* root revoked.
+The test device has root and no script, so the branch never renders there. Build, lint and the
+hidden-by-default state are verified; the removal, the failure message and the restart screen are
+code-review only.
+
+Not changed, on purpose: the normal enable/disable toggles still restart with no "Restarting…"
+screen. They are reached through a warning dialog the user has just read. Worth revisiting as one
+rule, but that would edit a settled decision (reference 1).
 
 ---
 
@@ -65,6 +73,12 @@ Touches `ui/settings/SettingsFragmentViews.kt:458-474`, `res/values/strings.xml:
 
 - **Scroll jump during a real backend failure on device.** Not the banner, not a state change.
   Suspect the work-profile package query failing while Shizuku is down. Needs a device repro.
+- **No `-w` on any iptables command.** `IptablesFirewallBackend` builds every command without the
+  xtables lock-wait flag — verified 2026-08-25 across all of `createCustomChains`,
+  `deleteCustomChains`, `blockApp`, `unblockApp` and the batch paths. The process-wide mutex added
+  on 2026-08-25 fixes contention *inside* De1984 only; another app or the system touching iptables
+  at the same moment still fails outright. **No such failure has been observed in any log**, so this
+  is recorded, not fixed — adding `-w` touches every command and should be backed by evidence.
 
 ---
 
@@ -105,17 +119,35 @@ broadcast to `FirewallToggleReceiver` for the OFF→ON direction — `FirewallWi
 `FirewallToggleReceiver:99`. The tile's ON→OFF direction is fine: it uses
 `startActivityAndCollapse(PendingIntent)`, which is the sanctioned path on Android 14.
 
-Options considered, none implemented:
+**FIXED 2026-08-25.** `FirewallToggleReceiver` now calls
+`FirewallManager.reportVpnPermissionRequiredFromBackground()`, which reports
+`Down(VPN_PERMISSION_REQUIRED)` and raises the existing VPN fallback notification. Tapping a
+notification is a gesture Android accepts, so the permission dialog is reachable again. It runs on
+every Android version, not only 14+: the direct launch still works below 14, but keeping both would
+be a second way to do one thing. The cost is one extra tap on older devices.
 
-1. **Post the notification instead of launching.** `FirewallManager.showVpnFallbackNotification()`
-   already exists and already opens `MainActivity` with `ACTION_ENABLE_VPN_FALLBACK`. A notification
-   tap is a user gesture, so it is allowed to start an activity. Reuses what is there; the cost is
-   one extra tap and it needs `POST_NOTIFICATIONS`.
-2. **Disable the widget when VPN permission is missing.** Rejected on inspection: the receiver only
-   learns that VPN permission is needed *after* `computeStartPlan`, which needs the privilege probes,
-   so the widget cannot know at draw time. It would also leave a dead control with no explanation.
-3. **Do nothing, document it.** The situation only arises when the VPN backend is the plan, which
-   means no root and no Shizuku.
+Rejected: disabling the widget when VPN permission is missing. The receiver only learns that
+permission is needed *after* `computeStartPlan`, which needs the privilege probes, so the widget
+cannot know at draw time — it would just be a dead control with no explanation.
+
+## STILL OPEN — `VpnPermissionActivity` now has no launcher
+
+The fix above routes through the notification, which opens `MainActivity` with
+`ACTION_ENABLE_VPN_FALLBACK`. That leaves `ui/VpnPermissionActivity` with **zero callers**: it is
+`exported="false"` and nothing starts it. Verified 2026-08-25.
+
+It is not broken code. It is a transparent, `noHistory`, `excludeFromRecents` activity written for
+exactly this tap, it honours `EXTRA_RESOLVED_MODE`, and it writes `KEY_FIREWALL_ENABLED` only on a
+successful start. Its flow suits a widget tap better than opening the whole app.
+
+Two ways out, needs a decision:
+
+1. **Re-point the notification at it** for the background case. Better UX, but
+   `showVpnFallbackNotification` is shared with the in-app banner's "Enable VPN" button, so it needs
+   either a parameter or a second notification.
+2. **Delete it** and its manifest entry, accepting that a widget tap opens the full app.
+
+Left in place rather than silently orphaned.
 
 ---
 
@@ -139,10 +171,17 @@ message says `com.android.externalstorage` has no access to a `content://media/.
 is inside the provider chain the picker chose, not in our grant. No permission we could hold changes
 it: a `.json` backup is not covered by `READ_MEDIA_*` on API 33+.
 
-What *is* fixable cheaply is the dead end. One new string plus one `catch` on the read failure could
-say "if you picked this from search results, open its folder and choose it there", which is the
-workaround that does work. Not done — it is a wording change, not a fix, and it should be decided
-as such.
+**FIXED 2026-08-25 — the dead end, not the cause.** `SettingsViewModel.readFromUri` now remaps a
+failure to OPEN the file into `error_backup_file_unreadable`: "Could not open that file. If you
+picked it from search results, open the folder it is in and choose it there instead." That is the
+workaround that actually works, and it is translated into all 7 locales.
+
+Only the open is remapped — a failure part-way through reading keeps its own message, because "try
+browsing instead" would be wrong advice for that. The original provider message and the URI
+authority still reach the log. Fixed in one place, so restore, the restore preview and the
+uninstalled-apps import all get it.
+
+The underlying picker behaviour is unchanged and cannot be changed from here.
 
 ---
 
@@ -210,6 +249,18 @@ Kept because the knowledge is load-bearing, not because there is work to do.
     and NetworkPolicyManager the rules outlive the backend that wrote them, so "apps are unblocked"
     is false there. Intent ON is deliberately not suppressed: that is the orphan-after-switch case,
     where losing the firewall IS the news. Implemented in `FirewallManager.reportFirewallDown`.
+
+    Refined the same day after audit: a **start attempt** is not suppressed either
+    (`afterStartAttempt = true` from `reportStartFailure`). That path only reaches the report after
+    proving `currentBackend.isActive()` is false and nulling the refs, so the app has already decided
+    nothing is enforcing; keeping "some apps may still be blocked" over that would contradict it.
+    Without this, tapping ON after a failed stop and having the start fail left a "stuck" banner over
+    a device where nothing was enforcing.
+
+    Known residual, not worth a redesign: `handleVpnConflict` and `handleVpnConflictFallbackFailed`
+    write `_firewallHealth` outside `startStopMutex`, so the read-then-write in the precedence check
+    is not atomic. Pre-existing pattern — `clearHealthWarningIfEnforcing` has always done the same —
+    and the window is microseconds against what used to be a permanent coin flip.
 11. **All three privileged backends now share a process-wide lock.** (2026-08-25) `iptables` and
     `NetworkPolicyManager` had per-instance mutexes, so `cleanupAllBackends()` could sweep while the
     privileged service was still inside `applyRules`. ConnectivityManager was moved to a companion

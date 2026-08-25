@@ -460,7 +460,10 @@
     <string name="settings_boot_protection_title">Proteção na Inicialização</string>
     <string name="settings_boot_protection_description">Bloquear todo o tráfego de rede durante a inicialização do dispositivo até o firewall ativar (requer root e Magisk)</string>
     <string name="settings_boot_protection_unavailable">Requer root e scripts de inicialização do Magisk</string>
-    <string name="settings_boot_protection_stuck">⚠️ A Proteção na Inicialização ainda está instalada, mas o De1984 perdeu o acesso root e não pode mais removê-la daqui. Ela bloqueará os apps por até 2 minutos após cada inicialização e depois se desativa sozinha. Para removê-la definitivamente:\nadb shell\nsu\nrm /data/adb/post-fs-data.d/de1984_boot_protection.sh</string>
+    <string name="settings_boot_protection_stuck">⚠️ A proteção de inicialização ainda está instalada e o De1984 perdeu o acesso root, portanto não pode removê-la. Cada inicialização bloqueia todos os aplicativos por até 2 minutos e depois o script se desativa sozinho. Tente removê-la abaixo — funciona se o root foi apenas negado, não perdido.</string>
+    <string name="settings_boot_protection_retry_remove">Tentar remover</string>
+    <string name="boot_protection_remove_no_root">Não foi possível remover. O De1984 ainda não tem acesso root, portanto não pode excluir um arquivo em /data/adb. Restaure o root e tente novamente. Até lá, cada inicialização bloqueia os aplicativos por até 2 minutos e depois se libera sozinha.</string>
+    <string name="boot_protection_rebooting">Proteção de inicialização removida. Reiniciando o telefone…</string>
 
     <string name="settings_new_app_notifications_title">Notificações de Novos Apps</string>
     <string name="settings_new_app_notifications_description">Mostrar notificações quando novos apps com permissões de rede são instalados</string>
@@ -766,6 +769,7 @@
     <string name="error_backup_failed">Backup falhou: %s</string>
     <string name="error_unsupported_backup_version">Versão de backup não suportada: %d</string>
     <string name="error_backup_no_rules">Arquivo de backup não contém regras</string>
+    <string name="error_backup_file_unreadable">Não foi possível abrir esse arquivo. Se você o escolheu nos resultados da pesquisa, abra a pasta onde ele está e selecione-o de lá.</string>
     <string name="error_invalid_backup_format">Formato de arquivo de backup inválido</string>
     <string name="error_restore_failed">Restauração falhou: %s</string>
 

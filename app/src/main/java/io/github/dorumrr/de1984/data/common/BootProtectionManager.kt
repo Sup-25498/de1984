@@ -269,6 +269,53 @@ link_if_sane ip6tables
         }
     }
 
+    /**
+     * Last-resort removal for the case where the Boot Protection switch is greyed out.
+     *
+     * Lockout scenario 5: boot protection was enabled while the device had root, and root was lost
+     * afterwards - Magisk removed, a denied prompt, an OTA, a ROM change. The script is still under
+     * /data/adb, which is root-only, so the app can neither read nor delete it. Every boot then
+     * blocks all apps until the script's own 120-second timer lifts it.
+     *
+     * The help text used to tell the user to run `su`, which is precisely what they lost. This is
+     * the button that replaces that advice, and it is worth having because "lost root" is usually
+     * "root not granted right now" - Magisk not awake yet, or a single Deny - rather than root
+     * genuinely gone.
+     *
+     * The privilege wake is the same one [clearBootBlockIfInstalled] does, for the same reason:
+     * hasRootPermission is a cached answer, and asking Magisk again is what turns a stale false into
+     * a working su. Removal itself goes through [deleteBootScript], so it keeps that function's
+     * read-back check and its live-chain teardown rather than becoming a second way to do the same
+     * thing.
+     *
+     * @return failure carrying [NoPrivilegeException] when root is genuinely gone - the caller needs
+     *   to tell the user that plainly instead of blaming the deletion.
+     */
+    suspend fun retryRemoveBootProtection(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            AppLogger.d(TAG, "Retrying boot protection removal after a privilege loss")
+
+            if (!hasBootProtectionPrivilege()) {
+                AppLogger.d(TAG, "No privilege - asking for root again before giving up")
+                rootManager.forceRecheckRootStatus()
+            }
+
+            if (!hasBootProtectionPrivilege()) {
+                AppLogger.w(TAG, "Still no privileged access - the script cannot be removed from here")
+                return@withContext Result.failure(NoPrivilegeException())
+            }
+
+            AppLogger.d(TAG, "Privilege recovered - removing the boot script")
+            deleteBootScript()
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Retry removal of boot protection failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Root is genuinely unavailable, as opposed to the removal itself going wrong. */
+    class NoPrivilegeException : Exception("No root or Shizuku root access")
+
     private suspend fun deleteBootScript(): Result<Unit> {
         AppLogger.d(TAG, "Deleting boot protection script...")
 
