@@ -495,24 +495,6 @@ class FirewallManager(
                 return Result.failure(error)
             }
 
-            AppLogger.d(TAG, "Applying rules to new backend ($newBackendType)...")
-            applyRulesToBackend(newBackend).getOrElse { error ->
-                AppLogger.e(TAG, "Failed to apply rules to new backend: ${error.message}")
-                newBackend.stop()
-                if (oldBackend != null && oldBackend.isActive()) {
-                    AppLogger.w(TAG, "Keeping old backend ($oldBackendType) running since new backend failed to apply rules")
-                    _firewallState.value = FirewallState.Running(oldBackend.getType())
-                    emitStateChangeBroadcast(_firewallState.value)
-                } else {
-                    reportStartFailure(
-                        reason = FirewallHealth.Down.Reason.START_FAILED,
-                        backend = oldBackendType,
-                        stateMessage = "Failed to apply rules to new backend: ${error.message}"
-                    )
-                }
-                return Result.failure(error)
-            }
-
             kotlinx.coroutines.delay(500)
 
             if (!newBackend.isActive()) {
@@ -530,6 +512,40 @@ class FirewallManager(
                     )
                 }
                 return Result.failure(Exception("New backend failed to become active"))
+            }
+
+            // Rules go on only AFTER the backend has proven it is up.
+            //
+            // This used to run before the delay and the isActive() check above, and for the
+            // privileged backends `start()` is fire-and-forget - it posts an intent to
+            // PrivilegedFirewallService and returns. So the rules were written while the service was
+            // still starting. Caught on hardware 2026-08-25 with iptables under root:
+            //
+            //   53.494  iptables -A de1984_output --uid-owner 10272 -j DROP   <- rules
+            //   53.770  iptables -N de1984_output                             <- chain created, after
+            //
+            // The -A commands failed against a chain that did not exist yet, then an EMPTY chain was
+            // created and linked into OUTPUT. The firewall reported success while blocking nothing.
+            //
+            // It went unnoticed because PrivilegedFirewallService used to re-apply on its own first
+            // emission, silently repairing the race a moment later. That second pass was removed as
+            // a duplicate, which turned a latent ordering bug into a real one.
+            AppLogger.d(TAG, "Applying rules to new backend ($newBackendType)...")
+            applyRulesToBackend(newBackend).getOrElse { error ->
+                AppLogger.e(TAG, "Failed to apply rules to new backend: ${error.message}")
+                newBackend.stop()
+                if (oldBackend != null && oldBackend.isActive()) {
+                    AppLogger.w(TAG, "Keeping old backend ($oldBackendType) running since new backend failed to apply rules")
+                    _firewallState.value = FirewallState.Running(oldBackend.getType())
+                    emitStateChangeBroadcast(_firewallState.value)
+                } else {
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.START_FAILED,
+                        backend = oldBackendType,
+                        stateMessage = "Failed to apply rules to new backend: ${error.message}"
+                    )
+                }
+                return Result.failure(error)
             }
 
             AppLogger.d(TAG, "New backend ($newBackendType) is active, now stopping old backend ($oldBackendType)...")

@@ -76,6 +76,56 @@ actually sees it is unproven, and it may be too brief to serve its purpose.
 
 ---
 
+# Verified on hardware 2026-08-25 — root without Shizuku
+
+Run with De1984's Magisk policy set to allow and its Shizuku authorisation revoked.
+
+**Found and fixed: rules were written before the chain existed.** `startFirewallInternal` applied
+rules immediately after `newBackend.start()`, but for the privileged backends `start()` is
+fire-and-forget — it posts an intent to `PrivilegedFirewallService` and returns. Measured:
+
+```
+53.494  iptables -A de1984_output --uid-owner 10272 -j DROP    <- rules
+53.770  iptables -N de1984_output                              <- chain created, 276ms LATER
+53.783  iptables -C OUTPUT -j de1984_output ...                <- linked
+```
+
+The `-A` commands failed against a chain that did not exist, an EMPTY chain was then created and
+linked into OUTPUT, and **the firewall reported success while blocking nothing**. Confirmed by
+reading the live kernel: `Chain de1984_output (1 references)` with no rules in it.
+
+The ordering bug pre-dated the change, but `PrivilegedFirewallService` used to re-apply on its own
+first emission and silently repaired it a moment later. Removing that pass as a duplicate (settled
+decision 18) turned a latent race into a real failure — **on the one backend that had never been
+exercised**.
+
+**Fix:** rules are now applied only *after* `delay(500)` and the `isActive()` liveness check, which is
+the correct order regardless. Verified in the kernel afterwards:
+
+```
+16.245  iptables -N de1984_output          <- chain first
+17.196  iptables -A ... uid-owner 10272 -j DROP
+
+Chain de1984_output (1 references)
+  DROP  all  --  owner UID match 10272
+  DROP  all  --  owner UID match 10212
+```
+
+Both `iptables` and `ip6tables` populated. 0 crashes.
+
+**Also confirmed, not a bug:** `NetworkPolicyManager` genuinely requires Shizuku and cannot run on
+root alone — `getNetworkPolicyManager()` obtains its binder through
+`shizukuManager.getSystemServiceBinder()`, and root grants a shell, not elevated binder permissions.
+So on a rooted device with no Shizuku, a **manual** NetworkPolicyManager mode leaves the firewall down
+with no fallback, by design. The banner says so and offers "Choose backend". AUTO correctly selects
+iptables.
+
+**Observed, not investigated:** at startup a VPN start was already in flight from before root was
+detected; it timed out after 10s, flashed `FIREWALL DOWN`, and AUTO then succeeded on iptables. Self-
+correcting, pre-existing, costs a spurious warning and a 10-second delay.
+
+---
+
 # Known and accepted — not actionable
 
 Kept because the knowledge is load-bearing, not because there is work to do.
