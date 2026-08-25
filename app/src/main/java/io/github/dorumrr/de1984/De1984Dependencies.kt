@@ -290,24 +290,8 @@ class De1984Dependencies(private val context: Context) {
         return ManagePackageUseCase(packageRepository)
     }
 
-    fun provideAllowAllAppsUseCase(): AllowAllAppsUseCase {
-        return AllowAllAppsUseCase(firewallRepository)
-    }
-
-    fun provideBlockAllAppsUseCase(): BlockAllAppsUseCase {
-        return BlockAllAppsUseCase(firewallRepository)
-    }
-
     fun provideSmartPolicySwitchUseCase(): SmartPolicySwitchUseCase {
         return SmartPolicySwitchUseCase(firewallRepository, context)
-    }
-
-    fun provideGetBlockedCountUseCase(): GetBlockedCountUseCase {
-        return GetBlockedCountUseCase(firewallRepository)
-    }
-
-    fun provideGetFirewallRuleByPackageUseCase(): GetFirewallRuleByPackageUseCase {
-        return GetFirewallRuleByPackageUseCase(firewallRepository)
     }
 
     fun provideGetFirewallRulesUseCase(): GetFirewallRulesUseCase {

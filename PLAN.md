@@ -70,30 +70,6 @@ why they were built that way. Making it one rule for all three would edit settle
 
 # 3. Performance and architecture
 
-- **The duplicate apply.** `NEEDS-RUNTIME` to change safely. Traced precisely on hardware
-  2026-08-25, and the earlier note was only half right:
-
-  1. `FirewallManager.applyRulesToBackend(newBackend)` runs on **FirewallManager's own** instance
-     during `startFirewallInternal`.
-  2. `PrivilegedFirewallService` applies on **its** instance, triggered by `startMonitoring()`
-     collecting the Room rules Flow and the network/screen monitors — both emit immediately.
-
-  Measured: pass 1 ~1.0s, pass 2 ~235-466ms, both writing the identical policies. The `initial`
-  schedule that used to make it look like three was dead and has been removed (settled decision 15).
-
-  **Why it has not been removed.** FirewallManager's pass is what makes a failed apply fail the
-  start: `startFirewallInternal` returns `START_FAILED` if it throws. The service's pass is
-  fire-and-forget and never reaches the start result. Dropping FirewallManager's pass would let a
-  start report success over rules that were never written — the exact class of bug the health work
-  has been removing. Dropping the service's is not possible either: its monitors emit on collect,
-  which is them doing their job.
-
-  **The real fix** is the ownership change: the service becomes the single backend owner, and the
-  start path awaits its first apply result over the callback channel that already exists
-  (`handleStopFailureFromService`, `handleBackendFailureFromService`). That needs a timeout policy on
-  the start path, where both "treat a timeout as success" and "as failure" are wrong some of the
-  time. It should be a focused session, and the ConnectivityManager half cannot be verified on the
-  test device at all.
 - **Every rule change re-enumerates all 466 packages.** Recorded 2026-08-22, not fixed.
 - **`clearInstalledAppsCache()` on the UI path defeats the firewall's cache.** Dropping it would let
   the cache survive, but **work-profile package events reach neither receiver**, so the UI's clear is
@@ -249,6 +225,72 @@ Kept because the knowledge is load-bearing, not because there is work to do.
     silently. The keystore password goes to `keytool` over stdin instead of argv, where `ps` could
     read it. `APP_VERSION` is validated and the script exits loudly if it cannot be parsed, rather
     than building paths from a wrong string.
+
+    Fixed on audit the same day: the opt-in wipe used `"${wipe_args[@]}"` on an array that is EMPTY
+    by default. macOS ships bash 3.2, where expanding an empty array under `set -u` aborts with
+    "unbound variable" — so `./dev.sh emulator` would have failed outright on the common path. Now
+    `${wipe_args[@]+"${wipe_args[@]}"}`, proven under 3.2.57 in both the empty and non-empty case.
+18. **One rule-apply pass per start, not two.** (2026-08-25) `FirewallManager` applied on its own
+    backend instance during the start, and `PrivilegedFirewallService` applied again on its own
+    instance moments later - measured on hardware at ~1.0s and ~235-466ms writing identical
+    policies. The service's pass came from `startMonitoring()` collecting the rules Flow and the
+    state monitors: their FIRST emission is the current value, not a change, and FirewallManager had
+    already written exactly those rules.
+
+    So the service now records that first emission and does not act on it. The state fields are
+    still written from it - skipping them would leave `currentNetworkType` at `NetworkType.NONE`,
+    and `isBlockedOn(NONE)` blocks, which is the trap the removed "initial" schedule fell into.
+
+    FirewallManager's pass was kept rather than the service's because it is the only one that can
+    fail the start: `startFirewallInternal` returns `START_FAILED` if it throws, while the service's
+    is fire-and-forget and never reaches the start result.
+
+    Two things had to be fixed for this to be safe:
+
+    - The **same-backend restart** branch of `startFirewallInternal` did not apply rules at all; it
+      leaned on the service's startup pass. It now applies like every other start path, so the
+      invariant the service depends on - FirewallManager has always applied by the time the service
+      finishes starting - is true everywhere.
+    - The rules-Flow collector was launched into `serviceScope` **untracked**, so `stopFirewall()`
+      never cancelled it and every backend switch left another one alive. They collapsed onto one
+      debounced apply so nothing visibly broke, but each leaked collector woke on every rule change
+      for the life of the service. It now has its own Job, is cancelled with the others, and
+      `startMonitoring()` cancels its own previous collectors so it cannot double up.
+
+    Fixed on audit the same day: the new same-backend apply did not stop the backend when it
+    failed, unlike the switch path above it. With the service no longer applying at startup, that
+    left a live backend enforcing nothing for the session, and nothing would have written the rules
+    until an unrelated change came along. It now calls `oldBackend.stop()` first, matching the
+    established pattern - there is no old backend to fall back to on that path, old and new are the
+    same one.
+
+    Verified on hardware: a stop+start produced **1** completed pass, down from 2, with both
+    collectors logging the skip; a real rule change (Aurora Store allow, then block) still applied
+    exactly once and took effect - `policy=RESTORED` then `policy=BLOCK (REJECT_ALL)`. 0 crashes.
+    Only the NetworkPolicyManager backend was exercised; the change itself lives in the shared
+    service, not in any backend.
+
+17. **The dead-code sweep is done.** (2026-08-25) Removed: 4 use cases wired in DI with zero
+    callers, `wouldBackendChange`, `dismissVpnConflictNotification`, `showLicenses()`, the four
+    write-only settings (auto-refresh, show system apps, dark theme, refresh interval — setters,
+    state fields and preference reads, none of which any UI touched), the entire unused second
+    navigation stack, and 143 unused resources: 106 strings across all 7 locales, 17 colours,
+    4 colour state lists, 14 drawables and 2 layouts.
+
+    Every entry was verified independently of lint, not just taken from its report. That caught two
+    things in both directions. **Kept on purpose:** the 6 `dimen`s lint calls unused are OUR
+    overrides of Material Components values — the library resolves them by name at runtime, so
+    deleting them would have changed the bottom navigation. And `mipmap/ic_launcher_round` is a
+    product call, not dead code: the manifest declares no `android:roundIcon`, so nothing uses it
+    today, but adding one is a decision rather than a cleanup. **Deleted despite my own check
+    saying otherwise:** `R.string.ok` and `R.string.cancel` — my grep matched
+    `android.R.string.ok`, the framework's, not ours.
+
+    Safe because nothing in this app resolves a resource by name at runtime: the only
+    `getIdentifier` calls are `UserHandle.getIdentifier()`. Every reference is compile-checked, so
+    the build linking cleanly is proof. Verified on hardware: all three tabs walked, 0 crashes,
+    0 `NotFoundException`.
+
 16. **`PrivilegedFirewallService` no longer schedules an "initial" rule application.** (2026-08-25)
     It never ran: `startMonitoring()` collects the Room rules Flow and the state monitors, all of
     which emit immediately and cancel the pending job inside its 300ms debounce — timed on hardware
@@ -290,21 +332,6 @@ audit had all shifted, so each was verified by pattern, not by line.
 | P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
 
 # The rest of the 2026-08-22 catalogue — NOT re-verified
-
-## Built but unreachable
-
-- Global `BlockAllAppsUseCase` / `AllowAllAppsUseCase` / `GetBlockedCountUseCase` /
-  `GetFirewallRuleByPackageUseCase`: wired in DI, **zero UI callers**.
-- The dead global bulk excludes the **soft** `SYSTEM_RECOMMENDED_ALLOW` tier but **not** the
-  untouchable `SYSTEM_WHITELIST` — the two-tier model inverted. Wiring it up would block SystemUI.
-- "Threats" filter + badge translated into all 7 languages, no Kotlin behind it.
-- Four settings read at startup, never written by any UI: auto-refresh, show system apps, dark theme,
-  refresh interval.
-- "Open source licenses" returns a "coming soon" message from a function nothing calls.
-- Entire second navigation stack unused: `activity_main.xml`, `nav_graph.xml`, `drawer_menu.xml`,
-  `popup_menu.xml`, `activity_test_views.xml`.
-- ~90 unreferenced translated strings, 11 unreferenced drawables.
-- `wouldBackendChange`, `dismissVpnConflictNotification` — zero callers.
 
 ## Cross-cutting rules that can drift apart
 

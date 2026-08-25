@@ -1,7 +1,6 @@
 <resources>
     <!-- App Identity -->
     <string name="app_name" translatable="false">De1984</string>
-    <string name="app_tagline">Privacy isn’t default. Take it back with De1984 Firewall and Package Control.</string>
 
     <!-- Donate Button -->
     <string name="donate_button">Donate</string>
@@ -10,21 +9,12 @@
     <string name="nav_firewall">Firewall</string>
     <string name="nav_packages">Packages</string>
     <string name="nav_settings">Settings</string>
-    <string name="nav_drawer_open">Open navigation drawer</string>
-    <string name="nav_drawer_close">Close navigation drawer</string>
 
     <!-- Navigation Labels -->
-    <string name="label_firewall">Firewall</string>
-    <string name="label_packages">Packages</string>
-    <string name="label_settings">Settings</string>
 
     <!-- Toolbar Titles -->
-    <string name="title_firewall">De1984 FIREWALL</string>
-    <string name="title_packages">De1984 PACKAGES</string>
-    <string name="title_settings">De1984 SETTINGS</string>
 
     <!-- Firewall Toggle Button -->
-    <string name="firewall_button_on">ON</string>
     <string name="firewall_button_off">OFF</string>
     <string name="firewall_status_active">ACTIVE</string>
 
@@ -46,12 +36,7 @@
     <string name="dialog_firewall_stop_message">⚠️ Stopping the firewall will allow all apps to access the internet.\n\nYour privacy protection will be disabled until you turn the firewall back on.</string>
     <string name="dialog_firewall_stop_confirm">Stop Firewall</string>
 
-    <string name="dialog_policy_change_title">Change Default Policy?</string>
-    <string name="dialog_policy_change_confirm">Change Policy</string>
-    <string name="dialog_policy_change_cancel">Cancel</string>
 
-    <string name="dialog_vpn_warning_title">WARNING: A VPN is currently active!</string>
-    <string name="dialog_vpn_warning_message">Please allow your VPN app in the firewall to avoid connectivity issues.</string>
 
     <!-- Quick Toggle Dialogs -->
     <string name="dialog_quick_toggle_block_title">Block %1$s?</string>
@@ -72,17 +57,14 @@
     <string name="snackbar_internet_allowed">Internet allowed for %s</string>
     <string name="snackbar_undo">Undo</string>
 
-    <string name="firewall_system_package_warning">⚠️ System Package Warning</string>
 
     <!-- Package Management -->
-    <string name="packages_title">Package Management</string>
     <string name="packages_search_hint">Search packages…</string>
     <string name="packages_filter_all">All</string>
     <string name="packages_filter_system">System</string>
     <string name="packages_filter_user">User</string>
     <string name="packages_filter_enabled">Enabled</string>
     <string name="packages_filter_disabled">Disabled</string>
-    <string name="packages_filter_threats">Threats</string>
     <string name="packages_empty_state_no_uninstalled">No uninstalled system apps</string>
 
     <!-- Profile Filters (Multi-user/Work Profile Support) -->
@@ -94,15 +76,10 @@
     <string name="badge_clone_profile">Clone</string>
 
     <!-- Package Status -->
-    <string name="status_enabled">Enabled</string>
-    <string name="status_disabled">Disabled</string>
     <string name="status_uninstalled">Uninstalled</string>
     <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
     <string name="packages_status_enabled">Enabled</string>
     <string name="packages_status_disabled">Disabled</string>
-    <string name="status_system">System</string>
-    <string name="status_user">User</string>
-    <string name="status_threat">Threat</string>
 
     <!-- Package Actions -->
     <string name="action_enable">Enable</string>
@@ -177,36 +154,17 @@
     <string name="permission_button_grant_vpn">Grant VPN Permission</string>
 
     <!-- Multi-Select Package Operations -->
-    <string name="multiselect_toast_cannot_select_critical">Important/Essential packages must be uninstalled individually</string>
-    <string name="multiselect_toast_selection_limit">Maximum 50 packages can be selected at once</string>
     <string name="multiselect_toast_not_available_disabled">Multi-select not available for disabled packages</string>
     <string name="multiselect_toast_not_available_uninstalled">Multi-select not available for uninstalled packages</string>
     <string name="multiselect_toolbar_title_format">%d selected</string>
     <string name="multiselect_toolbar_button_uninstall">Uninstall</string>
     <string name="multiselect_toolbar_button_reinstall">Reinstall</string>
-    <string name="multiselect_toolbar_button_clear">Clear</string>
 
-    <string name="multiselect_dialog_title_uninstall">Uninstall %d Selected Apps?</string>
-    <string name="multiselect_dialog_message_cannot_undo">This action cannot be undone.</string>
-    <string name="multiselect_dialog_button_uninstall_all">Uninstall All</string>
-    <string name="multiselect_dialog_button_cancel">Cancel</string>
 
-    <string name="multiselect_dialog_title_results">Uninstall Results</string>
-    <string name="multiselect_dialog_message_success_format">✓ Successfully uninstalled: %d</string>
-    <string name="multiselect_dialog_message_failed_format">✗ Failed to uninstall: %d</string>
-    <string name="multiselect_dialog_button_ok">OK</string>
 
-    <string name="multiselect_progress_dialog_title">Uninstalling Packages</string>
-    <string name="multiselect_progress_message_format">Uninstalling %1$d of %2$d…</string>
 
-    <string name="multiselect_dialog_title_reinstall_results">Reinstall Results</string>
-    <string name="multiselect_dialog_message_reinstall_success_format">✓ Successfully reinstalled: %d</string>
-    <string name="multiselect_dialog_message_reinstall_failed_format">✗ Failed to reinstall: %d</string>
 
-    <string name="multiselect_progress_dialog_title_reinstall">Reinstalling Packages</string>
-    <string name="multiselect_progress_message_format_reinstall">Reinstalling %1$d of %2$d…</string>
 
-    <string name="multiselect_checkbox_content_description">Select package</string>
     <string name="multiselect_toast_limit_reached">Maximum %d packages can be selected at once</string>
 
     <!-- Firewall Multi-Select -->
@@ -214,9 +172,6 @@
     <string name="firewall_multiselect_toolbar_button_block">Block</string>
     <string name="firewall_multiselect_toolbar_button_allow">Allow</string>
     <string name="firewall_multiselect_toolbar_button_rules">Change Rules</string>
-    <string name="firewall_multiselect_dialog_title_block">Block %d Selected Apps?</string>
-    <string name="firewall_multiselect_dialog_title_allow">Allow %d Selected Apps?</string>
-    <string name="firewall_multiselect_dialog_message">This will change network access for %d apps.</string>
     <string name="firewall_multiselect_dialog_title_results">Firewall Results</string>
     <string name="firewall_multiselect_dialog_message_success_format">✓ Successfully %2$s: %1$d apps</string>
     <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d succeeded, ✗ %2$d failed to %3$s</string>
@@ -230,32 +185,11 @@
     <string name="firewall_multiselect_sheet_block_all">Block All Networks</string>
 
     <!-- Theme -->
-    <string name="theme_light">Light Theme</string>
-    <string name="theme_dark">Dark Theme</string>
-    <string name="theme_toggle">Toggle Theme</string>
 
     <!-- Common -->
-    <string name="search">Search</string>
-    <string name="filter">Filter</string>
-    <string name="cancel">Cancel</string>
-    <string name="ok">OK</string>
-    <string name="yes">Yes</string>
-    <string name="no">No</string>
-    <string name="loading">Loading…</string>
-    <string name="error">Error</string>
-    <string name="retry">Retry</string>
-    <string name="success">Success</string>
-    <string name="later">Later</string>
-    <string name="dismiss">Dismiss</string>
-    <string name="grant">Grant</string>
 
     <!-- Content Descriptions -->
     <string name="cd_app_icon">App icon</string>
-    <string name="cd_theme_toggle">Theme toggle button</string>
-    <string name="cd_search_icon">Search icon</string>
-    <string name="cd_filter_icon">Filter icon</string>
-    <string name="cd_status_indicator">Status indicator</string>
-    <string name="cd_navigation_icon">Navigation icon</string>
     <string name="cd_wifi_status">WiFi status</string>
     <string name="cd_wifi_blocked">WiFi blocked</string>
     <string name="cd_mobile_data_status">Mobile data status</string>
@@ -290,15 +224,11 @@
     </plurals>
 
     <!-- Root Access -->
-    <string name="root_status_granted">Root Access: Granted</string>
     <string name="root_status_denied">Root Access: Denied</string>
     <string name="root_status_not_available">Root Access: Not Available</string>
-    <string name="root_status_checking">Root Access: Checking…</string>
 
-    <string name="root_desc_granted">Advanced operations are available</string>
     <string name="root_desc_denied">Root permission was denied. Follow the instructions below to grant access.</string>
     <string name="root_desc_not_available">Your device is not rooted. Root access is required for advanced package management operations.</string>
-    <string name="root_desc_checking">Please wait…</string>
 
     <string name="root_grant_instructions_title">To grant root access:</string>
     <string name="root_grant_instructions_body">• Reinstall the app to trigger the permission dialog again\n• Or manually add De1984 to your superuser app (Magisk, KernelSU, etc.)</string>
@@ -306,36 +236,20 @@
     <string name="root_rooting_tools_title"><![CDATA[<b>Recommended rooting tools:</b>]]></string>
     <string name="root_rooting_tools_body">• Magisk - Most popular and widely supported root solution. Works on Android 5.0+ and supports modules for additional features.\n• KernelSU - Modern kernel-based root management. Provides better security isolation and doesn\'t modify system partition.\n• APatch - Newer alternative with kernel patching approach. Good for devices with strict security policies.</string>
 
-    <string name="root_setup_instructions">To enable package disable/enable functionality:\n\n1. Root your device using your preferred method\n2. Grant superuser access to De1984 when prompted\n3. Restart the app to use advanced operations</string>
 
     <!-- Shizuku Access -->
-    <string name="shizuku_status_granted">Shizuku: Granted</string>
     <string name="shizuku_status_denied">Shizuku: Denied</string>
-    <string name="shizuku_status_not_available">Shizuku: Not Installed</string>
     <string name="shizuku_status_not_running">Shizuku: Not Running</string>
-    <string name="shizuku_status_checking">Shizuku: Checking…</string>
 
-    <string name="shizuku_desc_granted">Advanced operations are available via Shizuku</string>
     <string name="shizuku_desc_denied">Shizuku permission was denied. Tap \'Grant Shizuku Permission\' to try again.</string>
-    <string name="shizuku_desc_not_available">Shizuku is not installed. Install Shizuku to enable package management without root.</string>
     <string name="shizuku_desc_not_running">Shizuku is installed but not running. Start Shizuku to enable package management.</string>
-    <string name="shizuku_desc_checking">Please wait…</string>
 
-    <string name="shizuku_instructions_not_running">Start Shizuku app to enable package management</string>
 
-    <string name="shizuku_what_is">Shizuku allows apps to use system APIs with elevated privileges (ADB or root). It\'s a safer alternative to traditional root access for package management.</string>
 
     <!-- Privileged Access Banner -->
-    <string name="banner_no_access_available">No privileged access available. Install Shizuku or root your device to enable package management.</string>
-    <string name="banner_shizuku_not_running">Shizuku is installed but not running. Start Shizuku or root your device to enable package management.</string>
-    <string name="banner_permission_required">Shizuku or root access required for package management</string>
 
-    <string name="banner_button_go_to_settings">Go to Settings</string>
-    <string name="banner_button_grant">Grant</string>
-    <string name="banner_button_dismiss">Dismiss</string>
 
     <!-- Backend Monitoring -->
-    <string name="backend_monitoring_channel_name">Backend Monitoring</string>
 
     <string name="backend_notification_title_waiting">De1984 Firewall Active (VPN Mode)</string>
     <string name="backend_notification_title_switching">De1984 is switching backend…</string>
@@ -361,7 +275,6 @@
     <string name="backend_toast_failed">De1984 Firewall failed to switch backend</string>
 
     <!-- VPN Fallback -->
-    <string name="vpn_fallback_channel_name">VPN Fallback</string>
 
     <string name="vpn_fallback_notification_title">De1984 Firewall Down</string>
     <string name="vpn_fallback_notification_text">Privileged backend failed. Tap to enable VPN fallback and restore firewall protection.</string>
@@ -404,14 +317,7 @@
     <string name="vpn_conflict_notification_text">Another VPN is active. De1984 needs VPN permission to restore firewall protection. This will replace your current VPN connection. Tap to grant permission.</string>
     <string name="vpn_conflict_notification_action_text">Replace VPN &amp; Enable Firewall</string>
 
-    <string name="vpn_fallback_tier_title">VPN Fallback</string>
-    <string name="vpn_fallback_tier_description">Allows automatic fallback to VPN when privileged backends (iptables/ConnectivityManager) fail. Ensures firewall stays active.</string>
-    <string name="vpn_fallback_tier_status_granted">Completed</string>
-    <string name="vpn_fallback_tier_status_not_granted">Permission Required</string>
-    <string name="vpn_fallback_tier_button_text">Grant VPN Permission</string>
 
-    <string name="vpn_fallback_permission_name">VPN Permission</string>
-    <string name="vpn_fallback_permission_description">Create VPN connection for firewall fallback</string>
 
     <!-- Language Switcher -->
     <string name="language_title">App Language</string>
@@ -438,7 +344,6 @@
 
     <string name="settings_backend_title">Firewall Backend</string>
     <string name="settings_backend_description">Select which backend to use for blocking apps</string>
-    <string name="settings_backend_current">Current: %s</string>
     <string name="settings_backend_active">Active: %s</string>
     <string name="settings_backend_not_running">Firewall not running.</string>
     <string name="settings_backend_loading">Loading...</string>
@@ -450,7 +355,6 @@
     <string name="backend_vpn_description">Always use VPN backend</string>
     <string name="backend_connectivity_manager_name">ConnectivityManager</string>
     <string name="backend_connectivity_manager_description">System-level blocking (requires Shizuku + Android 13+)</string>
-    <string name="backend_connectivity_manager_requirement">Requires Shizuku + Android 13+</string>
     <string name="backend_requires_android_13">Requires Android 13+</string>
     <string name="backend_requires_shizuku">Requires Shizuku</string>
     <string name="backend_iptables_name">iptables</string>
@@ -513,7 +417,6 @@
     <string name="dialog_import_preview_message">Found %1$d packages to uninstall:\n\n%2$s\n\n⚠️ This will uninstall all listed apps.</string>
     <string name="dialog_import_warning_title">Some Packages Not Found</string>
     <string name="dialog_import_warning_message">%1$d of %2$d packages found.\n\nFound:\n%3$s\n\nNot found:\n%4$s\n\nContinue with found packages?</string>
-    <string name="dialog_import_failed_title">Import Failed</string>
     <string name="dialog_import_all_not_found">❌ None of the %d packages in the file are currently installed</string>
     <string name="dialog_import_protected_section">🛡️ Skipped as protected (essential or required by De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ The file is empty or contains no valid package names</string>
@@ -604,7 +507,6 @@
     <string name="dialog_vpn_permission_error_message">Failed to request VPN permission: %s</string>
 
     <!-- Licenses (unused but kept for future) -->
-    <string name="licenses_coming_soon">Open source licenses screen coming soon</string>
 
     <!-- Packages Screen -->
     <string name="packages_empty_state_title">No packages found</string>
@@ -624,7 +526,6 @@
     <string name="firewall_network_label_background_access">Allow in Background</string>
     <string name="firewall_network_label_internet_access">Internet Access</string>
     <string name="firewall_internet_access_subtitle">WiFi, Mobile, Roaming</string>
-    <string name="firewall_background_access_description">Let app access internet when in background</string>
     <string name="firewall_connectivity_manager_info">Your device uses a system-level firewall that doesn\'t support per-network blocking. For granular control, root access is required.</string>
     <string name="firewall_system_critical_info">⚠️ System Critical Package - Network access cannot be modified to prevent system instability.</string>
     <string name="firewall_vpn_app_info">🔒 VPN App - Always allowed to prevent VPN reconnection issues after device lock/unlock.</string>
@@ -759,7 +660,6 @@
     <string name="privileged_access_banner_permission_required">Shizuku or root access required for package management</string>
     <string name="privileged_access_banner_button_settings">Go to Settings</string>
     <string name="privileged_access_banner_button_grant">Grant</string>
-    <string name="privileged_access_banner_button_dismiss">Dismiss</string>
     <string name="privileged_access_dialog_title">Privileged Access</string>
     <string name="privileged_access_tier_title">Package Management</string>
     <string name="privileged_access_status_setup_required">Setup Required</string>
@@ -821,8 +721,6 @@
     <string name="boot_protection_disable_warning_title">Disable Boot Protection?</string>
     <string name="boot_protection_disable_warning_message">⚠️ Your device will restart immediately when you continue.\n\nNetwork traffic will no longer be blocked during boot. Apps may leak data before firewall starts.</string>
     <string name="boot_protection_reboot_failed">Boot protection was changed, but the device could not be restarted automatically. Please restart your device manually.</string>
-    <string name="boot_protection_enabled_success">Boot protection enabled successfully</string>
-    <string name="boot_protection_disabled_success">Boot protection disabled successfully</string>
     <string name="boot_protection_enable_failed">Failed to enable boot protection: %s</string>
     <string name="boot_protection_disable_failed">Failed to disable boot protection: %s</string>
 
@@ -852,11 +750,8 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
-    <string name="tile_label_de1984_on">De1984 ON</string>
-    <string name="tile_label_de1984_off">De1984 OFF</string>
     <string name="tile_label_firewall_on">Firewall ON</string>
     <string name="tile_label_firewall_off">Firewall OFF</string>
-    <string name="tile_label_firewall_starting">Starting…</string>
     <string name="tile_label_firewall_loading">Firewall starting</string>
     <string name="tile_label_firewall_error">Error</string>
     <string name="tile_subtitle_active">Active</string>
@@ -871,6 +766,5 @@
     <string name="widget_description">Quick toggle for De1984 Firewall</string>
 
     <!-- Notification Actions -->
-    <string name="notification_action_stop_firewall">TURN OFF</string>
 
 </resources>

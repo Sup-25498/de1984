@@ -427,6 +427,33 @@ class FirewallManager(
                     }
                 }
 
+                // Apply here too. Every OTHER start path writes the rules through
+                // applyRulesToBackend; this one used to lean on PrivilegedFirewallService applying
+                // by itself at startup - which is exactly the duplicate pass being removed. Without
+                // this line, restarting onto the same backend would leave the rules unwritten.
+                //
+                // It also makes the invariant the service now depends on true everywhere:
+                // FirewallManager has always applied by the time the service finishes starting.
+                applyRulesToBackend(oldBackend).getOrElse { error ->
+                    AppLogger.e(TAG, "Failed to apply rules on same-backend restart: ${error.message}")
+
+                    // Stop the backend, the same as the switch path above does when its apply
+                    // fails. Leaving it running would be the worst of both worlds now that
+                    // PrivilegedFirewallService no longer applies on its own at startup: a live
+                    // backend enforcing nothing this session, with the service having already
+                    // skipped its first emission, so nothing would write the rules until the next
+                    // unrelated change. There is no old backend to fall back to here - old and new
+                    // are the same one.
+                    oldBackend.stop()
+
+                    reportStartFailure(
+                        reason = FirewallHealth.Down.Reason.START_FAILED,
+                        backend = oldBackendType,
+                        stateMessage = "Failed to apply rules on restart: ${error.message}"
+                    )
+                    return Result.failure(error)
+                }
+
                 _firewallState.value = FirewallState.Running(newBackendType)
                 emitStateChangeBroadcast(_firewallState.value)
                 _activeBackendType.value = newBackendType
@@ -1902,9 +1929,6 @@ class FirewallManager(
         notificationManager.notify(Constants.VpnFallback.NOTIFICATION_ID, notification)
     }
 
-    private fun dismissVpnConflictNotification() {
-        dismissVpnFallbackNotification()
-    }
 
     private fun showFirewallDownNotification(
         reason: FirewallHealth.Down.Reason,
@@ -2594,18 +2618,6 @@ class FirewallManager(
         handleBackendFailure(currentBackendType)
     }
 
-    // NOTE: wouldBackendChange is now obsolete; planner-based flows in handlePrivilegeChange
-    // and handleBackendFailure use computeStartPlan instead. It is retained only for potential
-    // legacy callers and should be removed once all call sites are migrated.
-    private suspend fun wouldBackendChange(currentBackend: FirewallBackendType?): Boolean {
-        if (currentBackend == null) return false
-
-        val currentMode = getCurrentMode()
-        if (currentMode != FirewallMode.AUTO) return false
-
-        val newBackend = selectBackend(currentMode).getOrNull()?.getType()
-        return newBackend != null && newBackend != currentBackend
-    }
 
     /** Runs on Dispatchers.IO: [handlePrivilegeChange] can start and stop backends. */
     suspend fun checkBackendShouldSwitch() = withContext(Dispatchers.IO) {

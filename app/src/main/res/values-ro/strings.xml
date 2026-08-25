@@ -2,7 +2,6 @@
     <string name="app_name" translatable="false">De1984</string>
 
     <!-- App Identity -->
-    <string name="app_tagline">Confidențialitatea nu e implicită. Recaptur-o cu De1984 Firewall și Control Pachete.</string>
 
     <!-- Donate Button -->
     <string name="donate_button">Donează</string>
@@ -11,21 +10,12 @@
     <string name="nav_firewall">Firewall</string>
     <string name="nav_packages">Pachete</string>
     <string name="nav_settings">Setări</string>
-    <string name="nav_drawer_open">Deschide meniul de navigare</string>
-    <string name="nav_drawer_close">Închide meniul de navigare</string>
 
     <!-- Navigation Labels -->
-    <string name="label_firewall">Firewall</string>
-    <string name="label_packages">Pachete</string>
-    <string name="label_settings">Setări</string>
 
     <!-- Toolbar Titles -->
-    <string name="title_firewall">De1984 FIREWALL</string>
-    <string name="title_packages">De1984 PACHETE</string>
-    <string name="title_settings">De1984 SETĂRI</string>
 
     <!-- Firewall Toggle Button -->
-    <string name="firewall_button_on">PORNIT</string>
     <string name="firewall_button_off">OPRIT</string>
     <string name="firewall_status_active">ACTIV</string>
 
@@ -47,12 +37,7 @@
     <string name="dialog_firewall_stop_message">⚠️ Oprirea firewall-ului va permite tuturor aplicațiilor să acceseze internetul.\n\nProtecția confidențialității tale va fi dezactivată până când vei porni din nou firewall-ul.</string>
     <string name="dialog_firewall_stop_confirm">Oprește Firewall-ul</string>
 
-    <string name="dialog_policy_change_title">Schimbi politica implicită?</string>
-    <string name="dialog_policy_change_confirm">Schimbă politica</string>
-    <string name="dialog_policy_change_cancel">Anulează</string>
 
-    <string name="dialog_vpn_warning_title">ATENȚIE: Un VPN este activ!</string>
-    <string name="dialog_vpn_warning_message">Te rog permite aplicația VPN în firewall pentru a evita probleme de conectivitate.</string>
 
     <!-- Quick Toggle Dialogs -->
     <string name="dialog_quick_toggle_block_title">Blochezi %1$s?</string>
@@ -73,17 +58,14 @@
     <string name="snackbar_internet_allowed">Internet permis pentru %s</string>
     <string name="snackbar_undo">Anulează</string>
 
-    <string name="firewall_system_package_warning">⚠️ Avertisment Pachet de Sistem</string>
 
     <!-- Package Management -->
-    <string name="packages_title">Gestionare Pachete</string>
     <string name="packages_search_hint">Caută pachete…</string>
     <string name="packages_filter_all">Toate</string>
     <string name="packages_filter_system">Sistem</string>
     <string name="packages_filter_user">Utilizator</string>
     <string name="packages_filter_enabled">Activate</string>
     <string name="packages_filter_disabled">Dezactivate</string>
-    <string name="packages_filter_threats">Amenințări</string>
     <string name="packages_empty_state_no_uninstalled">Nicio aplicație de sistem dezinstalată</string>
 
     <!-- Profile Filters (Multi-user/Work Profile Support) -->
@@ -95,15 +77,10 @@
     <string name="badge_clone_profile">Clonă</string>
 
     <!-- Package Status -->
-    <string name="status_enabled">Activat</string>
-    <string name="status_disabled">Dezactivat</string>
     <string name="status_uninstalled">Dezinstalat</string>
     <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
     <string name="packages_status_enabled">Activat</string>
     <string name="packages_status_disabled">Dezactivat</string>
-    <string name="status_system">Sistem</string>
-    <string name="status_user">Utilizator</string>
-    <string name="status_threat">Amenințare</string>
     
     <!-- Package Actions -->
     <string name="action_enable">Activează</string>
@@ -178,36 +155,17 @@
     <string name="permission_button_grant_vpn">Acordă permisiune VPN</string>
 
     <!-- Multi-Select Package Operations -->
-    <string name="multiselect_toast_cannot_select_critical">Pachetele importante sau esențiale trebuie dezinstalate individual</string>
-    <string name="multiselect_toast_selection_limit">Maxim 50 de pachete pot fi selectate simultan</string>
     <string name="multiselect_toast_not_available_disabled">Selecția multiplă nu este disponibilă pentru pachetele dezactivate</string>
     <string name="multiselect_toast_not_available_uninstalled">Selecția multiplă nu este disponibilă pentru pachetele dezinstalate</string>
     <string name="multiselect_toolbar_title_format">%d selectate</string>
     <string name="multiselect_toolbar_button_uninstall">Dezinstalează</string>
     <string name="multiselect_toolbar_button_reinstall">Reinstalează</string>
-    <string name="multiselect_toolbar_button_clear">Șterge</string>
 
-    <string name="multiselect_dialog_title_uninstall">Dezinstalezi %d aplicații selectate?</string>
-    <string name="multiselect_dialog_message_cannot_undo">Această acțiune nu poate fi anulată.</string>
-    <string name="multiselect_dialog_button_uninstall_all">Dezinstalează toate</string>
-    <string name="multiselect_dialog_button_cancel">Anulează</string>
 
-    <string name="multiselect_dialog_title_results">Rezultate dezinstalare</string>
-    <string name="multiselect_dialog_message_success_format">✓ Dezinstalate cu succes: %d</string>
-    <string name="multiselect_dialog_message_failed_format">✗ Eșec dezinstalare: %d</string>
-    <string name="multiselect_dialog_button_ok">OK</string>
 
-    <string name="multiselect_progress_dialog_title">Dezinstalare pachete</string>
-    <string name="multiselect_progress_message_format">Dezinstalare %1$d din %2$d...</string>
 
-    <string name="multiselect_dialog_title_reinstall_results">Rezultate reinstalare</string>
-    <string name="multiselect_dialog_message_reinstall_success_format">✓ Reinstalate cu succes: %d</string>
-    <string name="multiselect_dialog_message_reinstall_failed_format">✗ Eșec reinstalare: %d</string>
 
-    <string name="multiselect_progress_dialog_title_reinstall">Reinstalare pachete</string>
-    <string name="multiselect_progress_message_format_reinstall">Reinstalare %1$d din %2$d…</string>
 
-    <string name="multiselect_checkbox_content_description">Selectează pachet</string>
     <string name="multiselect_toast_limit_reached">Maximum %d pachete pot fi selectate odată</string>
 
     <!-- Firewall Multi-Select -->
@@ -215,9 +173,6 @@
     <string name="firewall_multiselect_toolbar_button_block">Blochează</string>
     <string name="firewall_multiselect_toolbar_button_allow">Permite</string>
     <string name="firewall_multiselect_toolbar_button_rules">Modifică regulile</string>
-    <string name="firewall_multiselect_dialog_title_block">Blochezi %d aplicații selectate?</string>
-    <string name="firewall_multiselect_dialog_title_allow">Permiți %d aplicații selectate?</string>
-    <string name="firewall_multiselect_dialog_message">Aceasta va schimba accesul la rețea pentru %d aplicații.</string>
     <string name="firewall_multiselect_dialog_title_results">Rezultate Firewall</string>
     <string name="firewall_multiselect_dialog_message_success_format">✓ %2$s cu succes: %1$d aplicații</string>
     <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d reușite, ✗ %2$d eșuate la %3$s</string>
@@ -231,32 +186,11 @@
     <string name="firewall_multiselect_sheet_block_all">Blochează toate rețelele</string>
 
     <!-- Theme -->
-    <string name="theme_light">Temă luminoasă</string>
-    <string name="theme_dark">Temă întunecată</string>
-    <string name="theme_toggle">Schimbă tema</string>
     
     <!-- Common -->
-    <string name="search">Caută</string>
-    <string name="filter">Filtrează</string>
-    <string name="cancel">Anulează</string>
-    <string name="ok">OK</string>
-    <string name="yes">Da</string>
-    <string name="no">Nu</string>
-    <string name="loading">Se încarcă...</string>
-    <string name="error">Eroare</string>
-    <string name="retry">Reîncearcă</string>
-    <string name="success">Succes</string>
-    <string name="later">Mai târziu</string>
-    <string name="dismiss">Închide</string>
-    <string name="grant">Acordă</string>
     
     <!-- Content Descriptions -->
     <string name="cd_app_icon">Pictogramă aplicație</string>
-    <string name="cd_theme_toggle">Buton comutare temă</string>
-    <string name="cd_search_icon">Pictogramă căutare</string>
-    <string name="cd_filter_icon">Pictogramă filtrare</string>
-    <string name="cd_status_indicator">Indicator stare</string>
-    <string name="cd_navigation_icon">Pictogramă navigare</string>
     <string name="cd_wifi_status">Stare WiFi</string>
     <string name="cd_wifi_blocked">WiFi blocat</string>
     <string name="cd_mobile_data_status">Stare date mobile</string>
@@ -291,15 +225,11 @@
     </plurals>
 
     <!-- Root Access -->
-    <string name="root_status_granted">Acces Root: Acordat</string>
     <string name="root_status_denied">Acces Root: Refuzat</string>
     <string name="root_status_not_available">Acces Root: Indisponibil</string>
-    <string name="root_status_checking">Acces Root: Se verifică...</string>
 
-    <string name="root_desc_granted">Operațiuni avansate sunt disponibile</string>
     <string name="root_desc_denied">Permisiunea root a fost refuzată. Urmează instrucțiunile de mai jos pentru a acorda acces.</string>
     <string name="root_desc_not_available">Dispozitivul tău nu este rootat. Accesul root este necesar pentru operațiuni avansate de gestionare pachete.</string>
-    <string name="root_desc_checking">Te rog așteaptă...</string>
 
     <string name="root_grant_instructions_title">Pentru a acorda acces root:</string>
     <string name="root_grant_instructions_body">• Reinstalează aplicația pentru a declanșa din nou dialogul de permisiune\n• Sau adaugă manual De1984 în aplicația ta de Superuser (Magisk, KernelSU, etc.)</string>
@@ -307,36 +237,20 @@
     <string name="root_rooting_tools_title"><![CDATA[<b>Instrumente de rootare recomandate:</b>]]></string>
     <string name="root_rooting_tools_body">• Magisk - Cea mai populară și larg suportată soluție de root. Funcționează pe Android 5.0+ și suportă module pentru funcții adiționale.\n• KernelSU - Gestionare root modernă bazată pe kernel. Oferă izolare de securitate mai bună și nu modifică partiția de sistem.\n• APatch - Alternativă mai nouă cu abordare de patch kernel. Bună pentru dispozitive cu politici stricte de securitate.</string>
 
-    <string name="root_setup_instructions">Pentru a activa funcționalitatea de dezactivare/activare pachete:\n\n1. Rootează dispozitivul folosind metoda preferată\n2. Acordă acces superuser la De1984 când ești solicitat\n3. Repornește aplicația pentru a folosi operațiuni avansate</string>
 
     <!-- Shizuku Access -->
-    <string name="shizuku_status_granted">Shizuku: Acordat</string>
     <string name="shizuku_status_denied">Shizuku: Refuzat</string>
-    <string name="shizuku_status_not_available">Shizuku: Neinstalat</string>
     <string name="shizuku_status_not_running">Shizuku: Nu Rulează</string>
-    <string name="shizuku_status_checking">Shizuku: Se verifică...</string>
 
-    <string name="shizuku_desc_granted">Operațiuni avansate sunt disponibile via Shizuku</string>
     <string name="shizuku_desc_denied">Permisiunea Shizuku a fost refuzată. Apasă \'Acordă Permisiune Shizuku\' pentru a încerca din nou.</string>
-    <string name="shizuku_desc_not_available">Shizuku nu este instalat. Instalează Shizuku pentru a activa gestionarea pachetelor fără root.</string>
     <string name="shizuku_desc_not_running">Shizuku este instalat dar nu rulează. Pornește Shizuku pentru a activa gestionarea pachetelor.</string>
-    <string name="shizuku_desc_checking">Te rog așteaptă...</string>
 
-    <string name="shizuku_instructions_not_running">Pornește aplicația Shizuku pentru a activa gestionarea pachetelor</string>
 
-    <string name="shizuku_what_is">Shizuku permite aplicațiilor să folosească API-uri de sistem cu privilegii ridicate (ADB sau root). Este o alternativă mai sigură la accesul root tradițional pentru gestionarea pachetelor.</string>
 
     <!-- Privileged Access Banner -->
-    <string name="banner_no_access_available">Niciun acces privilegiat disponibil. Instalează Shizuku sau rootează dispozitivul pentru a activa gestionarea pachetelor.</string>
-    <string name="banner_shizuku_not_running">Shizuku este instalat, dar nu rulează. Pornește Shizuku sau rootează dispozitivul pentru a activa gestionarea pachetelor.</string>
-    <string name="banner_permission_required">Acces Shizuku sau root necesar pentru gestionarea pachetelor</string>
 
-    <string name="banner_button_go_to_settings">Mergi la Setări</string>
-    <string name="banner_button_grant">Acordă</string>
-    <string name="banner_button_dismiss">Închide</string>
 
     <!-- Backend Monitoring -->
-    <string name="backend_monitoring_channel_name">Monitorizare Backend</string>
 
     <string name="backend_notification_title_waiting">De1984 Firewall activ (Mod VPN)</string>
     <string name="backend_notification_title_switching">De1984 schimbă backend-u...</string>
@@ -362,7 +276,6 @@
     <string name="backend_toast_failed">De1984 Firewall nu a reușit să schimbe backend-ul</string>
 
     <!-- VPN Fallback -->
-    <string name="vpn_fallback_channel_name">Fallback VPN</string>
 
     <string name="vpn_fallback_notification_title">De1984 Firewall Oprit</string>
     <string name="vpn_fallback_notification_text">Backend-ul privilegiat a eșuat. Apasă pentru a activa conectarea prin VPN și a restabili protecția firewall.</string>
@@ -403,14 +316,7 @@
     <string name="vpn_conflict_notification_text">Un alt VPN este activ. De1984 necesită permisiunea VPN pentru a restabili protecția firewall-ului. Aceasta va înlocui conexiunea VPN curentă. Apasă pentru a acorda permisiunea.</string>
     <string name="vpn_conflict_notification_action_text">Înlocuiește VPN &amp; Activează Firewall</string>
 
-    <string name="vpn_fallback_tier_title">Fallback VPN</string>
-    <string name="vpn_fallback_tier_description">Permite conectare automată la VPN când backend-urile privilegiate (iptables/ConnectivityManager) eșuează. Asigură că firewall-ul rămâne activ.</string>
-    <string name="vpn_fallback_tier_status_granted">Completat</string>
-    <string name="vpn_fallback_tier_status_not_granted">Permisiune necesară</string>
-    <string name="vpn_fallback_tier_button_text">Acordă permisiune VPN</string>
 
-    <string name="vpn_fallback_permission_name">Permisiune VPN</string>
-    <string name="vpn_fallback_permission_description">Creează conexiune VPN pentru Firewall</string>
 
     <!-- Language Switcher -->
     <string name="language_title">Limba Aplicației</string>
@@ -437,7 +343,6 @@
 
     <string name="settings_backend_title">Backend Firewall</string>
     <string name="settings_backend_description">Selectează ce backend să folosească pentru blocarea aplicațiilor</string>
-    <string name="settings_backend_current">Curent: %s</string>
     <string name="settings_backend_active">Activ: %s</string>
     <string name="settings_backend_not_running">Firewall-ul nu rulează.</string>
     <string name="settings_backend_loading">Se încarcă...</string>
@@ -449,7 +354,6 @@
     <string name="backend_vpn_description">Folosește întotdeauna backend-ul VPN</string>
     <string name="backend_connectivity_manager_name">ConnectivityManager</string>
     <string name="backend_connectivity_manager_description">Blocare la nivel de sistem (necesită Shizuku + Android 13+)</string>
-    <string name="backend_connectivity_manager_requirement">Necesită Shizuku + Android 13+</string>
     <string name="backend_requires_android_13">Necesită Android 13+</string>
     <string name="backend_requires_shizuku">Necesită Shizuku</string>
     <string name="backend_iptables_name">iptables</string>
@@ -512,7 +416,6 @@
     <string name="dialog_import_preview_message">S-au găsit %1$d pachete de dezinstalat:\n\n%2$s\n\n⚠️ Aceasta va dezinstala toate aplicațiile listate.</string>
     <string name="dialog_import_warning_title">Unele pachete nu au fost găsite</string>
     <string name="dialog_import_warning_message">%1$d din %2$d pachete găsite.\n\nGăsite:\n%3$s\n\nNegăsite:\n%4$s\n\nContinuă cu pachetele găsite?</string>
-    <string name="dialog_import_failed_title">Import eșuat</string>
     <string name="dialog_import_all_not_found">❌ Niciunul dintre cele %d pachete din fișier nu este instalat în prezent</string>
     <string name="dialog_import_protected_section">🛡️ Ignorate pentru că sunt protejate (esențiale sau necesare pentru De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ Fișierul este gol sau nu conține nume de pachete valide</string>
@@ -603,7 +506,6 @@
     <string name="dialog_vpn_permission_error_message">Eroare la solicitarea permisiunii VPN: %s</string>
 
     <!-- Licenses (unused but kept for future) -->
-    <string name="licenses_coming_soon">Ecranul cu licențe open source va fi disponibil în curând</string>
 
     <!-- Packages Screen -->
     <string name="packages_empty_state_title">Nu s-au găsit pachete</string>
@@ -623,7 +525,6 @@
     <string name="firewall_network_label_background_access">Permite în fundal</string>
     <string name="firewall_network_label_internet_access">Acces Internet</string>
     <string name="firewall_internet_access_subtitle">WiFi, Date mobile, Roaming</string>
-    <string name="firewall_background_access_description">Permite aplicației să acceseze internetul când este în fundal</string>
     <string name="firewall_connectivity_manager_info">Dispozitivul tău folosește un Firewall la nivel de sistem care nu suportă blocare per rețea. Pentru control granular, este necesar acces root.</string>
     <string name="firewall_system_critical_info">⚠️ Pachet critic de sistem - Accesul la rețea nu poate fi modificat pentru a preveni instabilitatea sistemului.</string>
     <string name="firewall_vpn_app_info">🔒 Aplicație VPN - Întotdeauna permisă pentru a preveni probleme de reconectare VPN după blocare/deblocare dispozitiv.</string>
@@ -752,7 +653,6 @@
     <string name="privileged_access_banner_permission_required">Shizuku sau acces Root necesar pentru gestionarea pachetelor</string>
     <string name="privileged_access_banner_button_settings">Mergi la Setări</string>
     <string name="privileged_access_banner_button_grant">Acordă</string>
-    <string name="privileged_access_banner_button_dismiss">Închide</string>
     <string name="privileged_access_dialog_title">Acces privilegiat</string>
     <string name="privileged_access_tier_title">Gestionare pachete</string>
     <string name="privileged_access_status_setup_required">Configurare necesară</string>
@@ -814,8 +714,6 @@
     <string name="boot_protection_disable_warning_title">Dezactivezi Protecția la Pornire?</string>
     <string name="boot_protection_disable_warning_message">⚠️ Dispozitivul tău va reporni imediat când continui.\n\nTraficul de rețea nu va mai fi blocat în timpul pornirii. Aplicațiile pot scurge date înainte ca firewall-ul să pornească.</string>
     <string name="boot_protection_reboot_failed">Protecția la Pornire a fost modificată, dar dispozitivul nu a putut fi repornit automat. Te rugăm să repornești dispozitivul manual.</string>
-    <string name="boot_protection_enabled_success">Protecția la pornire activată cu succes</string>
-    <string name="boot_protection_disabled_success">Protecția la pornire dezactivată cu succes</string>
     <string name="boot_protection_enable_failed">Eșec la activarea protecției la pornire: %s</string>
     <string name="boot_protection_disable_failed">Eșec la dezactivarea protecției la pornire: %s</string>
 
@@ -854,11 +752,8 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
-    <string name="tile_label_de1984_on">De1984 ON</string>
-    <string name="tile_label_de1984_off">De1984 OFF</string>
     <string name="tile_label_firewall_on">Firewall ON</string>
     <string name="tile_label_firewall_off">Firewall OFF</string>
-    <string name="tile_label_firewall_starting">Se pornește…</string>
     <string name="tile_label_firewall_error">Eroare</string>
     <string name="tile_subtitle_active">Activ</string>
     <string name="tile_subtitle_inactive">Inactiv</string>
@@ -872,7 +767,6 @@
     <string name="widget_description">Comutator rapid pentru De1984 Firewall</string>
 
     <!-- Notification Actions -->
-    <string name="notification_action_stop_firewall">OPREȘTE</string>
 
 </resources>
 

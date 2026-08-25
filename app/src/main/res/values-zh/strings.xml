@@ -1,7 +1,6 @@
 <resources>
     <!-- App Identity -->
     <string name="app_name" translatable="false">De1984</string>
-    <string name="app_tagline">隐私不是默认的。使用 De1984 防火墙和软件包控制夺回隐私。</string>
 
     <!-- Donate Button -->
     <string name="donate_button">捐赠</string>
@@ -10,21 +9,12 @@
     <string name="nav_firewall">防火墙</string>
     <string name="nav_packages">软件包</string>
     <string name="nav_settings">设置</string>
-    <string name="nav_drawer_open">打开导航抽屉</string>
-    <string name="nav_drawer_close">关闭导航抽屉</string>
 
     <!-- Navigation Labels -->
-    <string name="label_firewall">防火墙</string>
-    <string name="label_packages">软件包</string>
-    <string name="label_settings">设置</string>
 
     <!-- Toolbar Titles -->
-    <string name="title_firewall">De1984 防火墙</string>
-    <string name="title_packages">De1984 软件包</string>
-    <string name="title_settings">De1984 设置</string>
 
     <!-- Firewall Toggle Button -->
-    <string name="firewall_button_on">开启</string>
     <string name="firewall_button_off">关闭</string>
     <string name="firewall_status_active">活动</string>
 
@@ -46,12 +36,7 @@
     <string name="dialog_firewall_stop_message">⚠️ 停止防火墙将允许所有应用访问互联网。\n\n您的隐私保护将被禁用，直到您重新打开防火墙。</string>
     <string name="dialog_firewall_stop_confirm">停止防火墙</string>
 
-    <string name="dialog_policy_change_title">更改默认策略？</string>
-    <string name="dialog_policy_change_confirm">更改策略</string>
-    <string name="dialog_policy_change_cancel">取消</string>
 
-    <string name="dialog_vpn_warning_title">警告：当前有 VPN 处于活动状态！</string>
-    <string name="dialog_vpn_warning_message">请在防火墙中允许您的 VPN 应用以避免连接问题。</string>
 
     <!-- Quick Toggle Dialogs -->
     <string name="dialog_quick_toggle_block_title">阻止 %1$s？</string>
@@ -72,17 +57,14 @@
     <string name="snackbar_internet_allowed">已允许 %s 的互联网</string>
     <string name="snackbar_undo">撤销</string>
 
-    <string name="firewall_system_package_warning">⚠️ 系统软件包警告</string>
 
     <!-- Package Management -->
-    <string name="packages_title">软件包管理</string>
     <string name="packages_search_hint">搜索软件包…</string>
     <string name="packages_filter_all">全部</string>
     <string name="packages_filter_system">系统</string>
     <string name="packages_filter_user">用户</string>
     <string name="packages_filter_enabled">已启用</string>
     <string name="packages_filter_disabled">已禁用</string>
-    <string name="packages_filter_threats">威胁</string>
     <string name="packages_empty_state_no_uninstalled">没有已卸载的系统应用</string>
 
     <!-- Profile Filters (Multi-user/Work Profile Support) -->
@@ -94,15 +76,10 @@
     <string name="badge_clone_profile">克隆</string>
 
     <!-- Package Status -->
-    <string name="status_enabled">已启用</string>
-    <string name="status_disabled">已禁用</string>
     <string name="status_uninstalled">已卸载</string>
     <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
     <string name="packages_status_enabled">已启用</string>
     <string name="packages_status_disabled">已禁用</string>
-    <string name="status_system">系统</string>
-    <string name="status_user">用户</string>
-    <string name="status_threat">威胁</string>
 
     <!-- Package Actions -->
     <string name="action_enable">启用</string>
@@ -187,36 +164,17 @@
     <string name="permission_button_grant_vpn">授予 VPN 权限</string>
 
     <!-- Multi-Select Package Operations -->
-    <string name="multiselect_toast_cannot_select_critical">重要/必需软件包必须单独卸载</string>
-    <string name="multiselect_toast_selection_limit">一次最多可选择 50 个软件包</string>
     <string name="multiselect_toast_not_available_disabled">多选不适用于已禁用的软件包</string>
     <string name="multiselect_toast_not_available_uninstalled">多选不适用于已卸载的软件包</string>
     <string name="multiselect_toolbar_title_format">%d selected</string>
     <string name="multiselect_toolbar_button_uninstall">卸载</string>
     <string name="multiselect_toolbar_button_reinstall">重新安装</string>
-    <string name="multiselect_toolbar_button_clear">清除</string>
 
-    <string name="multiselect_dialog_title_uninstall">卸载 %d 个选定的应用？</string>
-    <string name="multiselect_dialog_message_cannot_undo">此操作无法撤消。</string>
-    <string name="multiselect_dialog_button_uninstall_all">全部卸载</string>
-    <string name="multiselect_dialog_button_cancel">取消</string>
 
-    <string name="multiselect_dialog_title_results">卸载结果</string>
-    <string name="multiselect_dialog_message_success_format">✓ 成功卸载：%d</string>
-    <string name="multiselect_dialog_message_failed_format">✗ 卸载失败：%d</string>
-    <string name="multiselect_dialog_button_ok">OK</string>
 
-    <string name="multiselect_progress_dialog_title">正在卸载软件包</string>
-    <string name="multiselect_progress_message_format">正在卸载 %1$d / %2$d…</string>
 
-    <string name="multiselect_dialog_title_reinstall_results">重新安装结果</string>
-    <string name="multiselect_dialog_message_reinstall_success_format">✓ 成功重新安装：%d</string>
-    <string name="multiselect_dialog_message_reinstall_failed_format">✗ 重新安装失败：%d</string>
 
-    <string name="multiselect_progress_dialog_title_reinstall">正在重新安装软件包</string>
-    <string name="multiselect_progress_message_format_reinstall">正在重新安装 %1$d / %2$d…</string>
 
-    <string name="multiselect_checkbox_content_description">选择软件包</string>
     <string name="multiselect_toast_limit_reached">一次最多可选择 %d 个软件包</string>
 
     <!-- Firewall Multi-Select -->
@@ -224,9 +182,6 @@
     <string name="firewall_multiselect_toolbar_button_block">阻止</string>
     <string name="firewall_multiselect_toolbar_button_allow">允许</string>
     <string name="firewall_multiselect_toolbar_button_rules">更改规则</string>
-    <string name="firewall_multiselect_dialog_title_block">阻止 %d 个选定的应用？</string>
-    <string name="firewall_multiselect_dialog_title_allow">允许 %d 个选定的应用？</string>
-    <string name="firewall_multiselect_dialog_message">这将更改 %d 个应用的网络访问权限。</string>
     <string name="firewall_multiselect_dialog_title_results">防火墙结果</string>
     <string name="firewall_multiselect_dialog_message_success_format">✓ 成功%2$s：%1$d 个应用</string>
     <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d 成功，✗ %2$d 失败%3$s</string>
@@ -240,32 +195,11 @@
     <string name="firewall_multiselect_sheet_block_all">阻止所有网络</string>
 
     <!-- Theme -->
-    <string name="theme_light">浅色主题</string>
-    <string name="theme_dark">深色主题</string>
-    <string name="theme_toggle">切换主题</string>
 
     <!-- Common -->
-    <string name="search">搜索</string>
-    <string name="filter">筛选</string>
-    <string name="cancel">取消</string>
-    <string name="ok">OK</string>
-    <string name="yes">是</string>
-    <string name="no">否</string>
-    <string name="loading">加载中…</string>
-    <string name="error">错误</string>
-    <string name="retry">重试</string>
-    <string name="success">成功</string>
-    <string name="later">稍后</string>
-    <string name="dismiss">关闭</string>
-    <string name="grant">授予</string>
 
     <!-- Content Descriptions -->
     <string name="cd_app_icon">应用图标</string>
-    <string name="cd_theme_toggle">主题切换按钮</string>
-    <string name="cd_search_icon">搜索图标</string>
-    <string name="cd_filter_icon">筛选图标</string>
-    <string name="cd_status_indicator">状态指示器</string>
-    <string name="cd_navigation_icon">导航图标</string>
     <string name="cd_wifi_status">WiFi 状态</string>
     <string name="cd_wifi_blocked">WiFi 已阻止</string>
     <string name="cd_mobile_data_status">移动数据状态</string>
@@ -299,15 +233,11 @@
     </plurals>
 
     <!-- Root Access -->
-    <string name="root_status_granted">Root 访问：已授予</string>
     <string name="root_status_denied">Root 访问：已拒绝</string>
     <string name="root_status_not_available">Root 访问：不可用</string>
-    <string name="root_status_checking">Root 访问：检查中…</string>
 
-    <string name="root_desc_granted">高级操作可用</string>
     <string name="root_desc_denied">Root 权限被拒绝。请按照以下说明授予访问权限。</string>
     <string name="root_desc_not_available">您的设备未 Root。高级软件包管理操作需要 Root 访问权限。</string>
-    <string name="root_desc_checking">请稍候…</string>
 
     <string name="root_grant_instructions_title">授予 Root 访问权限：</string>
     <string name="root_grant_instructions_body">• 重新安装应用以再次触发权限对话框\n• 或手动将 De1984 添加到您的超级用户应用（Magisk、KernelSU 等）</string>
@@ -315,36 +245,20 @@
     <string name="root_rooting_tools_title"><![CDATA[<b>推荐的 Root 工具：</b>]]></string>
     <string name="root_rooting_tools_body">• Magisk - 最流行且广泛支持的 Root 解决方案。适用于 Android 5.0+ 并支持模块以获得额外功能。\n• KernelSU - 现代基于内核的 Root 管理。提供更好的安全隔离且不修改系统分区。\n• APatch - 采用内核修补方法的新替代方案。适用于具有严格安全策略的设备。</string>
 
-    <string name="root_setup_instructions">要启用软件包禁用/启用功能：\n\n1. 使用您喜欢的方法 Root 您的设备\n2. 在提示时授予 De1984 超级用户访问权限\n3. 重新启动应用以使用高级操作</string>
 
     <!-- Shizuku Access -->
-    <string name="shizuku_status_granted">Shizuku：已授予</string>
     <string name="shizuku_status_denied">Shizuku：已拒绝</string>
-    <string name="shizuku_status_not_available">Shizuku：未安装</string>
     <string name="shizuku_status_not_running">Shizuku：未运行</string>
-    <string name="shizuku_status_checking">Shizuku：检查中…</string>
 
-    <string name="shizuku_desc_granted">通过 Shizuku 可使用高级操作</string>
     <string name="shizuku_desc_denied">Shizuku 权限被拒绝。点击"授予 Shizuku 权限"重试。</string>
-    <string name="shizuku_desc_not_available">Shizuku 未安装。安装 Shizuku 以在无需 Root 的情况下启用软件包管理。</string>
     <string name="shizuku_desc_not_running">Shizuku 已安装但未运行。启动 Shizuku 以启用软件包管理。</string>
-    <string name="shizuku_desc_checking">请稍候…</string>
 
-    <string name="shizuku_instructions_not_running">启动 Shizuku 应用以启用软件包管理</string>
 
-    <string name="shizuku_what_is">Shizuku 允许应用使用具有提升权限（ADB 或 Root）的系统 API。对于软件包管理，它是传统 Root 访问的更安全替代方案。</string>
 
     <!-- Privileged Access Banner -->
-    <string name="banner_no_access_available">没有可用的特权访问。安装 Shizuku 或 Root 您的设备以启用软件包管理。</string>
-    <string name="banner_shizuku_not_running">Shizuku 已安装但未运行。启动 Shizuku 或 Root 您的设备以启用软件包管理。</string>
-    <string name="banner_permission_required">软件包管理需要 Shizuku 或 Root 访问权限</string>
 
-    <string name="banner_button_go_to_settings">前往设置</string>
-    <string name="banner_button_grant">授予</string>
-    <string name="banner_button_dismiss">关闭</string>
 
     <!-- Backend Monitoring -->
-    <string name="backend_monitoring_channel_name">后端监控</string>
 
     <string name="backend_notification_title_waiting">De1984 防火墙活动（VPN 模式）</string>
     <string name="backend_notification_title_switching">De1984 正在切换后端…</string>
@@ -370,7 +284,6 @@
     <string name="backend_toast_failed">De1984 防火墙切换后端失败</string>
 
     <!-- VPN Fallback -->
-    <string name="vpn_fallback_channel_name">VPN 回退</string>
 
     <string name="vpn_fallback_notification_title">De1984 防火墙已停止</string>
     <string name="vpn_fallback_notification_text">特权后端失败。点击启用 VPN 回退并恢复防火墙保护。</string>
@@ -411,14 +324,7 @@
     <string name="vpn_conflict_notification_text">另一个 VPN 处于活动状态。De1984 需要 VPN 权限来恢复防火墙保护。这将替换您当前的 VPN 连接。点击授予权限。</string>
     <string name="vpn_conflict_notification_action_text">替换 VPN 并启用防火墙</string>
 
-    <string name="vpn_fallback_tier_title">VPN 回退</string>
-    <string name="vpn_fallback_tier_description">当特权后端（iptables/ConnectivityManager）失败时允许自动回退到 VPN。确保防火墙保持活动状态。</string>
-    <string name="vpn_fallback_tier_status_granted">已完成</string>
-    <string name="vpn_fallback_tier_status_not_granted">需要权限</string>
-    <string name="vpn_fallback_tier_button_text">授予 VPN 权限</string>
 
-    <string name="vpn_fallback_permission_name">VPN 权限</string>
-    <string name="vpn_fallback_permission_description">为防火墙回退创建 VPN 连接</string>
 
     <!-- Language Switcher -->
     <string name="language_title">应用语言</string>
@@ -445,7 +351,6 @@
 
     <string name="settings_backend_title">防火墙后端</string>
     <string name="settings_backend_description">选择用于阻止应用的后端</string>
-    <string name="settings_backend_current">当前：%s</string>
     <string name="settings_backend_active">活动：%s</string>
     <string name="settings_backend_not_running">防火墙未运行。</string>
     <string name="settings_backend_loading">加载中...</string>
@@ -457,7 +362,6 @@
     <string name="backend_vpn_description">始终使用 VPN 后端</string>
     <string name="backend_connectivity_manager_name">ConnectivityManager</string>
     <string name="backend_connectivity_manager_description">系统级阻止（需要 Shizuku + Android 13+）</string>
-    <string name="backend_connectivity_manager_requirement">需要 Shizuku + Android 13+</string>
     <string name="backend_requires_android_13">需要 Android 13+</string>
     <string name="backend_requires_shizuku">需要 Shizuku</string>
     <string name="backend_iptables_name">iptables</string>
@@ -520,7 +424,6 @@
     <string name="dialog_import_preview_message">找到 %1$d 个要卸载的软件包：\n\n%2$s\n\n⚠️ 这将卸载所有列出的应用。</string>
     <string name="dialog_import_warning_title">部分软件包未找到</string>
     <string name="dialog_import_warning_message">找到 %1$d / %2$d 个软件包。\n\n已找到：\n%3$s\n\n未找到：\n%4$s\n\n继续处理已找到的软件包？</string>
-    <string name="dialog_import_failed_title">导入失败</string>
     <string name="dialog_import_all_not_found">❌ 文件中的 %d 个软件包当前均未安装</string>
     <string name="dialog_import_protected_section">🛡️ 已跳过受保护的应用（必要应用或 De1984 所需）：\n%1$s</string>
     <string name="dialog_import_empty_file">❌ 文件为空或不包含有效的软件包名称</string>
@@ -611,7 +514,6 @@
     <string name="dialog_vpn_permission_error_message">请求 VPN 权限失败：%s</string>
 
     <!-- Licenses (unused but kept for future) -->
-    <string name="licenses_coming_soon">开源许可证屏幕即将推出</string>
 
     <!-- Packages Screen -->
     <string name="packages_empty_state_title">未找到软件包</string>
@@ -631,7 +533,6 @@
     <string name="firewall_network_label_background_access">允许后台运行</string>
     <string name="firewall_network_label_internet_access">互联网访问</string>
     <string name="firewall_internet_access_subtitle">WiFi、移动数据、漫游</string>
-    <string name="firewall_background_access_description">允许应用在后台访问互联网</string>
     <string name="firewall_connectivity_manager_info">您的设备使用不支持按网络阻止的系统级防火墙。要进行精细控制，需要 Root 访问权限。</string>
     <string name="firewall_system_critical_info">⚠️ 系统关键软件包 - 无法修改网络访问以防止系统不稳定。</string>
     <string name="firewall_vpn_app_info">🔒 VPN 应用 - 始终允许以防止设备锁定/解锁后 VPN 重新连接问题。</string>
@@ -760,7 +661,6 @@
     <string name="privileged_access_banner_permission_required">软件包管理需要 Shizuku 或 Root 访问权限</string>
     <string name="privileged_access_banner_button_settings">前往设置</string>
     <string name="privileged_access_banner_button_grant">授予</string>
-    <string name="privileged_access_banner_button_dismiss">关闭</string>
     <string name="privileged_access_dialog_title">特权访问</string>
     <string name="privileged_access_tier_title">软件包管理</string>
     <string name="privileged_access_status_setup_required">需要设置</string>
@@ -822,8 +722,6 @@
     <string name="boot_protection_disable_warning_title">禁用启动保护？</string>
     <string name="boot_protection_disable_warning_message">⚠️ 继续后您的设备将立即重启。\n\n网络流量将不再在启动期间被阻止。应用可能在防火墙启动前泄露数据。</string>
     <string name="boot_protection_reboot_failed">启动保护已更改，但设备无法自动重启。请手动重启您的设备。</string>
-    <string name="boot_protection_enabled_success">启动保护已成功启用</string>
-    <string name="boot_protection_disabled_success">启动保护已成功禁用</string>
     <string name="boot_protection_enable_failed">启用启动保护失败：%s</string>
     <string name="boot_protection_disable_failed">禁用启动保护失败：%s</string>
 
@@ -862,11 +760,8 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
-    <string name="tile_label_de1984_on">De1984 开启</string>
-    <string name="tile_label_de1984_off">De1984 关闭</string>
     <string name="tile_label_firewall_on">防火墙 开启</string>
     <string name="tile_label_firewall_off">防火墙 关闭</string>
-    <string name="tile_label_firewall_starting">正在启动…</string>
     <string name="tile_label_firewall_error">错误</string>
     <string name="tile_subtitle_active">已启用</string>
     <string name="tile_subtitle_inactive">已停用</string>
@@ -880,6 +775,5 @@
     <string name="widget_description">De1984 防火墙快速切换</string>
 
     <!-- Notification Actions -->
-    <string name="notification_action_stop_firewall">关闭</string>
 
 </resources>

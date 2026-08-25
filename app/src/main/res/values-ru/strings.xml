@@ -1,7 +1,6 @@
 <resources>
     <!-- App Identity -->
     <string name="app_name" translatable="false">De1984</string>
-    <string name="app_tagline">Конфиденциальность не по умолчанию. Верните её с De1984 Firewall и управлением пакетами.</string>
 
     <!-- Donate Button -->
     <string name="donate_button">Пожертвовать</string>
@@ -10,21 +9,12 @@
     <string name="nav_firewall">Брандмауэр</string>
     <string name="nav_packages">Пакеты</string>
     <string name="nav_settings">Настройки</string>
-    <string name="nav_drawer_open">Открыть меню навигации</string>
-    <string name="nav_drawer_close">Закрыть меню навигации</string>
 
     <!-- Navigation Labels -->
-    <string name="label_firewall">Брандмауэр</string>
-    <string name="label_packages">Пакеты</string>
-    <string name="label_settings">Настройки</string>
 
     <!-- Toolbar Titles -->
-    <string name="title_firewall">De1984 БРАНДМАУЭР</string>
-    <string name="title_packages">De1984 ПАКЕТЫ</string>
-    <string name="title_settings">De1984 НАСТРОЙКИ</string>
 
     <!-- Firewall Toggle Button -->
-    <string name="firewall_button_on">ВКЛ</string>
     <string name="firewall_button_off">ВЫКЛ</string>
     <string name="firewall_status_active">АКТИВЕН</string>
 
@@ -46,12 +36,7 @@
     <string name="dialog_firewall_stop_message">⚠️ Остановка брандмауэра позволит всем приложениям получить доступ к интернету.\n\nВаша защита конфиденциальности будет отключена до повторного включения брандмауэра.</string>
     <string name="dialog_firewall_stop_confirm">Остановить брандмауэр</string>
 
-    <string name="dialog_policy_change_title">Изменить политику по умолчанию?</string>
-    <string name="dialog_policy_change_confirm">Изменить политику</string>
-    <string name="dialog_policy_change_cancel">Отмена</string>
 
-    <string name="dialog_vpn_warning_title">ВНИМАНИЕ: VPN в данный момент активен!</string>
-    <string name="dialog_vpn_warning_message">Пожалуйста, разрешите ваше VPN-приложение в брандмауэре, чтобы избежать проблем с подключением.</string>
 
     <!-- Quick Toggle Dialogs -->
     <string name="dialog_quick_toggle_block_title">Заблокировать %1$s?</string>
@@ -72,17 +57,14 @@
     <string name="snackbar_internet_allowed">Интернет разрешён для %s</string>
     <string name="snackbar_undo">Отменить</string>
 
-    <string name="firewall_system_package_warning">⚠️ Предупреждение о системном пакете</string>
 
     <!-- Package Management -->
-    <string name="packages_title">Управление пакетами</string>
     <string name="packages_search_hint">Поиск пакетов…</string>
     <string name="packages_filter_all">Все</string>
     <string name="packages_filter_system">Системные</string>
     <string name="packages_filter_user">Пользовательские</string>
     <string name="packages_filter_enabled">Включённые</string>
     <string name="packages_filter_disabled">Отключённые</string>
-    <string name="packages_filter_threats">Угрозы</string>
     <string name="packages_empty_state_no_uninstalled">Нет удалённых системных приложений</string>
 
     <!-- Profile Filters (Multi-user/Work Profile Support) -->
@@ -94,15 +76,10 @@
     <string name="badge_clone_profile">Клон</string>
 
     <!-- Package Status -->
-    <string name="status_enabled">Включён</string>
-    <string name="status_disabled">Отключён</string>
     <string name="status_uninstalled">Удалён</string>
     <!-- Per-row status badge. Singular, unlike the plural filter chips above. -->
     <string name="packages_status_enabled">Включён</string>
     <string name="packages_status_disabled">Отключён</string>
-    <string name="status_system">Системный</string>
-    <string name="status_user">Пользовательский</string>
-    <string name="status_threat">Угроза</string>
 
     <!-- Package Actions -->
     <string name="action_enable">Включить</string>
@@ -177,36 +154,17 @@
     <string name="permission_button_grant_vpn">Предоставить VPN</string>
 
     <!-- Multi-Select Package Operations -->
-    <string name="multiselect_toast_cannot_select_critical">Важные/Основные пакеты необходимо удалять по отдельности</string>
-    <string name="multiselect_toast_selection_limit">Максимум 50 пакетов можно выбрать одновременно</string>
     <string name="multiselect_toast_not_available_disabled">Множественный выбор недоступен для отключённых пакетов</string>
     <string name="multiselect_toast_not_available_uninstalled">Множественный выбор недоступен для удалённых пакетов</string>
     <string name="multiselect_toolbar_title_format">Выбрано: %d</string>
     <string name="multiselect_toolbar_button_uninstall">Удалить</string>
     <string name="multiselect_toolbar_button_reinstall">Переустановить</string>
-    <string name="multiselect_toolbar_button_clear">Очистить</string>
 
-    <string name="multiselect_dialog_title_uninstall">Удалить %d выбранных приложений?</string>
-    <string name="multiselect_dialog_message_cannot_undo">Это действие нельзя отменить.</string>
-    <string name="multiselect_dialog_button_uninstall_all">Удалить все</string>
-    <string name="multiselect_dialog_button_cancel">Отмена</string>
 
-    <string name="multiselect_dialog_title_results">Результаты удаления</string>
-    <string name="multiselect_dialog_message_success_format">✓ Успешно удалено: %d</string>
-    <string name="multiselect_dialog_message_failed_format">✗ Не удалось удалить: %d</string>
-    <string name="multiselect_dialog_button_ok">OK</string>
 
-    <string name="multiselect_progress_dialog_title">Удаление пакетов</string>
-    <string name="multiselect_progress_message_format">Удаление %1$d из %2$d…</string>
 
-    <string name="multiselect_dialog_title_reinstall_results">Результаты переустановки</string>
-    <string name="multiselect_dialog_message_reinstall_success_format">✓ Успешно переустановлено: %d</string>
-    <string name="multiselect_dialog_message_reinstall_failed_format">✗ Не удалось переустановить: %d</string>
 
-    <string name="multiselect_progress_dialog_title_reinstall">Переустановка пакетов</string>
-    <string name="multiselect_progress_message_format_reinstall">Переустановка %1$d из %2$d…</string>
 
-    <string name="multiselect_checkbox_content_description">Выбрать пакет</string>
     <string name="multiselect_toast_limit_reached">Максимум %d пакетов можно выбрать одновременно</string>
 
     <!-- Firewall Multi-Select -->
@@ -214,9 +172,6 @@
     <string name="firewall_multiselect_toolbar_button_block">Заблокировать</string>
     <string name="firewall_multiselect_toolbar_button_allow">Разрешить</string>
     <string name="firewall_multiselect_toolbar_button_rules">Изменить правила</string>
-    <string name="firewall_multiselect_dialog_title_block">Заблокировать %d выбранных приложений?</string>
-    <string name="firewall_multiselect_dialog_title_allow">Разрешить %d выбранных приложений?</string>
-    <string name="firewall_multiselect_dialog_message">Это изменит сетевой доступ для %d приложений.</string>
     <string name="firewall_multiselect_dialog_title_results">Результаты файрволла</string>
     <string name="firewall_multiselect_dialog_message_success_format">✓ Успешно %2$s: %1$d приложений</string>
     <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d успешно, ✗ %2$d не удалось %3$s</string>
@@ -230,32 +185,11 @@
     <string name="firewall_multiselect_sheet_block_all">Заблокировать все сети</string>
 
     <!-- Theme -->
-    <string name="theme_light">Светлая тема</string>
-    <string name="theme_dark">Тёмная тема</string>
-    <string name="theme_toggle">Переключить тему</string>
 
     <!-- Common -->
-    <string name="search">Поиск</string>
-    <string name="filter">Фильтр</string>
-    <string name="cancel">Отмена</string>
-    <string name="ok">OK</string>
-    <string name="yes">Да</string>
-    <string name="no">Нет</string>
-    <string name="loading">Загрузка…</string>
-    <string name="error">Ошибка</string>
-    <string name="retry">Повторить</string>
-    <string name="success">Успешно</string>
-    <string name="later">Позже</string>
-    <string name="dismiss">Закрыть</string>
-    <string name="grant">Предоставить</string>
 
     <!-- Content Descriptions -->
     <string name="cd_app_icon">Иконка приложения</string>
-    <string name="cd_theme_toggle">Кнопка переключения темы</string>
-    <string name="cd_search_icon">Иконка поиска</string>
-    <string name="cd_filter_icon">Иконка фильтра</string>
-    <string name="cd_status_indicator">Индикатор состояния</string>
-    <string name="cd_navigation_icon">Иконка навигации</string>
     <string name="cd_wifi_status">Состояние WiFi</string>
     <string name="cd_wifi_blocked">WiFi заблокирован</string>
     <string name="cd_mobile_data_status">Состояние мобильных данных</string>
@@ -292,15 +226,11 @@
     </plurals>
 
     <!-- Root Access -->
-    <string name="root_status_granted">Root-доступ: Предоставлен</string>
     <string name="root_status_denied">Root-доступ: Отклонён</string>
     <string name="root_status_not_available">Root-доступ: Недоступен</string>
-    <string name="root_status_checking">Root-доступ: Проверка…</string>
 
-    <string name="root_desc_granted">Расширенные операции доступны</string>
     <string name="root_desc_denied">Root-разрешение было отклонено. Следуйте инструкциям ниже для предоставления доступа.</string>
     <string name="root_desc_not_available">Ваше устройство не имеет root-доступа. Root необходим для расширенных операций управления пакетами.</string>
-    <string name="root_desc_checking">Пожалуйста, подождите…</string>
 
     <string name="root_grant_instructions_title">Для предоставления root-доступа:</string>
     <string name="root_grant_instructions_body">• Переустановите приложение для повторного запроса разрешения\n• Или вручную добавьте De1984 в приложение суперпользователя (Magisk, KernelSU и т.д.)</string>
@@ -308,36 +238,20 @@
     <string name="root_rooting_tools_title"><![CDATA[<b>Рекомендуемые инструменты для root:</b>]]></string>
     <string name="root_rooting_tools_body">• Magisk - Самое популярное и широко поддерживаемое root-решение. Работает на Android 5.0+ и поддерживает модули для дополнительных функций.\n• KernelSU - Современное управление root на уровне ядра. Обеспечивает лучшую изоляцию безопасности и не модифицирует системный раздел.\n• APatch - Новая альтернатива с патчингом ядра. Подходит для устройств со строгими политиками безопасности.</string>
 
-    <string name="root_setup_instructions">Для включения функций отключения/включения пакетов:\n\n1. Получите root-права на устройстве предпочтительным способом\n2. Предоставьте права суперпользователя De1984 при запросе\n3. Перезапустите приложение для использования расширенных операций</string>
 
     <!-- Shizuku Access -->
-    <string name="shizuku_status_granted">Shizuku: Предоставлен</string>
     <string name="shizuku_status_denied">Shizuku: Отклонён</string>
-    <string name="shizuku_status_not_available">Shizuku: Не установлен</string>
     <string name="shizuku_status_not_running">Shizuku: Не запущен</string>
-    <string name="shizuku_status_checking">Shizuku: Проверка…</string>
 
-    <string name="shizuku_desc_granted">Расширенные операции доступны через Shizuku</string>
     <string name="shizuku_desc_denied">Разрешение Shizuku было отклонено. Нажмите \'Предоставить Shizuku\' для повтора.</string>
-    <string name="shizuku_desc_not_available">Shizuku не установлен. Установите Shizuku для управления пакетами без root.</string>
     <string name="shizuku_desc_not_running">Shizuku установлен, но не запущен. Запустите Shizuku для управления пакетами.</string>
-    <string name="shizuku_desc_checking">Пожалуйста, подождите…</string>
 
-    <string name="shizuku_instructions_not_running">Запустите приложение Shizuku для управления пакетами</string>
 
-    <string name="shizuku_what_is">Shizuku позволяет приложениям использовать системные API с повышенными привилегиями (ADB или root). Это более безопасная альтернатива традиционному root-доступу для управления пакетами.</string>
 
     <!-- Privileged Access Banner -->
-    <string name="banner_no_access_available">Привилегированный доступ недоступен. Установите Shizuku или получите root для управления пакетами.</string>
-    <string name="banner_shizuku_not_running">Shizuku установлен, но не запущен. Запустите Shizuku или получите root для управления пакетами.</string>
-    <string name="banner_permission_required">Требуется Shizuku или root-доступ для управления пакетами</string>
 
-    <string name="banner_button_go_to_settings">Перейти в настройки</string>
-    <string name="banner_button_grant">Предоставить</string>
-    <string name="banner_button_dismiss">Закрыть</string>
 
     <!-- Backend Monitoring -->
-    <string name="backend_monitoring_channel_name">Мониторинг бэкенда</string>
 
     <string name="backend_notification_title_waiting">Файрволл De1984 активен (режим VPN)</string>
     <string name="backend_notification_title_switching">De1984 переключает бэкенд…</string>
@@ -363,7 +277,6 @@
     <string name="backend_toast_failed">Не удалось переключить бэкенд файрволла De1984</string>
 
     <!-- VPN Fallback -->
-    <string name="vpn_fallback_channel_name">Резервный VPN</string>
 
     <string name="vpn_fallback_notification_title">Файрволл De1984 отключён</string>
     <string name="vpn_fallback_notification_text">Привилегированный бэкенд не работает. Нажмите для включения резервного VPN и восстановления защиты файрволла.</string>
@@ -404,14 +317,7 @@
     <string name="vpn_conflict_notification_text">Активен другой VPN. De1984 требуется разрешение VPN для восстановления защиты файрволла. Это заменит текущее VPN-подключение. Нажмите для предоставления разрешения.</string>
     <string name="vpn_conflict_notification_action_text">Заменить VPN и включить файрволл</string>
 
-    <string name="vpn_fallback_tier_title">Резервный VPN</string>
-    <string name="vpn_fallback_tier_description">Позволяет автоматический переход на VPN при сбое привилегированных бэкендов (iptables/ConnectivityManager). Гарантирует активность файрволла.</string>
-    <string name="vpn_fallback_tier_status_granted">Выполнено</string>
-    <string name="vpn_fallback_tier_status_not_granted">Требуется разрешение</string>
-    <string name="vpn_fallback_tier_button_text">Предоставить VPN-разрешение</string>
 
-    <string name="vpn_fallback_permission_name">VPN-разрешение</string>
-    <string name="vpn_fallback_permission_description">Создание VPN-соединения для резервного файрволла</string>
 
     <!-- Language Switcher -->
     <string name="language_title">Язык приложения</string>
@@ -438,7 +344,6 @@
 
     <string name="settings_backend_title">Бэкенд файрволла</string>
     <string name="settings_backend_description">Выберите бэкенд для блокировки приложений</string>
-    <string name="settings_backend_current">Текущий: %s</string>
     <string name="settings_backend_active">Активный: %s</string>
     <string name="settings_backend_not_running">Файрволл не запущен.</string>
     <string name="settings_backend_loading">Загрузка...</string>
@@ -450,7 +355,6 @@
     <string name="backend_vpn_description">Всегда использовать VPN-бэкенд</string>
     <string name="backend_connectivity_manager_name">ConnectivityManager</string>
     <string name="backend_connectivity_manager_description">Системная блокировка (требуется Shizuku + Android 13+)</string>
-    <string name="backend_connectivity_manager_requirement">Требуется Shizuku + Android 13+</string>
     <string name="backend_requires_android_13">Требуется Android 13+</string>
     <string name="backend_requires_shizuku">Требуется Shizuku</string>
     <string name="backend_iptables_name">iptables</string>
@@ -513,7 +417,6 @@
     <string name="dialog_import_preview_message">Найдено %1$d пакетов для удаления:\n\n%2$s\n\n⚠️ Все перечисленные приложения будут удалены.</string>
     <string name="dialog_import_warning_title">Некоторые пакеты не найдены</string>
     <string name="dialog_import_warning_message">Найдено %1$d из %2$d пакетов.\n\nНайдены:\n%3$s\n\nНе найдены:\n%4$s\n\nПродолжить с найденными пакетами?</string>
-    <string name="dialog_import_failed_title">Ошибка импорта</string>
     <string name="dialog_import_all_not_found">❌ Ни один из %d пакетов в файле не установлен</string>
     <string name="dialog_import_protected_section">🛡️ Пропущены как защищённые (важные или необходимые для De1984):\n%1$s</string>
     <string name="dialog_import_empty_file">❌ Файл пуст или не содержит допустимых имён пакетов</string>
@@ -604,7 +507,6 @@
     <string name="dialog_vpn_permission_error_message">Не удалось запросить VPN-разрешение: %s</string>
 
     <!-- Licenses (unused but kept for future) -->
-    <string name="licenses_coming_soon">Экран лицензий открытого исходного кода скоро появится</string>
 
     <!-- Packages Screen -->
     <string name="packages_empty_state_title">Пакеты не найдены</string>
@@ -624,7 +526,6 @@
     <string name="firewall_network_label_background_access">Разрешить в фоне</string>
     <string name="firewall_network_label_internet_access">Доступ в интернет</string>
     <string name="firewall_internet_access_subtitle">WiFi, Мобильные, Роуминг</string>
-    <string name="firewall_background_access_description">Разрешить приложению доступ в интернет в фоновом режиме</string>
     <string name="firewall_connectivity_manager_info">Ваше устройство использует системный файрволл, который не поддерживает блокировку по сетям. Для детального контроля требуется root-доступ.</string>
     <string name="firewall_system_critical_info">⚠️ Критически важный системный пакет - Сетевой доступ нельзя изменить для предотвращения нестабильности системы.</string>
     <string name="firewall_vpn_app_info">🔒 VPN-приложение - Всегда разрешено для предотвращения проблем с переподключением VPN после блокировки/разблокировки устройства.</string>
@@ -757,7 +658,6 @@
     <string name="privileged_access_banner_permission_required">Требуется Shizuku или root-доступ для управления пакетами</string>
     <string name="privileged_access_banner_button_settings">Перейти в настройки</string>
     <string name="privileged_access_banner_button_grant">Предоставить</string>
-    <string name="privileged_access_banner_button_dismiss">Закрыть</string>
     <string name="privileged_access_dialog_title">Привилегированный доступ</string>
     <string name="privileged_access_tier_title">Управление пакетами</string>
     <string name="privileged_access_status_setup_required">Требуется настройка</string>
@@ -819,8 +719,6 @@
     <string name="boot_protection_disable_warning_title">Отключить защиту при загрузке?</string>
     <string name="boot_protection_disable_warning_message">⚠️ Ваше устройство немедленно перезагрузится при продолжении.\n\nСетевой трафик больше не будет блокироваться при загрузке. Приложения могут передавать данные до запуска файрволла.</string>
     <string name="boot_protection_reboot_failed">Защита при загрузке изменена, но устройство не удалось перезагрузить автоматически. Пожалуйста, перезагрузите устройство вручную.</string>
-    <string name="boot_protection_enabled_success">Защита при загрузке успешно включена</string>
-    <string name="boot_protection_disabled_success">Защита при загрузке успешно отключена</string>
     <string name="boot_protection_enable_failed">Не удалось включить защиту при загрузке: %s</string>
     <string name="boot_protection_disable_failed">Не удалось отключить защиту при загрузке: %s</string>
 
@@ -850,11 +748,8 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
-    <string name="tile_label_de1984_on">De1984 ВКЛ</string>
-    <string name="tile_label_de1984_off">De1984 ВЫКЛ</string>
     <string name="tile_label_firewall_on">Файрволл ВКЛ</string>
     <string name="tile_label_firewall_off">Файрволл ВЫКЛ</string>
-    <string name="tile_label_firewall_starting">Запуск…</string>
     <string name="tile_label_firewall_error">Ошибка</string>
     <string name="tile_subtitle_active">Активен</string>
     <string name="tile_subtitle_inactive">Неактивен</string>
@@ -868,6 +763,5 @@
     <string name="widget_description">Быстрое переключение файрволла De1984</string>
 
     <!-- Notification Actions -->
-    <string name="notification_action_stop_firewall">ВЫКЛЮЧИТЬ</string>
 
 </resources>

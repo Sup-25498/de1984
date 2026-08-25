@@ -78,10 +78,6 @@ class SettingsViewModel(
         ) ?: Constants.Settings.DEFAULT_FIREWALL_MODE
 
         return SettingsUiState(
-            autoRefresh = prefs.getBoolean("auto_refresh", true),
-            showSystemApps = prefs.getBoolean("show_system_apps", false),
-            darkTheme = prefs.getBoolean("dark_theme", false),
-            refreshInterval = prefs.getInt("refresh_interval", 30),
             showAppIcons = prefs.getBoolean(Constants.Settings.KEY_SHOW_APP_ICONS, Constants.Settings.DEFAULT_SHOW_APP_ICONS),
             defaultFirewallPolicy = prefs.getString(
                 Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
@@ -242,21 +238,6 @@ class SettingsViewModel(
         }
     }
     
-    fun setAutoRefresh(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(autoRefresh = enabled)
-        saveSetting("auto_refresh", enabled)
-    }
-    
-    fun setShowSystemApps(show: Boolean) {
-        _uiState.value = _uiState.value.copy(showSystemApps = show)
-        saveSetting("show_system_apps", show)
-    }
-    
-    fun setDarkTheme(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(darkTheme = enabled)
-        saveSetting("dark_theme", enabled)
-    }
-
     fun setShowAppIcons(show: Boolean) {
         _uiState.value = _uiState.value.copy(showAppIcons = show)
         saveSetting(Constants.Settings.KEY_SHOW_APP_ICONS, show)
@@ -685,21 +666,9 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(vpnPermissionRequired = false)
     }
 
-    fun setRefreshInterval(interval: Int) {
-        _uiState.value = _uiState.value.copy(refreshInterval = interval)
-        saveSetting("refresh_interval", interval)
-    }
     
 
     
-    fun showLicenses() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                message = context.getString(io.github.dorumrr.de1984.R.string.licenses_coming_soon)
-            )
-        }
-    }
-
     fun clearMessage() {
         _uiState.value = _uiState.value.copy(message = null)
     }
@@ -1310,9 +1279,6 @@ class SettingsViewModel(
 }
 
 data class SettingsUiState(
-    val autoRefresh: Boolean = true,
-    val showSystemApps: Boolean = false,
-    val darkTheme: Boolean = false,
     val showAppIcons: Boolean = true,
     val defaultFirewallPolicy: String = Constants.Settings.DEFAULT_FIREWALL_POLICY,
     val newAppNotifications: Boolean = Constants.Settings.DEFAULT_NEW_APP_NOTIFICATIONS,
@@ -1329,8 +1295,6 @@ data class SettingsUiState(
     val confirmRuleChanges: Boolean = Constants.Settings.DEFAULT_CONFIRM_RULE_CHANGES,
     val useDynamicColors: Boolean = Constants.Settings.DEFAULT_USE_DYNAMIC_COLORS,
     val appLanguage: String = Constants.Settings.DEFAULT_APP_LANGUAGE,
-
-    val refreshInterval: Int = 30,
 
     val requiresRestart: Boolean = false,
 

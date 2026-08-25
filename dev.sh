@@ -242,7 +242,9 @@ start_emulator() {
     # Start emulator in background with output redirected to /dev/null
     # -no-snapshot-save: Don't save state on exit
     # -no-audio: Disable audio for faster startup
-    "$emulator_cmd" -avd "$emulator_name" "${wipe_args[@]}" -no-snapshot-save -no-audio > /dev/null 2>&1 &
+    # ${arr[@]+"${arr[@]}"} and not "${arr[@]}": macOS ships bash 3.2, where expanding an EMPTY
+    # array under `set -u` aborts with "unbound variable" - and the empty case is now the default.
+    "$emulator_cmd" -avd "$emulator_name" ${wipe_args[@]+"${wipe_args[@]}"} -no-snapshot-save -no-audio > /dev/null 2>&1 &
     local emulator_pid=$!
 
     log_info "Emulator starting with PID: $emulator_pid"

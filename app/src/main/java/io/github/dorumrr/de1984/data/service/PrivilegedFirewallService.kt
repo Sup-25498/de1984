@@ -68,6 +68,16 @@ class PrivilegedFirewallService : Service() {
      */
     private val teardownGraceMs = 5000L
     private var monitoringJob: Job? = null
+
+    /**
+     * The rules-Flow collector.
+     *
+     * Held in its own field because [stopFirewall] must cancel it. It used to be launched into
+     * serviceScope untracked, so a backend switch left the previous session's collector alive and
+     * every switch added another. They collapsed onto one debounced apply so nothing visibly broke,
+     * but each leaked collector still woke on every rule change for the life of the service.
+     */
+    private var rulesJob: Job? = null
     private var healthMonitoringJob: Job? = null
     private var ruleApplicationJob: Job? = null
 
@@ -354,6 +364,8 @@ class PrivilegedFirewallService : Service() {
 
         monitoringJob?.cancel()
         monitoringJob = null
+        rulesJob?.cancel()
+        rulesJob = null
         healthMonitoringJob?.cancel()
         healthMonitoringJob = null
         ruleApplicationJob?.cancel()
@@ -412,9 +424,31 @@ class PrivilegedFirewallService : Service() {
         }
     }
 
+    /**
+     * Watch for changes that need the rules re-applied.
+     *
+     * The FIRST emission of each flow is the CURRENT value, not a change, and by the time this runs
+     * FirewallManager has already written those exact rules: every start path goes through
+     * `applyRulesToBackend`, including the same-backend restart. Acting on that first emission was
+     * the duplicate pass - measured on hardware at two full passes per start, ~1.0s and
+     * ~235-466ms, writing identical policies.
+     *
+     * So the first emission is recorded and not acted on. Everything after it is a real change and
+     * is applied as before.
+     *
+     * The state fields ARE still written on that first emission. Skipping them would leave
+     * currentNetworkType at NetworkType.NONE, and isBlockedOn(NONE) blocks - the same trap the
+     * removed "initial" schedule fell into.
+     *
+     * Cancels its own previous collectors first, so calling this twice cannot leave two sets running.
+     */
     private fun startMonitoring() {
         AppLogger.d(TAG, "Starting network/screen state monitoring")
 
+        monitoringJob?.cancel()
+        rulesJob?.cancel()
+
+        var firstStateEmission = true
         monitoringJob = serviceScope.launch {
             combine(
                 networkStateMonitor.observeNetworkType(),
@@ -425,6 +459,12 @@ class PrivilegedFirewallService : Service() {
                 currentNetworkType = networkType
                 isScreenOn = screenOn
 
+                if (firstStateEmission) {
+                    firstStateEmission = false
+                    AppLogger.d(TAG, "Initial state recorded (network=$networkType, screen=$screenOn) - FirewallManager has already applied, not re-applying")
+                    return@collect
+                }
+
                 if (isServiceActive) {
                     AppLogger.d(TAG, "State changed: network=$networkType, screen=$screenOn - scheduling rule application")
                     scheduleRuleApplication("state-change")
@@ -432,8 +472,15 @@ class PrivilegedFirewallService : Service() {
             }
         }
 
-        serviceScope.launch {
+        var firstRulesEmission = true
+        rulesJob = serviceScope.launch {
             firewallRepository.getAllRules().collect { _ ->
+                if (firstRulesEmission) {
+                    firstRulesEmission = false
+                    AppLogger.d(TAG, "Initial rules snapshot received - FirewallManager has already applied, not re-applying")
+                    return@collect
+                }
+
                 if (isServiceActive) {
                     AppLogger.d(TAG, "🔥 [TIMING] Flow EMITTED: timestamp=${System.currentTimeMillis()}")
                     scheduleRuleApplication("flow")
