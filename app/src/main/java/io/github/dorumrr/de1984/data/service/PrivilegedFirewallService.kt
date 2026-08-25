@@ -321,7 +321,20 @@ class PrivilegedFirewallService : Service() {
                 AppLogger.d(TAG, "Starting foreground service with notification")
                 startForeground(NOTIFICATION_ID, createNotification())
 
-                scheduleRuleApplication("initial")
+                // No "initial" apply here, on purpose.
+                //
+                // It never ran anyway: startMonitoring() below collects the Room rules Flow and the
+                // network/screen monitors, all of which emit their current value immediately, and
+                // each of those calls scheduleRuleApplication - which cancels the pending job. Timed
+                // on hardware 2026-08-25: "initial" scheduled at 59.501, cancelled by "flow" at
+                // 59.567 and again by "state-change" at 59.607, all inside the 300ms debounce.
+                //
+                // It was not merely dead. currentNetworkType is still NetworkType.NONE at this point
+                // - startMonitoring() is what fills it - and FirewallRule.isBlockedOn(NONE) blocks.
+                // So on any device slow enough for the monitors to take more than 300ms to emit,
+                // this line applied a full over-block of every rule, then corrected itself moments
+                // later. The rules Flow emission is the guaranteed trigger; this was a race against
+                // it that could only ever produce a wrong answer.
 
                 startMonitoring()
                 startBackendHealthMonitoring()

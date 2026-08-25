@@ -70,11 +70,30 @@ why they were built that way. Making it one rule for all three would edit settle
 
 # 3. Performance and architecture
 
-- **The duplicate apply.** Two backend instances each run the full `applyRules` for the same rule
-  change. Correct now that they share a process-wide lock, but it doubles the cost and is the reason
-  the race existed. The real fix is one backend instance per process, which touches `FirewallManager`
-  and `PrivilegedFirewallService` lifecycle. **Observed live on hardware 2026-08-25**: two passes
-  1.4s apart on a single start, both applying the identical 2 policies.
+- **The duplicate apply.** `NEEDS-RUNTIME` to change safely. Traced precisely on hardware
+  2026-08-25, and the earlier note was only half right:
+
+  1. `FirewallManager.applyRulesToBackend(newBackend)` runs on **FirewallManager's own** instance
+     during `startFirewallInternal`.
+  2. `PrivilegedFirewallService` applies on **its** instance, triggered by `startMonitoring()`
+     collecting the Room rules Flow and the network/screen monitors — both emit immediately.
+
+  Measured: pass 1 ~1.0s, pass 2 ~235-466ms, both writing the identical policies. The `initial`
+  schedule that used to make it look like three was dead and has been removed (settled decision 15).
+
+  **Why it has not been removed.** FirewallManager's pass is what makes a failed apply fail the
+  start: `startFirewallInternal` returns `START_FAILED` if it throws. The service's pass is
+  fire-and-forget and never reaches the start result. Dropping FirewallManager's pass would let a
+  start report success over rules that were never written — the exact class of bug the health work
+  has been removing. Dropping the service's is not possible either: its monitors emit on collect,
+  which is them doing their job.
+
+  **The real fix** is the ownership change: the service becomes the single backend owner, and the
+  start path awaits its first apply result over the callback channel that already exists
+  (`handleStopFailureFromService`, `handleBackendFailureFromService`). That needs a timeout policy on
+  the start path, where both "treat a timeout as success" and "as failure" are wrong some of the
+  time. It should be a focused session, and the ConnectivityManager half cannot be verified on the
+  test device at all.
 - **Every rule change re-enumerates all 466 packages.** Recorded 2026-08-22, not fixed.
 - **`clearInstalledAppsCache()` on the UI path defeats the firewall's cache.** Dropping it would let
   the cache survive, but **work-profile package events reach neither receiver**, so the UI's clear is
@@ -222,6 +241,21 @@ Kept because the knowledge is load-bearing, not because there is work to do.
     contract is correct and the denial is inside the provider chain the picker chose, and no
     permission the app could hold changes it — a `.json` backup is not covered by `READ_MEDIA_*` on
     API 33+. Only the open is remapped; a failure part-way through reading keeps its own message.
+15. **The four `dev.sh` traps are closed.** (2026-08-25) `install` no longer uninstalls the
+    **production** package — it never needed to, the two application IDs coexist, and on a
+    daily-driver phone it wiped the user's real firewall rules with no backup. `-wipe-data` is now
+    opt-in via `./dev.sh emulator wipe`; `check_device` auto-starts an emulator whenever nothing is
+    attached, so unconditional wiping meant a bare `./dev.sh install` could factory-reset it
+    silently. The keystore password goes to `keytool` over stdin instead of argv, where `ps` could
+    read it. `APP_VERSION` is validated and the script exits loudly if it cannot be parsed, rather
+    than building paths from a wrong string.
+16. **`PrivilegedFirewallService` no longer schedules an "initial" rule application.** (2026-08-25)
+    It never ran: `startMonitoring()` collects the Room rules Flow and the state monitors, all of
+    which emit immediately and cancel the pending job inside its 300ms debounce — timed on hardware
+    at 66ms and 106ms. It was not merely dead: `currentNetworkType` is still `NetworkType.NONE` at
+    that point, and `isBlockedOn(NONE)` blocks, so on a device slow enough for the monitors to take
+    over 300ms it applied a full over-block of every rule before correcting itself. The rules Flow
+    emission is the guaranteed trigger.
 
 # Reference — backend capability matrix
 
@@ -256,16 +290,6 @@ audit had all shifted, so each was verified by pattern, not by line.
 | P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
 
 # The rest of the 2026-08-22 catalogue — NOT re-verified
-
-## dev.sh traps
-
-- `install` uninstalls the **production** package too, not just `.debug`. On a daily-driver phone this
-  wipes real rules, and per P1-23 there is no backup. `dev.sh:328-345`
-- `emulator` always passes `-wipe-data`, and `check_device` auto-calls it when nothing is attached —
-  so a bare `./dev.sh install` can silently wipe the emulator. `dev.sh:222`
-- `get_production_sha256` passes the store password on the `keytool` command line — briefly visible in
-  `ps`. `dev.sh:788`
-- `APP_VERSION` is grep/sed-parsed out of `app/build.gradle.kts`; a format change breaks every APK path.
 
 ## Built but unreachable
 

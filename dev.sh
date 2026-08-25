@@ -12,6 +12,16 @@ APP_ID_DEBUG="${APP_ID}.debug"
 # Extract version from build.gradle.kts (now using hardcoded versionName)
 APP_VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
 
+# Fail loudly rather than carrying on with a wrong version. Every APK path below is built from this
+# string, so a format change in build.gradle.kts would otherwise produce paths that simply do not
+# exist - and the first sign of it is a build "failing" for no visible reason.
+# log_error is not defined yet at this point in the file, so plain echo.
+if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "ERROR: could not read versionName from app/build.gradle.kts (got: '$APP_VERSION')" >&2
+    echo "       Every APK path in this script is built from it, so it must not be guessed." >&2
+    exit 1
+fi
+
 APK_PATH_DEBUG="app/build/outputs/apk/debug/de1984-v${APP_VERSION}-debug.apk"
 APK_PATH_RELEASE="app/build/outputs/apk/release/de1984-v${APP_VERSION}.apk"
 SCREENSHOT_DIR="screenshots"
@@ -136,6 +146,12 @@ start_emulator() {
     local requested_emulator="${1:-}"
     log_header "Starting Android Emulator"
 
+    # Wiping is OPT-IN. This used to pass -wipe-data unconditionally, and check_device auto-calls
+    # this function whenever nothing is attached - so a bare "./dev.sh install" with no device
+    # plugged in factory-reset the emulator without ever saying so.
+    #   ./dev.sh emulator wipe   -> factory reset
+    #   anything else            -> keep the emulator's data
+
     # Find emulator command
     local emulator_cmd=$(get_emulator_command)
     if [ -z "$emulator_cmd" ]; then
@@ -213,13 +229,20 @@ start_emulator() {
         fi
     fi
 
-    log_info "Starting emulator fresh (this may take 30-60 seconds)..."
+    local wipe_args=()
+    if [ "${EMULATOR_WIPE:-false}" = "true" ]; then
+        log_warn "Factory-resetting the emulator: all its data will be lost"
+        wipe_args=(-wipe-data)
+    else
+        log_info "Keeping the emulator's existing data (use './dev.sh emulator wipe' to reset it)"
+    fi
+
+    log_info "Starting emulator (this may take 30-60 seconds)..."
 
     # Start emulator in background with output redirected to /dev/null
-    # -wipe-data: Start with fresh data (factory reset)
     # -no-snapshot-save: Don't save state on exit
     # -no-audio: Disable audio for faster startup
-    "$emulator_cmd" -avd "$emulator_name" -wipe-data -no-snapshot-save -no-audio > /dev/null 2>&1 &
+    "$emulator_cmd" -avd "$emulator_name" "${wipe_args[@]}" -no-snapshot-save -no-audio > /dev/null 2>&1 &
     local emulator_pid=$!
 
     log_info "Emulator starting with PID: $emulator_pid"
@@ -344,12 +367,13 @@ uninstall_app() {
         log_info "Debug version not installed"
     fi
 
-    # Check if release version is installed (use --user 0 to avoid multi-user permission issues)
+    # The PRODUCTION package is deliberately left alone. This used to uninstall it too, which on a
+    # daily-driver phone wipes the user's real firewall rules - and there is no automatic backup of
+    # them. The two packages have different application IDs (.debug suffix), so they coexist happily
+    # and there was never a reason to remove it.
     if adb shell pm list packages --user 0 2>/dev/null | grep -q "^package:$APP_ID$"; then
-        log_info "Uninstalling release version: $APP_ID"
-        adb uninstall "$APP_ID" || log_warn "Failed to uninstall release version"
-    else
-        log_info "Release version not installed"
+        log_warn "Production app ($APP_ID) is installed - leaving it alone"
+        log_info "To remove it deliberately: adb uninstall $APP_ID"
     fi
 
     log_success "Uninstall complete"
@@ -815,8 +839,12 @@ get_production_sha256() {
         return 1
     fi
 
-    # Get SHA256 with colons (using password from keystore.properties)
-    local sha256_with_colons=$(keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" 2>/dev/null | grep "SHA256:" | head -1 | sed 's/.*SHA256: //')
+    # Password over STDIN, never on the command line. Anything in argv is readable by every process
+    # on the machine for as long as the command runs - `ps aux` is enough - and keytool prompts for
+    # the keystore password when -storepass is absent.
+    local sha256_with_colons=$(printf '%s\n' "$STORE_PASSWORD" \
+        | keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" 2>/dev/null \
+        | grep "SHA256:" | head -1 | sed 's/.*SHA256: //')
 
     # Convert to lowercase without colons (for F-Droid YAML)
     local sha256_lowercase=$(echo "$sha256_with_colons" | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -1038,7 +1066,14 @@ main() {
             ;;
         "emulator")
             check_adb
-            start_emulator "$target"
+            # Only this command can wipe, and only when asked: "./dev.sh emulator wipe".
+            # check_device's auto-start never sets this.
+            if [ "$target" = "wipe" ]; then
+                EMULATOR_WIPE=true
+                start_emulator ""
+            else
+                start_emulator "$target"
+            fi
             ;;
         "logs")
             check_adb
