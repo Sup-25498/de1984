@@ -321,6 +321,62 @@ This is what makes "all-or-nothing" true in practice. A non-uniform rule — one
 
 For a uniform rule, switching between WiFi and Mobile has no effect - the blocking state remains the same.
 
+**System UIDs are never blocked by the Shizuku backends:**
+
+Android packs a UID as `userId * 100000 + appId`, and refuses a firewall policy for any appId outside `10000..19999`. ConnectivityManager answers `Can't set package firewall rule for system app <pkg> with appId <n>`; NetworkPolicyManager throws `cannot apply policy to UID <uid>`. De1984 skips them before spending a Shizuku process, so a rule on such a package has no effect on these backends. iptables blocks by UID and is not subject to this limit. The per-pass log reports how many packages were skipped. Measured on an Android 14 GSI: 31 packages across 7 system UIDs.
+
+---
+
+## 4. NetworkPolicyManager Backend
+
+**Requirements:** Shizuku. No Android version requirement.
+
+**Characteristics:**
+- No VPN icon
+- Does not occupy VPN slot (can use real VPN)
+- Does NOT support granular rules (all-or-nothing blocking only)
+- Blocks are stored by Android outside the app and **survive reboot and uninstall**. A clean stop restores them — see "What survives uninstalling De1984"
+- Never selected by AUTO. Reachable only by choosing it manually in Settings
+
+**How it works:**
+
+Reaches `INetworkPolicyManager` over the Shizuku binder by reflection and calls `setUidPolicy(uid, policy)`. Blocking is per UID, not per package, so apps sharing a UID share a verdict.
+
+**The blocking value is decided at runtime, not hard-coded:**
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `POLICY_NONE` | `0x0` | no policy |
+| `POLICY_REJECT_METERED_BACKGROUND` | `0x1` | AOSP. Metered background data only — **does not block WiFi** |
+| `POLICY_ALLOW_METERED_BACKGROUND` | `0x4` | AOSP. An **allowance**, never a block |
+| `POLICY_REJECT_ALL` | `0x40000` | Not in AOSP. Added by LineageOS-type ROMs. Blocks WiFi and Mobile |
+
+`calibrateBlockingPolicy` picks between them by writing `POLICY_REJECT_ALL` to one app UID and reading it back, then confirming with `dumpsys netpolicy` that the ROM actually decodes it as `REJECT_ALL`. Storing the value is not enough — a ROM that stores it without knowing the constant enforces nothing. Anything short of a confirmed `REJECT_ALL` falls back to `POLICY_REJECT_METERED_BACKGROUND`, and **WiFi is then not blocked at all**. `0x4` is rejected outright if a ROM ever returns it for a blocking write: granting an allowance to an app the UI calls blocked would be worse than failing.
+
+Calibration runs only on an app UID. On a system UID the write throws, and a throw would pin the weakest policy for the whole process.
+
+**The original-policy record:**
+
+`POLICY_NONE` does not mean "no opinion" — writing it erases whatever was there, including Android's own "Restrict background data" setting and a ROM's per-app restrictions. So this backend records what each UID held **before** it was touched, in `npm_original_policies`, and flushes that record to disk **before** the first write. A UID absent from the record is not ours and is left alone. On stop, each UID is set back to its recorded value; an entry is dropped only once the policy reads back as `POLICY_NONE`, proving there is nothing left to undo. Entries that fail to restore stay on disk for the next attempt rather than being forgotten.
+
+**Block All mode:**
+- Apps without rules: Blocked on all networks
+- Apps with explicit "allow" rule: Allowed on all networks
+- Apps with explicit "block" rule: Blocked on all networks
+
+**Allow All mode:**
+- Apps without rules: Allowed on all networks
+- Apps with explicit "allow" rule: Allowed on all networks
+- Apps with explicit "block" rule: Blocked on all networks
+
+**Network changes:**
+
+Like ConnectivityManager, the live network type does not affect the outcome. `applyRules` evaluates `rule.isBlockedOnAnyNetwork()`, so an app is blocked if its rule blocks on WiFi, Mobile **or** Roaming.
+
+**System UIDs:** the same limit described in section 3 applies here. `setUidPolicy` throws `cannot apply policy to UID <uid>` for any appId outside `10000..19999`, and those packages are skipped before a Shizuku process is spent.
+
+**Known gap:** UI availability is checked with `hasShizukuPermission` plus reflection reaching the service. Whether a ROM implements `POLICY_REJECT_ALL` is only discovered later, during calibration, so a device can offer this backend and then silently degrade to metered-background-only blocking. The fallback is logged as a warning; nothing surfaces it in the UI.
+
 ---
 
 ## Boot Protection

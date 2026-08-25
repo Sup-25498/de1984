@@ -367,7 +367,7 @@ class ConnectivityManagerFirewallBackend(
             }
             saveBlockedPackages(record)
 
-                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $untouchedCount never ours, $systemUidCount system UIDs Android will not firewall, $errorCount errors")
+                AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, $untouchedCount never ours, $systemUidCount packages on system UIDs Android will not firewall, $errorCount errors")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply rules", e)

@@ -283,12 +283,9 @@ class NetworkPolicyManagerFirewallBackend(
         }
     }
 
-    /**
-     * Both callers hold [originalPolicyLock], so the prune below may write.
-     */
     private fun loadOriginalPolicies(): Map<Int, Int> {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-        val stored = prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
+        return prefs.getStringSet(Constants.Settings.KEY_NPM_ORIGINAL_POLICIES, emptySet())
             ?.mapNotNull { entry ->
                 val parts = entry.split(":")
                 val uid = parts.getOrNull(0)?.toIntOrNull()
@@ -297,18 +294,6 @@ class NetworkPolicyManagerFirewallBackend(
             }
             ?.toMap()
             ?: emptyMap()
-
-        // Entries for uids Android will never let us write. The original was recorded first and the
-        // write refused, so these were never changed and dropping them loses nothing. Left in, the
-        // stop path replays every one of them - a doomed Shizuku process each, on every stop.
-        // Measured on a work-profile device: 6 of 8 entries. See issue #93.
-        val firewallable = stored.filterKeys { Constants.Firewall.isFirewallableAppUid(it) }
-        if (firewallable.size != stored.size) {
-            AppLogger.d(TAG, "Pruned ${stored.size - firewallable.size} original-policy entries " +
-                    "for UIDs Android will not firewall")
-            saveOriginalPolicies(firewallable, durable = true)
-        }
-        return firewallable
     }
 
     /**
@@ -567,8 +552,8 @@ class NetworkPolicyManagerFirewallBackend(
             }
 
                 AppLogger.d(TAG, "✅ Applied $appliedCount policies, skipped $skippedCount unchanged, " +
-                        "left $untouchedCount foreign policies alone, $systemUidCount system UIDs " +
-                        "Android will not firewall, $errorCount errors")
+                        "left $untouchedCount foreign policies alone, $systemUidCount packages on system " +
+                        "UIDs Android will not firewall, $errorCount errors")
                 Result.success(Unit)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply rules", e)
