@@ -427,18 +427,21 @@ class PrivilegedFirewallService : Service() {
     /**
      * Watch for changes that need the rules re-applied.
      *
-     * The FIRST emission of each flow is the CURRENT value, not a change, and by the time this runs
-     * FirewallManager has already written those exact rules: every start path goes through
-     * `applyRulesToBackend`, including the same-backend restart. Acting on that first emission was
-     * the duplicate pass - measured on hardware at two full passes per start, ~1.0s and
-     * ~235-466ms, writing identical policies.
+     * The first emission of each flow is the CURRENT value rather than a change, so this DOES look
+     * like a duplicate of the pass FirewallManager runs during the start - and it was skipped as one
+     * on 2026-08-25. That was wrong, and the reason is worth keeping.
      *
-     * So the first emission is recorded and not acted on. Everything after it is a real change and
-     * is applied as before.
+     * FirewallManager cannot tell when this service has finished starting. For the privileged
+     * backends `backend.start()` posts an intent and returns, so its own `applyRules` can land before
+     * `startInternal()` has created the iptables chains. Caught on hardware: the DROP rules were
+     * written 276 ms before `iptables -N de1984_output` ran, so they failed, an EMPTY chain was
+     * linked into OUTPUT, and the firewall reported success while blocking nothing. Moving the apply
+     * after the liveness check only moved the race - `isActive()` then ran before the chains existed
+     * and aborted the start instead.
      *
-     * The state fields ARE still written on that first emission. Skipping them would leave
-     * currentNetworkType at NetworkType.NONE, and isBlockedOn(NONE) blocks - the same trap the
-     * removed "initial" schedule fell into.
+     * This pass is what repairs both cases: it runs inside the service, after `startInternal()`, so
+     * the chains are guaranteed to exist. Until FirewallManager and this service have a real
+     * start handshake, the second pass is the price of the rules actually being applied.
      *
      * Cancels its own previous collectors first, so calling this twice cannot leave two sets running.
      */
@@ -448,7 +451,6 @@ class PrivilegedFirewallService : Service() {
         monitoringJob?.cancel()
         rulesJob?.cancel()
 
-        var firstStateEmission = true
         monitoringJob = serviceScope.launch {
             combine(
                 networkStateMonitor.observeNetworkType(),
@@ -459,12 +461,6 @@ class PrivilegedFirewallService : Service() {
                 currentNetworkType = networkType
                 isScreenOn = screenOn
 
-                if (firstStateEmission) {
-                    firstStateEmission = false
-                    AppLogger.d(TAG, "Initial state recorded (network=$networkType, screen=$screenOn) - FirewallManager has already applied, not re-applying")
-                    return@collect
-                }
-
                 if (isServiceActive) {
                     AppLogger.d(TAG, "State changed: network=$networkType, screen=$screenOn - scheduling rule application")
                     scheduleRuleApplication("state-change")
@@ -472,15 +468,8 @@ class PrivilegedFirewallService : Service() {
             }
         }
 
-        var firstRulesEmission = true
         rulesJob = serviceScope.launch {
             firewallRepository.getAllRules().collect { _ ->
-                if (firstRulesEmission) {
-                    firstRulesEmission = false
-                    AppLogger.d(TAG, "Initial rules snapshot received - FirewallManager has already applied, not re-applying")
-                    return@collect
-                }
-
                 if (isServiceActive) {
                     AppLogger.d(TAG, "🔥 [TIMING] Flow EMITTED: timestamp=${System.currentTimeMillis()}")
                     scheduleRuleApplication("flow")

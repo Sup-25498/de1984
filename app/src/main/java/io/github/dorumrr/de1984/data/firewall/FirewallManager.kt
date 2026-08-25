@@ -2525,6 +2525,33 @@ class FirewallManager(
 
         AppLogger.d(TAG, "Privilege change detected: root=$rootStatus, shizuku=$shizukuStatus")
 
+        // CHECKING is not an answer. Acting on it treats "we do not know yet" as "there is none":
+        // hasRootPermission is still false while the probe runs, so IptablesFirewallBackend fails
+        // its availability check, AUTO falls all the way through to VPN, and the start then blocks
+        // on VpnFirewallBackend's 10-second activation timeout before anything can correct it.
+        //
+        // Measured on hardware 2026-08-25, cold start on a rooted device:
+        //
+        //   03.107  Starting firewall with mode: AUTO      (root=CHECKING, shizuku=CHECKING)
+        //   15.087  VPN service failed to become active after 10029ms (timeout)
+        //   15.155  🚨 FIREWALL DOWN
+        //   17.xxx  ✅ iptables is AVAILABLE - selecting iptables backend   (probe finished)
+        //
+        // That is issue #91: the quick tile sits on "Starting…" for about ten seconds and the user
+        // sees a FIREWALL DOWN flash, for a device that had working root the whole time.
+        //
+        // A probe that finishes always emits again with a real status, so nothing is lost by
+        // waiting - the same reasoning as BootProtectionManager.isBootProtectionInstalled()
+        // returning null rather than false when it cannot find out.
+        if (rootStatus == RootStatus.CHECKING || shizukuStatus == ShizukuStatus.CHECKING) {
+            AppLogger.d(TAG, "Privilege probe still running (root=$rootStatus, shizuku=$shizukuStatus) - waiting for a real answer")
+            // Not recorded as processed: the next emission carries the actual status and must not
+            // be skipped as a duplicate.
+            lastProcessedRootStatus = null
+            lastProcessedShizukuStatus = null
+            return
+        }
+
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
         val firewallEnabled = prefs.getBoolean(Constants.Settings.KEY_FIREWALL_ENABLED, false)
         val firewallDown = _isFirewallDown.value
