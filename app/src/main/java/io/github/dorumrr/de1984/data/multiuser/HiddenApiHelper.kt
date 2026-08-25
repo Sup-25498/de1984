@@ -359,29 +359,6 @@ object HiddenApiHelper {
      * The result changes only when a package is installed or removed, so it shares
      * [INSTALLED_APPS_CACHE_TTL] and is dropped by [clearInstalledAppsCache].
      */
-    /**
-     * Does one package request any permission the firewall cares about?
-     *
-     * Answers from [getPackagesWithNetworkPermissions]'s cached list instead of making its own
-     * binder call. AndroidPackageDataSource used to ask this per package with its own
-     * `getPackageInfoAsUser` - 466 of them on every package load - while applyRules then made the
-     * same 466 calls again moments later. Measured on hardware: 1,175 ms each, twice per rule
-     * change, for the identical answer. Both paths enumerate through
-     * [getInstalledApplicationsAsUser] and [getUsers], so they see exactly the same packages.
-     *
-     * It also settles a real disagreement between the two. The caller checked a hardcoded list of
-     * THREE permissions - INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE - while
-     * [Constants.Firewall.NETWORK_PERMISSIONS], which the firewall itself uses, holds FIVE. An app
-     * requesting only CHANGE_WIFI_STATE or CHANGE_NETWORK_STATE was shown in the UI as having no
-     * network permission while the firewall was applying a policy to it.
-     */
-    fun hasNetworkPermission(context: Context, packageName: String, userId: Int): Boolean {
-        return getPackagesWithNetworkPermissions(context).any {
-            // uid is packed as userId * 100000 + appId, the same derivation used everywhere else.
-            it.packageName == packageName && it.uid / 100000 == userId
-        }
-    }
-
     fun getPackagesWithNetworkPermissions(context: Context): List<ApplicationInfo> {
         val entryTime = System.currentTimeMillis()
         networkPackagesCache?.let { cached ->

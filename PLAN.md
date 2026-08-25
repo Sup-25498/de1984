@@ -70,13 +70,45 @@ why they were built that way. Making it one rule for all three would edit settle
 
 # 3. Performance and architecture
 
-- **Every rule change re-enumerates all 466 packages.** Recorded 2026-08-22, not fixed.
+- **Two full `getPackageInfoAsUser` sweeps per rule change.** Re-measured on hardware 2026-08-25;
+  the old wording ("re-enumerates all 466 packages") pointed at the wrong thing and misled a fix
+  attempt. **The enumeration is nearly free.** From a cold start:
+
+  | Step | Cost |
+  |---|---|
+  | `getInstalledApplicationsAsUser`, both profiles | 37 ms + 178 ms |
+  | `getUsers` | 128 ms |
+  | `getAllRules().first()` | 18 ms |
+  | **`getPackages` total** | **2,713 ms** |
+
+  ~2,350 ms of that is unaccounted by the enumeration. It is the **per-package binder call**:
+  `AndroidPackageDataSource.getPackageMetadataBatch` calls
+  `HiddenApiHelper.getPackageInfoAsUser(GET_PERMISSIONS or GET_SERVICES)` once per package, 466
+  times. `HiddenApiHelper.getPackagesWithNetworkPermissions` then makes the same call with
+  `GET_PERMISSIONS` for all 466 again, measured at ~1,062 ms. **`getPackageInfoAsUser` has no cache
+  at all** — every call is a binder round trip.
+
+  So the waste is ~3.4 s per rule change, in two sweeps of the same call moments apart, not in the
+  enumeration.
+
+  **Proposed fix, not yet built:** the UI sweep already computes `hasNetworkAccess` per package, so
+  it can **populate** the network-permissions cache as a side effect rather than the firewall
+  recomputing it. That costs no extra memory and matches the existing `recordPackageUids()` pattern
+  in the same file. The alternative - caching `PackageInfo` objects directly - would hold megabytes
+  for the 5-second TTL and needs measuring first. Needs care around partial sweeps and profile
+  coverage.
 - **`clearInstalledAppsCache()` on the UI path defeats the firewall's cache.** Dropping it would let
   the cache survive, but **work-profile package events reach neither receiver**, so the UI's clear is
   currently the only thing that notices a work-profile install between TTL expiries. Removing it
   without replacing that coverage would be a correctness regression. A real fix needs work-profile
   aware invalidation.
 - `commit()`'s return value is not checked in either durable write. Disk-full territory only.
+- **`getInstalledApplicationsAsUser` is flaky for the work profile.** Observed twice on 2026-08-25:
+  `Profile 10 (Work): ... returned 0 packages` from the hidden API, before a Shizuku fallback found
+  216. Nothing is known to break because of it today, but it means a whole-profile scan is not a
+  safe substitute for a per-package query — see the comment on
+  `AndroidPackageDataSource.hasNetworkPermissions`, which was reverted to a direct call for exactly
+  this reason.
 - **Follow-up candidate, not a defect:** `NetworkPolicyManagerFirewallBackend.originalPolicyLock` is
   now a second guard over the same window as the process-wide `mutex`. Kept because it enforces the
   invariant at the exact read-modify-write, and that path has already destroyed a real user policy
@@ -345,6 +377,13 @@ audit had all shifted, so each was verified by pattern, not by line.
 6. The two protection tiers are membership tests on two hardcoded sets, and consumers pick different
    sets for the same intent.
 7. `KEY_FIREWALL_ENABLED` has four writers.
+8. **CLOSED 2026-08-25.** "Has a network permission" was asked two ways: `AndroidPackageDataSource`
+   checked three permissions inline while `Constants.Firewall.NETWORK_PERMISSIONS`, used by every
+   firewall backend, holds five. An app requesting only `CHANGE_WIFI_STATE` or
+   `CHANGE_NETWORK_STATE` was shown as having no network permission while the firewall applied a
+   policy to it. Now reads the shared constant. Measured on hardware: **0 apps change** — nothing
+   requests those two without one of the original three — so this prevents future divergence rather
+   than fixing a visible bug.
 
 ## Project health
 

@@ -860,12 +860,25 @@ class AndroidPackageDataSource(
     }
 
     /**
-     * Delegates rather than asking again. See [HiddenApiHelper.hasNetworkPermission] for why: this
-     * used to make its own binder call per package, duplicating the one applyRules makes moments
-     * later, and it checked three permissions where the firewall checks five.
+     * Does this package request any permission the firewall cares about?
+     *
+     * Reads [Constants.Firewall.NETWORK_PERMISSIONS] rather than a list of its own. It used to check
+     * three permissions inline - INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE - while that
+     * constant, which the firewall backends use, holds five. An app requesting only
+     * CHANGE_WIFI_STATE or CHANGE_NETWORK_STATE was shown here as having no network permission while
+     * the firewall was applying a policy to it.
+     *
+     * Deliberately still one direct `getPackageInfoAsUser` per package, NOT a lookup in
+     * HiddenApiHelper's cached whole-profile list. That list is only as good as the enumeration
+     * behind it, and the enumeration is flaky: measured twice on 2026-08-25, user 10 returned 0
+     * packages from the hidden API before a Shizuku fallback found 216. Answering a per-package
+     * question from a whole-profile scan would turn one failed scan into "no network permission"
+     * for every app in that profile. A direct call cannot fail that way.
      */
-    private fun hasNetworkPermissions(packageName: String, userId: Int = 0): Boolean =
-        HiddenApiHelper.hasNetworkPermission(context, packageName, userId)
+    private fun hasNetworkPermissions(packageName: String, userId: Int = 0): Boolean {
+        val permissions = getAppPermissions(packageName, userId)
+        return permissions.any { Constants.Firewall.NETWORK_PERMISSIONS.contains(it) }
+    }
 
     override suspend fun setNetworkAccess(packageName: String, userId: Int, allowed: Boolean): Boolean {
         val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
