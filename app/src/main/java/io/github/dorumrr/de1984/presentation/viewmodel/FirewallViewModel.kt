@@ -275,7 +275,7 @@ class FirewallViewModel(
                 .onSuccess {
                 }
                 .onFailure { error ->
-                    loadNetworkPackages()
+                    revertOptimisticUpdate()
                     if (superuserBannerState.shouldShowBannerForError(error)) {
                         superuserBannerState.showSuperuserRequiredBanner()
                     }
@@ -298,7 +298,7 @@ class FirewallViewModel(
                     .onSuccess {
                     }
                     .onFailure { error ->
-                        loadNetworkPackages()
+                        revertOptimisticUpdate()
                         if (superuserBannerState.shouldShowBannerForError(error)) {
                             superuserBannerState.showSuperuserRequiredBanner()
                         }
@@ -321,7 +321,7 @@ class FirewallViewModel(
                     .onSuccess {
                     }
                     .onFailure { error ->
-                        loadNetworkPackages()
+                        revertOptimisticUpdate()
                         if (superuserBannerState.shouldShowBannerForError(error)) {
                             superuserBannerState.showSuperuserRequiredBanner()
                         }
@@ -351,7 +351,7 @@ class FirewallViewModel(
                 .onSuccess {
                 }
                 .onFailure { error ->
-                    loadNetworkPackages()
+                    revertOptimisticUpdate()
                     if (superuserBannerState.shouldShowBannerForError(error)) {
                         superuserBannerState.showSuperuserRequiredBanner()
                     }
@@ -387,7 +387,7 @@ class FirewallViewModel(
                 }
                 .onFailure { error ->
                     AppLogger.e(TAG, "setBackgroundBlocking: FAILURE - ${error.message}")
-                    loadNetworkPackages()
+                    revertOptimisticUpdate()
                     if (superuserBannerState.shouldShowBannerForError(error)) {
                         superuserBannerState.showSuperuserRequiredBanner()
                     }
@@ -412,7 +412,7 @@ class FirewallViewModel(
                 }
                 .onFailure { error ->
                     AppLogger.e(TAG, "setLanBlocking: FAILURE - ${error.message}")
-                    loadNetworkPackages()
+                    revertOptimisticUpdate()
                     if (superuserBannerState.shouldShowBannerForError(error)) {
                         superuserBannerState.showSuperuserRequiredBanner()
                     }
@@ -440,7 +440,7 @@ class FirewallViewModel(
                     AppLogger.d(TAG, "🔥 [TIMING] UseCase SUCCESS: +${System.currentTimeMillis() - startTime}ms - DB update complete")
                 }
                 .onFailure { error ->
-                    loadNetworkPackages()
+                    revertOptimisticUpdate()
                     if (superuserBannerState.shouldShowBannerForError(error)) {
                         superuserBannerState.showSuperuserRequiredBanner()
                     }
@@ -477,12 +477,16 @@ class FirewallViewModel(
         _uiState.value = _uiState.value.copy(isRenderingUI = false)
     }
 
-    fun refresh() {
-        _uiState.value = _uiState.value.copy(
-            isLoadingData = true,
-            isRenderingUI = false
-        )
-        loadNetworkPackages()
+    /**
+     * Undo an optimistic row update whose write failed.
+     *
+     * Must force a refresh. [updatePackageInList] writes the optimistic value into BOTH the UI state
+     * and [cachedPackages], and a plain [loadNetworkPackages] returns early on a non-empty cache -
+     * so the "revert" re-filtered the value it was supposed to undo and the row kept showing a block
+     * that was never applied.
+     */
+    private fun revertOptimisticUpdate() {
+        loadNetworkPackages(forceRefresh = true)
     }
 
     fun startFirewall(): Intent? {
@@ -646,7 +650,7 @@ class FirewallViewModel(
                     .onFailure { error ->
                         AppLogger.e(TAG, "🔥 batchBlockPackages: Failed to block ${packageId.packageName}: ${error.message}")
                         failed.add(packageId.packageName)
-                        loadNetworkPackages()
+                        revertOptimisticUpdate()
                     }
             }
 
@@ -692,7 +696,7 @@ class FirewallViewModel(
                     .onFailure { error ->
                         AppLogger.e(TAG, "🔥 batchAllowPackages: Failed to allow ${packageId.packageName}: ${error.message}")
                         failed.add(packageId.packageName)
-                        loadNetworkPackages()
+                        revertOptimisticUpdate()
                     }
             }
 

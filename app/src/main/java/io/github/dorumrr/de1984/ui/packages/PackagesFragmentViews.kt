@@ -1190,8 +1190,15 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             message = message,
             confirmButtonText = Constants.Packages.MultiSelect.DIALOG_BUTTON_UNINSTALL_ALL,
             onConfirm = {
-                val packagesWithUserId = selectedPackages.map { it.packageName to it.userId }
-                performBatchUninstall(packagesWithUserId)
+                // Act on exactly what the dialog listed. `packages` is the selection intersected
+                // with the visible list; `selectedPackages` can be larger, because a selection
+                // survives a filter change that hides it. Counting one and uninstalling the other
+                // told the user "3 apps" and removed more, with no undo.
+                if (packages.size != selectedPackages.size) {
+                    AppLogger.w(TAG, "Batch uninstall: ${selectedPackages.size - packages.size} " +
+                            "selected package(s) are not in the visible list - not uninstalling them")
+                }
+                performBatchUninstall(packages.map { it.packageName to it.userId })
             },
             cancelButtonText = Constants.Packages.MultiSelect.DIALOG_BUTTON_CANCEL
         )
@@ -1279,8 +1286,12 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             message = message,
             confirmButtonText = getString(R.string.batch_reinstall_dialog_button_reinstall_all),
             onConfirm = {
-                val packagesWithUserId = selectedPackages.map { it.packageName to it.userId }
-                performBatchReinstall(packagesWithUserId)
+                // Same rule as the uninstall dialog: act on exactly what was listed.
+                if (packages.size != selectedPackages.size) {
+                    AppLogger.w(TAG, "Batch reinstall: ${selectedPackages.size - packages.size} " +
+                            "selected package(s) are not in the visible list - not reinstalling them")
+                }
+                performBatchReinstall(packages.map { it.packageName to it.userId })
             },
             cancelButtonText = getString(R.string.dialog_cancel)
         )

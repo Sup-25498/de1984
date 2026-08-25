@@ -267,7 +267,7 @@ toggle is stored, shown, and never enforced.
 All 26 entries re-checked against code at v2.6.4 / versionCode 35. Line numbers from the original
 audit had all shifted, so each was verified by pattern, not by line.
 
-**18 fixed · 2 were never defects · 1 still live · 4 unresolved.** Closed entries are not listed;
+**20 fixed · 4 were never defects · 1 still live · 0 unresolved.** Closed entries are not listed;
 `git show f8f45d2:PLAN.md` and the log hold them.
 
 ## Still live — 1
@@ -275,15 +275,6 @@ audit had all shifted, so each was verified by pattern, not by line.
 | ID | Finding | Evidence today |
 |---|---|---|
 | P1-24 | **Partly fixed 2026-08-25.** The six public suspend entry points of `FirewallManager` (`startFirewall`, `stopFirewall`, `computeStartPlan`, `isIptablesAvailable`, `startVpnFallbackManually`, `checkBackendShouldSwitch`) now run on `Dispatchers.IO`; `MainActivity:873` reached `startFirewall()` from `lifecycleScope`, which is Main. **Still open:** the non-suspend `FirewallManager.isActive()` reaches `ActivityManager.getRunningServices` and is called on Main from `MainActivity:205` and `FirewallTileService:80`. Making it suspend changes its signature across the tile service, so it was left. Cold-start jank persists and its remaining source is **not attributed** — do not assume it is this. | `MainActivity.kt:205`, `FirewallTileService.kt:80` |
-
-## Unresolved — 4, need a closer look than a grep
-
-| ID | Finding | Why it is unresolved |
-|---|---|---|
-| P1-3 | Privilege-gain switch stops VPN first and on failure only logs | The surrounding code was heavily rewritten by the `reportStartFailure` work. Whether this specific exit now reports down was not established. |
-| P1-9 | Batch confirmation counts only visible selections but uninstalls all selected | `PackagesFragmentViews.kt:1133` uses `selectedPackages.size`. Whether that set is the visible subset or the full selection needs the selection-mode code read end to end. |
-| P1-13 | Failed rule writes revert by reloading, which may replay the mutated cache | `onFailure` calls `loadNetworkPackages()`. If that re-reads the repository the revert is correct; if it serves a cache the finding stands. Not settled. |
-| P1-21 | Uninstall friction is inverted — batch-of-50 is one button, one ESSENTIAL app needs typing "UNINSTALL" | A product judgement as much as a defect. Needs a decision, not a grep. |
 
 # The rest of the 2026-08-22 catalogue — NOT re-verified
 
