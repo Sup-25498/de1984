@@ -64,6 +64,45 @@ object HiddenApiHelper {
     // aware invalidation, not a longer window.
     private const val INSTALLED_APPS_CACHE_TTL = 5_000L
 
+    /**
+     * Its own window, deliberately longer than [INSTALLED_APPS_CACHE_TTL].
+     *
+     * Measured on hardware 2026-08-25: at a cold start the UI sweep begins at T and the firewall's
+     * begins at T+6.58s, so a 5-second window expired before the second sweep could reuse anything -
+     * `0 hit / 731 miss`. During a rule change the same two sweeps are 0.4s apart. One constant
+     * cannot serve both, so this one is sized for the wider gap.
+     *
+     * Longer is safe here in a way it is NOT for the installed-apps list, because this cache is keyed
+     * by package name. A NEWLY installed package is a new key and therefore always a miss and always
+     * fetched fresh - it can never be served stale. Only a package whose permissions or services
+     * change IN PLACE can go stale, which means an app update, and that fires PackageChangedReceiver
+     * -> clearInstalledAppsCache() -> this map is dropped. The known gap is the work profile, whose
+     * package events reach neither receiver; there an in-place permission change is invisible for at
+     * most one window.
+     */
+    private const val PACKAGE_INFO_CACHE_TTL = 30_000L
+
+    /** Guards [packageInfoCache]. Never taken while holding [networkPackagesLock]. */
+    private val packageInfoLock = Any()
+
+    /** "userId:flags:packageName" -> PackageInfo, valid for one [PACKAGE_INFO_CACHE_TTL] window. */
+    private val packageInfoCache = mutableMapOf<String, PackageInfo?>()
+
+    @Volatile
+    private var packageInfoCacheTime: Long = 0
+
+    /**
+     * Hit/miss counters for [packageInfoCache], reported once per network-permission sweep.
+     *
+     * A cache whose hit rate is invisible is a cache nobody can tell is broken. This one exists to
+     * be shared between two sweeps that may or may not fall inside the same TTL window, and whether
+     * they do depends on timing that varies between a cold start and a rule change - so the hit rate
+     * is the only honest way to know it is working.
+     */
+    private var packageInfoHits = 0
+
+    private var packageInfoMisses = 0
+
     // Which packages request a network permission. Shares the installed-apps TTL and invalidation,
     // because the answer changes only when a package is installed or removed.
     @Volatile
@@ -341,6 +380,10 @@ object HiddenApiHelper {
 
     fun clearInstalledAppsCache() {
         synchronized(this) { packageUidsCache.clear() }
+        synchronized(packageInfoLock) {
+            packageInfoCache.clear()
+            packageInfoCacheTime = 0
+        }
         installedAppsCache.clear()
         installedAppsCacheTime = 0
         networkPackagesCache = null
@@ -387,10 +430,14 @@ object HiddenApiHelper {
                 .map { appInfo -> appInfo to profile.userId }
         }.filter { (appInfo, userId) ->
             try {
+                // GET_SERVICES is not read here. It is requested so this shares a cache entry
+                // with AndroidPackageDataSource.getPackageMetadataBatch, which asks for both and
+                // sweeps the same packages moments earlier or later. Different flags would mean
+                // different cache keys and both sweeps would pay the full binder cost again.
                 val packageInfo = getPackageInfoAsUser(
                     context,
                     appInfo.packageName,
-                    PackageManager.GET_PERMISSIONS,
+                    PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES,
                     userId
                 )
                 packageInfo?.requestedPermissions?.any { permission ->
@@ -403,8 +450,15 @@ object HiddenApiHelper {
 
             networkPackagesCache = packages
             networkPackagesCacheTime = System.currentTimeMillis()
+            val hits = synchronized(packageInfoLock) {
+                val h = packageInfoHits
+                val m = packageInfoMisses
+                packageInfoHits = 0
+                packageInfoMisses = 0
+                "$h hit / $m miss"
+            }
             AppLogger.d(TAG, "📦 Found ${packages.size} packages with network permissions " +
-                    "in ${System.currentTimeMillis() - startTime}ms")
+                    "in ${System.currentTimeMillis() - startTime}ms (getPackageInfo cache: $hits)")
             return packages
         }
     }
@@ -753,7 +807,60 @@ object HiddenApiHelper {
         }
     }
 
+    /**
+     * One `getPackageInfoAsUser` per (user, package, flags) per cache window, not per caller.
+     *
+     * This is the single most expensive call in the app and it had no cache at all. Two independent
+     * sweeps make it for every installed package moments apart: AndroidPackageDataSource's
+     * getPackageMetadataBatch when the list loads, and getPackagesWithNetworkPermissions when rules
+     * are applied. Measured on hardware 2026-08-25: ~2,350 ms and ~1,062 ms, 466 calls each, for a
+     * device with two profiles.
+     *
+     * Caching HERE rather than sharing a package list between the two callers is deliberate. The two
+     * lists are not the same set and must not become one: the UI sweep filters out De1984's own
+     * package (`Constants.App.isOwnApp`) and the firewall's does not. Caching the binder call leaves
+     * every caller's filtering, exclusions and permission list exactly as they were - only the
+     * round trip is shared.
+     *
+     * Dropped by [clearInstalledAppsCache] with the other package caches, so a package install or
+     * removal invalidates it through the same path, but it keeps its own [PACKAGE_INFO_CACHE_TTL] -
+     * see that constant for why one window cannot serve both. Entries are held for at most one
+     * window, which bounds the memory: the whole map is dropped the first time it is read after
+     * going stale.
+     *
+     * `null` results are cached too. A package that is genuinely not installed for a user is a
+     * stable answer for the window, and re-asking would cost the same binder call every time.
+     */
     fun getPackageInfoAsUser(
+        context: Context,
+        packageName: String,
+        flags: Int,
+        userId: Int
+    ): PackageInfo? {
+        val key = "$userId:$flags:$packageName"
+
+        synchronized(packageInfoLock) {
+            if (System.currentTimeMillis() - packageInfoCacheTime >= PACKAGE_INFO_CACHE_TTL) {
+                if (packageInfoCache.isNotEmpty()) {
+                    packageInfoCache.clear()
+                }
+                packageInfoCacheTime = System.currentTimeMillis()
+            } else if (packageInfoCache.containsKey(key)) {
+                packageInfoHits++
+                return packageInfoCache[key]
+            }
+            packageInfoMisses++
+        }
+
+        val result = fetchPackageInfoAsUser(context, packageName, flags, userId)
+
+        synchronized(packageInfoLock) {
+            packageInfoCache[key] = result
+        }
+        return result
+    }
+
+    private fun fetchPackageInfoAsUser(
         context: Context,
         packageName: String,
         flags: Int,

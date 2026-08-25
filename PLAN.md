@@ -70,33 +70,6 @@ why they were built that way. Making it one rule for all three would edit settle
 
 # 3. Performance and architecture
 
-- **Two full `getPackageInfoAsUser` sweeps per rule change.** Re-measured on hardware 2026-08-25;
-  the old wording ("re-enumerates all 466 packages") pointed at the wrong thing and misled a fix
-  attempt. **The enumeration is nearly free.** From a cold start:
-
-  | Step | Cost |
-  |---|---|
-  | `getInstalledApplicationsAsUser`, both profiles | 37 ms + 178 ms |
-  | `getUsers` | 128 ms |
-  | `getAllRules().first()` | 18 ms |
-  | **`getPackages` total** | **2,713 ms** |
-
-  ~2,350 ms of that is unaccounted by the enumeration. It is the **per-package binder call**:
-  `AndroidPackageDataSource.getPackageMetadataBatch` calls
-  `HiddenApiHelper.getPackageInfoAsUser(GET_PERMISSIONS or GET_SERVICES)` once per package, 466
-  times. `HiddenApiHelper.getPackagesWithNetworkPermissions` then makes the same call with
-  `GET_PERMISSIONS` for all 466 again, measured at ~1,062 ms. **`getPackageInfoAsUser` has no cache
-  at all** — every call is a binder round trip.
-
-  So the waste is ~3.4 s per rule change, in two sweeps of the same call moments apart, not in the
-  enumeration.
-
-  **Proposed fix, not yet built:** the UI sweep already computes `hasNetworkAccess` per package, so
-  it can **populate** the network-permissions cache as a side effect rather than the firewall
-  recomputing it. That costs no extra memory and matches the existing `recordPackageUids()` pattern
-  in the same file. The alternative - caching `PackageInfo` objects directly - would hold megabytes
-  for the 5-second TTL and needs measuring first. Needs care around partial sweeps and profile
-  coverage.
 - **`clearInstalledAppsCache()` on the UI path defeats the firewall's cache.** Dropping it would let
   the cache survive, but **work-profile package events reach neither receiver**, so the UI's clear is
   currently the only thing that notices a work-profile install between TTL expiries. Removing it
@@ -262,6 +235,38 @@ Kept because the knowledge is load-bearing, not because there is work to do.
     by default. macOS ships bash 3.2, where expanding an empty array under `set -u` aborts with
     "unbound variable" — so `./dev.sh emulator` would have failed outright on the common path. Now
     `${wipe_args[@]+"${wipe_args[@]}"}`, proven under 3.2.57 in both the empty and non-empty case.
+19. **`getPackageInfoAsUser` is cached.** (2026-08-25) It was the most expensive call in the app and
+    had no cache at all. Two independent sweeps made it for every installed package moments apart:
+    `AndroidPackageDataSource.getPackageMetadataBatch` on a list load, and
+    `getPackagesWithNetworkPermissions` when rules are applied.
+
+    Cached in `HiddenApiHelper` by `"userId:flags:packageName"`, and the firewall's sweep now asks
+    for the same flags as the UI's so they share entries. Caching the binder call rather than sharing
+    a package list between the callers is deliberate: the two lists are **not the same set** and must
+    not become one — the UI filters out De1984's own package via `Constants.App.isOwnApp` and the
+    firewall does not. Every caller keeps its own filtering; only the round trip is shared.
+
+    It has its own `PACKAGE_INFO_CACHE_TTL = 30s` rather than the 5s installed-apps window. Measured:
+    at a cold start the two sweeps are **6.58 s** apart, so 5 s expired before the second could reuse
+    anything; during a rule change they are 0.4 s apart. One constant cannot serve both. Longer is
+    safe here because the cache is keyed by package name: a newly installed package is a new key,
+    always a miss, always fetched fresh. Only an in-place permission change can go stale, and that
+    means an app update, which fires `PackageChangedReceiver` -> `clearInstalledAppsCache()`.
+
+    Hit/miss counters are reported once per sweep — a cache whose hit rate is invisible is one nobody
+    can tell is broken.
+
+    **Measured on hardware, cold start, three runs:**
+
+    | | Before | After |
+    |---|---|---|
+    | network-permission sweep | 1,062 ms | **526 / 516 / 163 ms** |
+    | `getPackageInfo` cache | 0 hit / 731 miss | **466 hit / 481 miss** |
+
+    Roughly half the sweep, gone. The remaining misses are work-profile packages: when
+    `getInstalledApplicationsAsUser` returns 0 for user 10 (see the known flakiness above) the UI
+    sweep never caches them and the firewall pays full price.
+
 18. **One rule-apply pass per start, not two.** (2026-08-25) `FirewallManager` applied on its own
     backend instance during the start, and `PrivilegedFirewallService` applied again on its own
     instance moments later - measured on hardware at ~1.0s and ~235-466ms writing identical
