@@ -1,0 +1,9 @@
+- Fixed the firewall stopping on its own after a while #93 #37 #18 #4
+- Fixed apps staying blocked after a network change #87 #74
+- Fixed roaming silently allowed #80
+- Fixed IPv6 traffic escaping the VPN backend
+- Restoring a backup now re-links rules to apps #81
+- Rules are no longer erased when updating from an old version
+- A row network icon now covers every network #72
+- De1984 now finds Shizuku when it is renamed #92
+- Boot Protection no longer leaves boot blocked on failure
