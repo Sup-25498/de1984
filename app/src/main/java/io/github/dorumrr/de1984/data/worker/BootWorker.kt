@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import io.github.dorumrr.de1984.De1984Application
 import io.github.dorumrr.de1984.data.common.ShizukuStatus
 import io.github.dorumrr.de1984.data.service.BackendMonitoringService
+import io.github.dorumrr.de1984.data.service.PackageMonitoringService
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.firewall.FirewallMode
 import io.github.dorumrr.de1984.utils.Constants
@@ -93,6 +94,24 @@ class BootWorker(
                     }
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "❌ Exception while lifting boot protection block", e)
+                }
+
+                // Start the cross-profile watcher too. It was only ever started
+                // from MainActivity, so after a reboot nothing looked at other user
+                // profiles until the user happened to open the app - and a
+                // work-profile app installed in the meantime got no rule at all.
+                //
+                // Only on the success path, and deliberately so: this is a plain
+                // background service, and starting one is legal here ONLY because
+                // the firewall just brought PrivilegedFirewallService up in the
+                // foreground. With the firewall off there is no foreground service,
+                // the start would throw, and the process would be killed shortly
+                // after anyway - so there would be nothing to keep running.
+                try {
+                    PackageMonitoringService.startMonitoring(applicationContext)
+                    AppLogger.d(TAG, "Cross-profile package watcher started")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Could not start the package watcher: ${e.message}")
                 }
 
                 if (backendType == FirewallBackendType.VPN) {

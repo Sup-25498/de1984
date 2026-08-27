@@ -32,22 +32,44 @@ gone, list scrolling is smooth.
 
 **Still open, four pieces:**
 
-### 61a. Work-profile status never refreshes by itself — `VERIFIED 2026-08-27`
+### 61a. Work-profile status never refreshes by itself — `FIXED 2026-08-27`, one gap left
 
-`PackageMonitoringService` is the only code that *watches* other profiles over time:
+**The bug.** `PackageMonitoringService` compared a set of `(packageName, userId)` pairs. Disabling an
+app does not remove it from the device, so that set never changed and an enable or disable was
+invisible — it could only ever see apps appearing. Meanwhile `ACTION_PACKAGE_CHANGED`, which covers
+this for user 0, never reaches another profile.
 
-- It polls every **15 s** and acts only on `newPackages = current - lastKnown`
-  (`checkForNewPackages`). The set is `(packageName, userId)`, so an enable or disable never
-  changes membership and is **never noticed** — additions only. This is the actual bug.
-- It is started from `MainActivity.kt:165` alone. `START_STICKY` restarts it after a kill, but
-  nothing bootstraps it at boot, so nothing watches other profiles until the user opens the app.
-- Manifest receivers are registered for user 0 only.
+**Fixed** by also tracking which packages are disabled per profile
+(`HiddenApiHelper.readDisabledPackagesFresh`, `PackageMonitoringService.checkForEnabledStateChanges`).
+One `pm list packages -d --user N` per profile per poll, not one call per package — that is what
+makes it affordable inside the 15-second loop.
 
-**Two corrections from the 2026-08-27 audit.** It is *not* the only code that enumerates profiles —
-`HiddenApiHelper.getUsers` has **12** call sites, including all three backends,
-`AndroidPackageDataSource.kt:108` and `FirewallVpnService.kt:494,682`. And
-`PackageChangedReceiver.kt:71` does read `EXTRA_UID` and derive a `userId`, so it is not blind to
-other profiles when an event is actually delivered to it — the gap is delivery, not handling.
+Three traps closed while writing it:
+
+- A failed read used to be indistinguishable from "nothing is disabled". `queryDisabledPackages` now
+  returns **null on failure**, and a profile whose read fails is skipped rather than recorded.
+  Without that, one bad shell call reads as every disabled app having just been enabled.
+- `disabledPackagesCache` had no lock and now has two threads. `disabledPackagesLock` added.
+- `installedAppsCache` was `@Volatile` only, which publishes the reference and not the contents,
+  with four threads reaching `.clear()`. `installedAppsLock` added — taken **only on its own**,
+  never while holding `networkPackagesLock`, because the reverse nesting is real and would deadlock.
+- Profiles that disappear are pruned from `lastKnownDisabled`, so a work profile removed and
+  re-created on the same userId does not report a change that never happened.
+
+**Verified on hardware 2026-08-27** (TrebleDroid GSI, Android 14, work profile as user 10): disabling
+NewPipe in user 10 from outside the app logged *"1 newly disabled, 0 newly enabled"* within 20 s;
+re-enabling logged the reverse; 40 s idle produced **0** spurious events; 0 crashes. Re-run after the
+lock changes with the same result.
+
+**Still open — nothing watches other profiles until the app is opened.** The service is started from
+`MainActivity.kt:165` alone. `START_STICKY` restarts it after a kill, but nothing bootstraps it at
+boot, so a work-profile app installed or disabled while De1984 is closed is unnoticed until you next
+open it. Fixing it needs a boot hook or a scheduled worker.
+
+**One correction kept from the audit:** `PackageMonitoringService` is not the only code that
+*enumerates* profiles — `HiddenApiHelper.getUsers` has 12 call sites. It is only the code that
+*watches* them over time. And `PackageChangedReceiver.kt:71` does derive a `userId` from `EXTRA_UID`,
+so it is not blind to other profiles — the gap is delivery, not handling.
 
 ### 61b. `getInstalledApplicationsAsUser` returns 0 for the work profile — `VERIFIED 2026-08-25`, downgraded `2026-08-27`
 
@@ -62,49 +84,71 @@ is never cached. And `deleteRulesByUserId` / `deleteRule` have **zero call sites
 can remove a rule. Worst case is a transient empty list, not lasting damage. Fix it for
 correctness, not urgency.
 
-### 61c. Firewall takes too long to become active — `NOT VERIFIED`
+**But read *Block All fails OPEN* below before trusting that.** "A transient empty list" sounds
+harmless; in Block All mode it means nothing gets blocked while the user believes everything is. The
+downgrade is right about lasting damage and wrong about the moment itself.
 
-Reporter measured 1 m 35 s and compared AFWall+ at 6 s for 181 apps. The v2.6.6 chain-resync and the
-`getPackageInfoAsUser` cache should both help. **Nobody has re-measured since.** Measure before
-building anything.
+### 61c. Firewall takes too long to become active — `MEASURED 2026-08-27`, partly fixed
 
-**A named cost centre, found 2026-08-27 by reading code against its own comment.** The
-`getPackageInfoAsUser` cache is keyed `"userId:flags:packageName"` (`HiddenApiHelper.kt:840`), so
-the flags are part of the key. The cached sweep at `HiddenApiHelper.kt:440` asks with
-`GET_PERMISSIONS or GET_SERVICES` = **4100**. Every `hasVpnService` asks with `GET_SERVICES` = **4**
-— `AndroidPackageDataSource.kt:843`, `NetworkPolicyManagerFirewallBackend.kt:836`,
-`IptablesFirewallBackend.kt:1153`, `ConnectivityManagerFirewallBackend.kt:641`,
-`FirewallVpnService.kt:912`. Different key, guaranteed miss, one binder call per app per pass — and
-it runs inside a filter over every package.
+Reporter measured 1 m 35 s and compared AFWall+ at 6 s for 181 apps.
 
-The comment at `HiddenApiHelper.kt:433` claims those flags were chosen so the entry IS shared.
-**The code has never done that.** Trusting the comment would have hidden this.
+**The condition matters.** All of the expensive work sits inside `if (isBlockAllDefault)`. On a
+device set to "allow all" it never runs at all — which is why an earlier 1.62 s measurement here was
+meaningless. The reporter suspected this themselves: one of their log files was named *"Firewall
+Block All By Default May Have Something To Do With It"*.
 
-Second cost centre: `isUidExempted` scans all packages and re-opens SharedPreferences per app.
+**Measured on hardware** (110 packages with network permissions across 2 profiles, 103–106 rules
+written, Block All on):
 
-Fix by making the five sites ask for `GET_PERMISSIONS or GET_SERVICES` — asking for more is safe,
-the answer still carries `services`. **Time it before and after.**
+| | start time | getPackageInfo cache |
+|---|---|---|
+| before both fixes | 8.35 s | 53 hit / 587 miss |
+| after the cache-key fix | — | 622 hit / **0 miss** |
+| after the exempt-uid fix | **7.34 s** (repeated 7.35, 7.34) | 1018 hit / 0 miss |
 
-### 61d. List position resets — same as #73 below.
+**Fix 1 — the cache that never worked.** `getPackageInfoAsUser` keys on `"userId:flags:packageName"`,
+so the flags are part of the key. The cached sweep asked with `GET_PERMISSIONS or GET_SERVICES`
+(4100); all **seven** copies of `hasVpnService` asked with `GET_SERVICES` alone (4). Different key,
+guaranteed miss, one binder call per app inside a filter over every package. The comment at
+`HiddenApiHelper.kt:433` claimed the flags were chosen so the entry IS shared — **the code never did
+that**, and trusting the comment would have hidden it. All seven now ask for both.
+
+**Fix 2 — the same rule computed twice, opposite ways round.** Block All built the critical/VPN uid
+set when "allow critical" was ON; `isUidExempted` re-derived the same test per uid when it was OFF,
+each call reopening SharedPreferences and rescanning every package. The two sets are complements, so
+one pass now serves both (`uidsWithCriticalOrVpn`, `allowCriticalEnabled`), at all three call sites.
+
+**Still open: where the other 7 seconds go.** The two fixes together bought ~1 s of 8.35 s. The
+O(n squared) scan was never the bulk — 110 packages is only ~12,000 comparisons. **The dominant cost
+has not been found yet.** Measure before changing anything else.
+
+### 61d. List position resets — `CANNOT REPRODUCE 2026-08-27`, see #73 below.
+
+Three of four triggers verified on hardware. Only lock/unlock is untested, and it needs a human.
 
 ---
 
 # Next
 
-## #73 — Firewall list jumps to top — `VERIFIED 2026-08-27`
+## #73 — Firewall list jumps to top — `CANNOT REPRODUCE 2026-08-27`
 
-Reported standalone and again inside #61.
+Reported standalone and again inside #61. **Three of four triggers tested on hardware and all hold
+the scroll position:** switching away and back (HOME), switching tabs, and making a rule change from
+a list row. That third one also covers the #61 reporter's separate complaint that *"when changes are
+made in firewall, the page refreshes and reloads to the top"*.
 
-**Cause corrected 2026-08-27.** An earlier entry here blamed a rebuilt `LinearLayoutManager` at
-`FirewallFragmentViews.kt:232`. That was wrong: `setupRecyclerView()` is called once, from line 150,
-so the LayoutManager is built once. The real cause is `FirewallFragmentViews.kt:516` reassigning
-`binding.packagesRecyclerView.adapter`, which resets `lastSubmittedPackages` at :517 and drops the
-scroll position. It is guarded only by `iconsChanged`.
+**Why it is already fixed.** A guard exists whose own comment describes this bug: *"Nothing this
+screen renders has changed. Rebuilding here reset the scroll position and re-read every visible icon,
+on every unrelated settings write."* It fired in the log as *"nothing relevant changed - leaving the
+list alone"*. The adapter reassignment at `FirewallFragmentViews.kt:516` — which two earlier versions
+of this entry named as the cause — sits **behind** that guard and is never reached. Both reporters
+were on v2.6.1/v2.6.2 in December; the fix landed after them.
 
-This also explains the reporter's own words — *"as it does in Packages screen"*.
-`PackagesFragmentViews.setupRecyclerView` (line 172) builds its adapter once and **never reassigns
-it**, which is exactly the difference between the two screens. Neither sets stable IDs.
-**Not confirmed on a device.**
+Tab switching cannot lose the position for a second reason: `MainActivity.loadFragment` uses
+`add`/`show`/`hide`, never `replace`, so the fragment view is not destroyed.
+
+**Untested: lock/unlock**, which is the reporter's headline case. It could not be driven from adb —
+the test device has a pattern lock. Needs a human to scroll, lock, unlock and look.
 
 ## Landscape state loss — no issue number, ours — `VERIFIED 2026-08-27`
 
@@ -135,6 +179,36 @@ down after the user granted VPN permission.
 `FirewallTileService.kt:90` logs *"Firewall is ON, opening app for stop confirmation"*, then
 launches `MainActivity`. The reporter wants the tile to stop the firewall directly and say so in a
 notification. The slow-start half of the report may be helped by v2.6.6 — **not re-measured**.
+
+---
+
+# Found while auditing, not yet acted on
+
+## Block All fails OPEN when a package read fails — `VERIFIED 2026-08-27`
+
+`getInstalledApplicationsAsUser` returns `emptyList()` on total failure (`HiddenApiHelper.kt:372`)
+rather than signalling an error. In Block All mode the backend blocks what it enumerates, so an empty
+enumeration means **nothing is blocked** — the user believes everything is blocked and it is not.
+
+The window is not rare: `INSTALLED_APPS_CACHE_TTL` is 5 s, so the re-fetch that could fail happens
+constantly. This is **not** caused by any recent change; three receivers plus a UI path already
+cleared that cache from their own threads.
+
+This is stronger than 61b's downgrade assumed. 61b concluded the worst case was "a transient empty
+list"; this is what a transient empty list actually costs in Block All mode.
+
+## `networkPackagesCache` is cleared without its lock — `VERIFIED 2026-08-27`, deliberately not fixed
+
+`clearInstalledAppsCache` nulls `networkPackagesCache`/`networkPackagesCacheTime` while every writer
+holds `networkPackagesLock` (`HiddenApiHelper.kt:419`, `:451`). A sweep already inside the lock
+finishes afterwards and republishes its pre-clear result with a fresh timestamp, so the stale list
+survives one more TTL — defeating the refresh that was just requested.
+
+**Taking the lock would be worse than the bug.** That block is held for the whole computation,
+measured at 9,499 ms for 466 packages, and two callers of `clearInstalledAppsCache` are
+BroadcastReceivers, where a wait that long is an ANR. The correct fix is a **generation counter** the
+sweep checks before publishing. Left as a task rather than done badly; there is a comment at the call
+site saying so.
 
 ---
 
