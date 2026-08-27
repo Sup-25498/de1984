@@ -54,7 +54,11 @@ class FirewallViewModel(
         private const val TAG = "FirewallViewModel"
     }
 
-    private val _uiState = MutableStateFlow(FirewallUiState())
+    private val _uiState = MutableStateFlow(
+        FirewallUiState(
+            filterState = io.github.dorumrr.de1984.utils.FilterPrefs.loadFirewall(application)
+        )
+    )
     val uiState: StateFlow<FirewallUiState> = _uiState.asStateFlow()
 
     private var pendingFilterState: FirewallFilterState? = null
@@ -166,10 +170,36 @@ class FirewallViewModel(
             .onEach { packages ->
                 cachedPackages = packages
 
-                val filteredPackages = filterPackages(packages, filterState)
+                // Read the filter LIVE, not the `filterState` captured when this job was started.
+                // The packages flow is a shared replay flow and emits again long after that - the
+                // other screen collecting it is enough - so the captured value goes stale the
+                // moment the user taps a chip. Using it here would re-filter, and worse write that
+                // stale value back into the state, silently undoing the user's own selection.
+                val activeFilter = _uiState.value.filterState
 
                 val hasWorkProfile = packages.any { it.isWorkProfile }
                 val hasCloneProfile = packages.any { it.isCloneProfile }
+
+                // A restored profile filter can name a profile that no longer exists - the user
+                // saved "Work", then removed the work profile. This screen HIDES the profile chips
+                // when there is nothing to choose between (see rebuildFilterChips), so the list
+                // would come up empty with no control on screen to undo it. Correct it here, where
+                // the profiles are actually known.
+                //
+                // "Personal" needs no guard: it filters on `!isWorkProfile && !isCloneProfile`,
+                // which on a device with no profiles keeps every package.
+                val stranded =
+                    (activeFilter.profileFilter.equals("work", true) && !hasWorkProfile) ||
+                    (activeFilter.profileFilter.equals("clone", true) && !hasCloneProfile)
+
+                val effectiveFilter = if (stranded) {
+                    AppLogger.d(TAG, "Saved profile filter '${activeFilter.profileFilter}' matches no profile on this device - resetting to All")
+                    activeFilter.copy(profileFilter = "All")
+                } else {
+                    activeFilter
+                }
+
+                val filteredPackages = filterPackages(packages, effectiveFilter)
 
                 _uiState.value = _uiState.value.copy(
                     packages = filteredPackages,
@@ -179,11 +209,20 @@ class FirewallViewModel(
                     hasWorkProfile = hasWorkProfile,
                     hasCloneProfile = hasCloneProfile
                 )
+
+                // Only after the list is drawn, and only when the guard actually changed something.
+                // applyFilters both persists and republishes the filter, so calling it on the happy
+                // path would be the very write-back this function must not do.
+                if (stranded) {
+                    applyFilters(effectiveFilter)
+                }
             }
             .launchIn(viewModelScope)
     }
 
     private fun applyFilters(filterState: FirewallFilterState) {
+        io.github.dorumrr.de1984.utils.FilterPrefs.saveFirewall(getApplication(), filterState)
+
         _uiState.value = _uiState.value.copy(
             filterState = filterState
         )

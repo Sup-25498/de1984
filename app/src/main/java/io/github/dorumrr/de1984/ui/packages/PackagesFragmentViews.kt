@@ -54,6 +54,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private val viewModel: PackagesViewModel by viewModels {
         val app = requireActivity().application as De1984Application
         PackagesViewModel.Factory(
+            application = app,
             getPackagesUseCase = app.dependencies.provideGetPackagesUseCase(),
             managePackageUseCase = app.dependencies.provideManagePackageUseCase(),
             superuserBannerState = app.dependencies.superuserBannerState,

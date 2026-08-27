@@ -6,7 +6,6 @@
     style="@style/Widget.Material3.Chip.Filter"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:layout_marginEnd="7dp"
     android:text="Filter"
     android:textSize="12sp"
     android:checkable="true"
@@ -19,5 +18,5 @@
     app:chipEndPadding="10dp"
     app:textStartPadding="0dp"
     app:textEndPadding="0dp"
-    app:checkedIconTint="@color/chip_text_selector" />
+    app:checkedIconVisible="false" />
 

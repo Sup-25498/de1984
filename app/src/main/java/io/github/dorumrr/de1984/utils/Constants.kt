@@ -108,6 +108,17 @@ object Constants {
         const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_CONFIRM_RULE_CHANGES = "confirm_rule_changes"
 
+        // Last filter selection on each list screen, so it survives a restart (issue #71).
+        // These hold the INTERNAL values ("user", "Work", ...), never the translated chip text,
+        // so a language change cannot orphan a saved filter.
+        const val KEY_FIREWALL_FILTER_TYPE = "firewall_filter_type"
+        const val KEY_FIREWALL_FILTER_STATE = "firewall_filter_state"
+        const val KEY_FIREWALL_FILTER_INTERNET_ONLY = "firewall_filter_internet_only"
+        const val KEY_FIREWALL_FILTER_PROFILE = "firewall_filter_profile"
+        const val KEY_PACKAGES_FILTER_TYPE = "packages_filter_type"
+        const val KEY_PACKAGES_FILTER_STATE = "packages_filter_state"
+        const val KEY_PACKAGES_FILTER_PROFILE = "packages_filter_profile"
+
         const val POLICY_BLOCK_ALL = "block_all"
         const val POLICY_ALLOW_ALL = "allow_all"
 

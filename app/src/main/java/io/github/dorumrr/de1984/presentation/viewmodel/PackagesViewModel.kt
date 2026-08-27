@@ -1,6 +1,8 @@
 package io.github.dorumrr.de1984.presentation.viewmodel
 
+import android.app.Application
 import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -25,17 +27,22 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class PackagesViewModel(
+    application: Application,
     private val getPackagesUseCase: GetPackagesUseCase,
     private val managePackageUseCase: ManagePackageUseCase,
     private val superuserBannerState: SuperuserBannerState,
     val rootManager: RootManager,
     val shizukuManager: ShizukuManager,
     private val packageDataChanged: SharedFlow<Unit>
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     private val TAG = "PackagesViewModel"
 
-    private val _uiState = MutableStateFlow(PackagesUiState())
+    private val _uiState = MutableStateFlow(
+        PackagesUiState(
+            filterState = io.github.dorumrr.de1984.utils.FilterPrefs.loadPackages(application)
+        )
+    )
     val uiState: StateFlow<PackagesUiState> = _uiState.asStateFlow()
 
     private var pendingFilterState: PackageFilterState? = null
@@ -129,6 +136,8 @@ class PackagesViewModel(
     }
 
     private fun applyFilters(filterState: PackageFilterState) {
+        io.github.dorumrr.de1984.utils.FilterPrefs.savePackages(getApplication(), filterState)
+
         _uiState.value = _uiState.value.copy(
             filterState = filterState
         )
@@ -394,6 +403,7 @@ class PackagesViewModel(
     }
 
     class Factory(
+        private val application: Application,
         private val getPackagesUseCase: GetPackagesUseCase,
         private val managePackageUseCase: ManagePackageUseCase,
         private val superuserBannerState: SuperuserBannerState,
@@ -405,6 +415,7 @@ class PackagesViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(PackagesViewModel::class.java)) {
                 return PackagesViewModel(
+                    application,
                     getPackagesUseCase,
                     managePackageUseCase,
                     superuserBannerState,
