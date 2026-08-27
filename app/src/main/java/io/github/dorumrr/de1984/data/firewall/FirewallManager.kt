@@ -63,6 +63,12 @@ class FirewallManager(
     companion object {
         private const val TAG = "FirewallManager"
         private const val VPN_CONFLICT_NOTIFICATION_DEBOUNCE_MS = 30_000L
+
+        /** How often to ask a starting backend whether it is up yet. See awaitBackendActive. */
+        private const val BACKEND_ACTIVE_POLL_MS = 200L
+
+        /** How long to keep asking before calling it a failed start. See awaitBackendActive. */
+        private const val BACKEND_ACTIVE_TIMEOUT_MS = 8_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob())
@@ -449,6 +455,22 @@ class FirewallManager(
                         )
                         return Result.failure(error)
                     }
+
+                    // Wait for it, exactly as the switch path below does. This branch used to call
+                    // start() and go straight on to write rules. start() is fire-and-forget for the
+                    // privileged backends, so the rules could be written before the chain existed -
+                    // "-A de1984_output" against a chain that "-N de1984_output" had not created
+                    // yet. That is the ordering race the switch path already guards against; this
+                    // path simply never got the guard.
+                    if (!awaitBackendActive(oldBackend, oldBackendType)) {
+                        AppLogger.e(TAG, "Backend ($oldBackendType) restarted but never became active")
+                        reportStartFailure(
+                            reason = FirewallHealth.Down.Reason.START_FAILED,
+                            backend = oldBackendType,
+                            stateMessage = "Backend restarted but failed to become active"
+                        )
+                        return Result.failure(Exception("Backend restarted but failed to become active"))
+                    }
                 }
 
                 // Apply here too. Every OTHER start path writes the rules through
@@ -519,9 +541,7 @@ class FirewallManager(
                 return Result.failure(error)
             }
 
-            kotlinx.coroutines.delay(500)
-
-            if (!newBackend.isActive()) {
+            if (!awaitBackendActive(newBackend, newBackendType)) {
                 AppLogger.e(TAG, "New backend ($newBackendType) started but is not active!")
                 newBackend.stop()
                 if (oldBackend != null && oldBackend.isActive()) {
@@ -2216,6 +2236,44 @@ class FirewallManager(
         val backend = currentBackend ?: return
         applyRulesToBackend(backend).getOrElse { error ->
             AppLogger.e(TAG, "Failed to apply rules: ${error.message}")
+        }
+    }
+
+    /**
+     * Wait for a backend that was just asked to start to actually be up.
+     *
+     * `start()` on the privileged backends is fire-and-forget: it posts an Intent to
+     * PrivilegedFirewallService and returns success immediately. The service then has to be created,
+     * possibly with its process, and run `startInternal()` - which shells out twice, for
+     * `iptables --version` and to create the chains.
+     *
+     * This used to be a single `delay(500)` followed by one `isActive()` call. Observed on hardware
+     * 2026-08-27: right after an app update the device is busy enough that 500 ms is not enough, and
+     * the failure branch calls `stop()` - so a start that was seconds from succeeding was actively
+     * torn down, the user was told the firewall was DOWN, and nothing retried. It stayed down until
+     * the app was opened by hand. `isActive()` even carries a comment about "after app reinstall".
+     *
+     * Polling also makes the healthy case FASTER, not slower: it returns on the first check at
+     * ~200 ms instead of always sleeping 500 ms.
+     */
+    private suspend fun awaitBackendActive(
+        backend: FirewallBackend,
+        backendType: FirewallBackendType
+    ): Boolean {
+        val startedWaiting = System.currentTimeMillis()
+
+        while (true) {
+            kotlinx.coroutines.delay(BACKEND_ACTIVE_POLL_MS)
+
+            if (backend.isActive()) {
+                AppLogger.d(TAG, "$backendType became active after ${System.currentTimeMillis() - startedWaiting}ms")
+                return true
+            }
+
+            if (System.currentTimeMillis() - startedWaiting >= BACKEND_ACTIVE_TIMEOUT_MS) {
+                AppLogger.e(TAG, "$backendType did not become active within ${BACKEND_ACTIVE_TIMEOUT_MS}ms")
+                return false
+            }
         }
     }
 

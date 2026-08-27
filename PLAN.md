@@ -88,7 +88,7 @@ correctness, not urgency.
 harmless; in Block All mode it means nothing gets blocked while the user believes everything is. The
 downgrade is right about lasting damage and wrong about the moment itself.
 
-### 61c. Firewall takes too long to become active — `MEASURED 2026-08-27`, partly fixed
+### 61c. Firewall takes too long to become active — `FIXED 2026-08-27` (16.1 s → 6.2 s of backend work)
 
 Reporter measured 1 m 35 s and compared AFWall+ at 6 s for 181 apps.
 
@@ -118,9 +118,44 @@ set when "allow critical" was ON; `isUidExempted` re-derived the same test per u
 each call reopening SharedPreferences and rescanning every package. The two sets are complements, so
 one pass now serves both (`uidsWithCriticalOrVpn`, `allowCriticalEnabled`), at all three call sites.
 
-**Still open: where the other 7 seconds go.** The two fixes together bought ~1 s of 8.35 s. The
-O(n squared) scan was never the bulk — 110 packages is only ~12,000 comparisons. **The dominant cost
-has not been found yet.** Measure before changing anything else.
+**Fix 3 — the real one. Everything ran TWICE.** The two fixes above bought ~1 s of 8.35 s, because
+neither touched the actual cost. Reading the timing log showed the rule application running from
+start to finish twice per firewall start, computing the same 84 internet + 7 LAN uids and writing
+them to the kernel both times.
+
+**Root cause: two objects owned one chain.** `PrivilegedFirewallService` built its own
+`IptablesFirewallBackend`; `FirewallManager` had a different one. That class is stateful about a
+single kernel chain — `chainNeedsResync`, `blockedUids`, `blockedLanUids`. Each instance arrived
+with the resync flag armed, rewrote the whole chain, and cleared only its own copy. **The flag could
+never help across two instances**, so every start paid for two full rewrites, forever.
+
+The split was already intended and only half-done: `start()` and `stop()` on the manager's instance
+just fire an Intent at the service (there is a comment saying exactly that), while `startInternal()`
+and `stopInternal()` do the real work. `applyRules` was never split that way and did the kernel work
+on whichever object it was called on.
+
+**Fixed** by making it a single lazily-created singleton, `De1984Dependencies.iptablesBackend`,
+injected into `FirewallManager` and read by the service. Exactly one place constructs that class
+now.
+
+| | pass 1 | pass 2 | backend total |
+|---|---|---|---|
+| before | 5.9 s | 10.4 s (resync) | **16.1 s** |
+| after | 5.7 s | **0.59 s** (diff path) | **6.2 s** |
+
+**62% less backend work.** Pass 2 finally takes the diff path — what the resync flag was always for.
+
+**A skip-if-unchanged check was written, measured, and dropped.** The idea was to have the second
+pass read the chain and skip the write when it already matched. It never fired (with one instance,
+pass 2 takes the diff path before reaching it) and its chain read cost ~1 s on every resync. The
+case it was written for — an app update finding the chain already correct — does not arise either,
+because the cold-start sweep tears the chain down first. Measured, not reasoned.
+
+**Audit follow-up 2026-08-27:** `De1984Application.kt:133` was a sixth construction site, missed on
+the first pass. It calls `stopInternal()`, which deletes the kernel chains AND clears the state — on
+a throwaway the deletion still happened while the live object kept `blockedUids` populated and
+`chainNeedsResync=false`, so its next apply would diff against a deleted chain and write nothing.
+Silent total bypass. Now uses the shared instance.
 
 ### 61d. List position resets — `CANNOT REPRODUCE 2026-08-27`, see #73 below.
 
@@ -184,7 +219,7 @@ notification. The slow-start half of the report may be helped by v2.6.6 — **no
 
 # Found while auditing, not yet acted on
 
-## Block All fails OPEN when a package read fails — `VERIFIED 2026-08-27`
+## Block All fails OPEN when a package read fails — `FIXED 2026-08-27`, guard untested in anger
 
 `getInstalledApplicationsAsUser` returns `emptyList()` on total failure (`HiddenApiHelper.kt:372`)
 rather than signalling an error. In Block All mode the backend blocks what it enumerates, so an empty
@@ -196,6 +231,54 @@ cleared that cache from their own threads.
 
 This is stronger than 61b's downgrade assumed. 61b concluded the worst case was "a transient empty
 list"; this is what a transient empty list actually costs in Block All mode.
+
+**Why the existing guard did not cover it.** The resync already refuses to rewrite on an empty
+answer — but only when the RULE list is empty too. In Block All the user typically has rules, so
+with 22 rules and a failed enumeration it never fired.
+
+**Fixed 2026-08-27.** The Block All branch now treats an empty `allPackages` as a failed read, not a
+real one: no device has zero packages with network permissions. It keeps whatever the chain already
+holds, leaves `chainNeedsResync` armed so the next apply retries, and logs an error.
+
+Only the Block All branch needed it. The allow-all branch drives its loop from the RULES, and uses
+`allPackages` solely for exemptions — so an empty list there means fewer exemptions and therefore
+MORE blocking, which is already fail-closed.
+
+**Verified:** Block All start unaffected — 110 packages found, 106 rules written, guard fired 0
+times. **Not verified:** the guard actually firing. Forcing a real enumeration failure on hardware
+was not attempted. The user is still not TOLD when this happens; surfacing it is a further step.
+
+## The firewall can stay DOWN after an app update — `OBSERVED 2026-08-27`, not investigated
+
+Seen on hardware, on **committed** code, with no uncommitted change present. After `adb install -r`
+while the firewall was running, `FirewallManager` logged
+`FIREWALL DOWN (START_FAILED, backend=null): apps are UNBLOCKED - New backend failed to become
+active`, the chain was empty, and it **stayed** that way. It only recovered when the app was opened
+by hand, which started the firewall normally.
+
+**Suspect, not proven:** `FirewallManager.kt:517-524`. `start()` on the iptables backend only fires
+an Intent at `PrivilegedFirewallService` and returns immediately; the manager then waits a fixed
+`delay(500)` and calls `isActive()`. `isActive()` (`IptablesFirewallBackend.kt:550`) reads
+SharedPreferences and then asks ActivityManager whether the service process is really alive — and
+right after an install the device is busy enough that 500 ms is not enough for it to come up. There
+is already a comment on that function naming *"after app reinstall (e.g. dev.sh update)"* as the
+case it worries about.
+
+Why this matters more than a slow start: **the user is told the firewall is on when it is not**, and
+nothing retries. A real user updating from F-Droid hits the same path as `install -r`.
+
+Reproduce: firewall running, `adb install -r <apk>`, then watch the chain without opening the app.
+
+## The same-backend restart path has no active-check — `VERIFIED 2026-08-27`, pre-existing
+
+`FirewallManager.kt:443-457` calls `start()` and then `applyRulesToBackend()` straight away. The
+switch path at `:517-524` does the same thing but with a `delay(500)` and an `isActive()` gate
+first. So the restart path can start writing `-A de1984_output` before `-N de1984_output` has been
+created — the exact ordering race the switch path documents.
+
+Found by the audit of the shared-instance change; the change does not cause it, and in fact makes it
+self-heal (a later `startInternal()` re-arms the resync flag on the same object) rather than fixing
+it.
 
 ## `networkPackagesCache` is cleared without its lock — `VERIFIED 2026-08-27`, deliberately not fixed
 
