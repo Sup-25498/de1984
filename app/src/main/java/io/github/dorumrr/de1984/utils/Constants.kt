@@ -107,6 +107,7 @@ object Constants {
         const val KEY_USE_DYNAMIC_COLORS = "use_dynamic_colors"
         const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_CONFIRM_RULE_CHANGES = "confirm_rule_changes"
+        const val KEY_CONFIRM_FIREWALL_STOP = "confirm_firewall_stop"
 
         // Last filter selection on each list screen, so it survives a restart (issue #71).
         // These hold the INTERNAL values ("user", "Work", ...), never the translated chip text,
@@ -147,6 +148,12 @@ object Constants {
         const val DEFAULT_USE_DYNAMIC_COLORS = false
         const val DEFAULT_APP_LANGUAGE = LANGUAGE_SYSTEM_DEFAULT
         const val DEFAULT_CONFIRM_RULE_CHANGES = true
+
+        /**
+         * ON by default on purpose. Stopping the firewall gives every app network access at once,
+         * so it stays behind a confirmation unless the user deliberately turns that off (issue #91).
+         */
+        const val DEFAULT_CONFIRM_FIREWALL_STOP = true
 
     }
 
@@ -562,6 +569,17 @@ object Constants {
         const val CHANNEL_ID = "firewall_alerts_channel"
         const val CHANNEL_NAME = "Firewall Alerts"
         const val NOTIFICATION_ID = 1007
+    }
+
+    /**
+     * Told the user the firewall was stopped from the tile or widget, when they have turned the
+     * stop confirmation off (issue #91). Deliberately the SAME channel as VpnConflict: Android keys
+     * channels by id, and one "Firewall Alerts" toggle is kinder than two.
+     */
+    object FirewallStopped {
+        const val CHANNEL_ID = "firewall_alerts_channel"
+        const val CHANNEL_NAME = "Firewall Alerts"
+        const val NOTIFICATION_ID = 1010
     }
 
 }

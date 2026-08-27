@@ -767,4 +767,8 @@
     <string name="backend_not_supported_on_device">Non pris en charge sur cet appareil</string>
     <string name="backend_fell_back_to_auto">%1$s n\'a pas pu démarrer sur cet appareil. Le pare-feu fonctionne en mode Automatique à la place.</string>
     <string name="backend_changed_title">Backend modifié</string>
+    <string name="settings_confirm_firewall_stop_title">Confirmer l\'arrêt du pare-feu</string>
+    <string name="settings_confirm_firewall_stop_description">Demander avant d\'arrêter le pare-feu depuis la tuile ou le widget</string>
+    <string name="firewall_stopped_notification_title">Pare-feu arrêté</string>
+    <string name="firewall_stopped_notification_text">Toutes les applications peuvent maintenant accéder à Internet. Appuyez pour le relancer.</string>
 </resources>

@@ -765,4 +765,8 @@
     <string name="backend_not_supported_on_device">Не поддерживается на этом устройстве</string>
     <string name="backend_fell_back_to_auto">%1$s не удалось запустить на этом устройстве. Брандмауэр работает в режиме «Авто».</string>
     <string name="backend_changed_title">Бэкенд изменён</string>
+    <string name="settings_confirm_firewall_stop_title">Подтверждать остановку брандмауэра</string>
+    <string name="settings_confirm_firewall_stop_description">Спрашивать перед остановкой брандмауэра с плитки или виджета</string>
+    <string name="firewall_stopped_notification_title">Брандмауэр остановлен</string>
+    <string name="firewall_stopped_notification_text">Теперь все приложения имеют доступ в интернет. Нажмите, чтобы снова запустить.</string>
 </resources>

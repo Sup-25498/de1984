@@ -1562,6 +1562,62 @@ class FirewallManager(
      * Its own notification id: [dismissBackendFailedNotification] must not cancel it, because a
      * later "backend healthy" is not evidence that the stuck rules were removed.
      */
+    /**
+     * Whether stopping the firewall from the tile or the widget should ask first.
+     *
+     * ON by default: stopping hands every app on the device network access at once, which is worth
+     * one tap of friction. The reporter of issue #91 wanted the opposite, so it is a setting rather
+     * than a decision made for everyone.
+     *
+     * Defined ONCE here because both the tile and the widget's receiver ask the same question, and a
+     * rule like this written in two places is how the two drift apart.
+     */
+    fun shouldConfirmStop(): Boolean =
+        context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(
+                Constants.Settings.KEY_CONFIRM_FIREWALL_STOP,
+                Constants.Settings.DEFAULT_CONFIRM_FIREWALL_STOP
+            )
+
+    /**
+     * Says the firewall was stopped, for the path where nothing was confirmed on screen.
+     *
+     * Without this a tile tap silently removes all protection - the one outcome the confirmation
+     * existed to prevent. autoCancel, because tapping it opens the app where the real state is.
+     */
+    fun showFirewallStoppedNotification() {
+        // No SDK guard: minSdk is 26, which IS Build.VERSION_CODES.O, so NotificationChannel is
+        // always available. The older notifications here still carry that check; lint flags it.
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                Constants.FirewallStopped.CHANNEL_ID,
+                Constants.FirewallStopped.CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+        )
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val body = context.getString(R.string.firewall_stopped_notification_text)
+        val notification = NotificationCompat.Builder(context, Constants.FirewallStopped.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_shield)
+            .setContentTitle(context.getString(R.string.firewall_stopped_notification_title))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(Constants.FirewallStopped.NOTIFICATION_ID, notification)
+    }
+
     private fun showStopFailedNotification(backend: FirewallBackendType?) {
         AppLogger.d(TAG, "Showing stop-failed notification (backend=$backend)")
 

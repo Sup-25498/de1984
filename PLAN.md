@@ -209,13 +209,37 @@ down after the user granted VPN permission.
 - Edge-to-edge consumes only `systemBars.top`; no left/right inset is applied anywhere, so a
   3-button navigation bar overlays the toolbar in landscape.
 
-## #91 — Quick tile opens the whole app to stop the firewall — `VERIFIED 2026-08-27`
+## #91 — Quick tile — `FIXED 2026-08-27`, one half already covered
 
-`FirewallTileService.kt:90` logs *"Firewall is ON, opening app for stop confirmation"*, then
-launches `MainActivity`. The reporter wants the tile to stop the firewall directly and say so in a
-notification. The slow-start half of the report may be helped by v2.6.6 — **not re-measured**.
+Two separate complaints in one issue.
 
----
+**"Stuck at Starting for about 10 seconds."** The tile shows "Starting…" until the firewall reports
+Running, so it was displaying the real start time. Cut by the 61c work: Block All backend work
+16.1 s → 6.2 s, and the start's own wait went from a fixed 500 ms to returning at ~408 ms. **Not
+re-measured from the tile itself** — the tile only renders that number.
+
+**"Stopping brings up the whole UI."** Deliberate, and the rule was written in TWO places —
+`FirewallTileService.onClick()` and `FirewallToggleReceiver.onReceive()` both opened MainActivity.
+
+Now a setting, **`Confirm Firewall Stop`, default ON** so nothing changes for existing users.
+Off: the tile and the widget stop the firewall directly and post a notification saying so — a tile
+tap that silently drops all protection is the thing the confirmation existed to prevent, so it is
+never silent.
+
+The predicate lives once, `FirewallManager.shouldConfirmStop()`, asked by both callers. The stop
+itself happens in one place, the receiver; the tile just hands it over.
+
+**Verified on hardware 2026-08-27:**
+
+- Default ON, setting visible beside "Confirm Rule Changes".
+- ON: broadcast → *"opening app for stop confirmation"*, chain untouched at 3 rules.
+- OFF: broadcast → *"confirmation is off - stopping directly"*, chain 3 → 0, notification id 1010
+  posted on `firewall_alerts_channel` with the right title and body.
+- Strings in all 7 locales. Lint back to baseline (7 errors, 221 warnings) after removing a
+  redundant SDK guard I had introduced.
+
+**Not verified:** driving the actual quick-settings tile. The QS panel could not be driven from adb,
+so the tile's own branch is code-reviewed while the receiver branch it delegates to is tested.
 
 # Found while auditing, not yet acted on
 

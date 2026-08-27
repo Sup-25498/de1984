@@ -768,4 +768,8 @@
     <string name="backend_not_supported_on_device">Not supported on this device</string>
     <string name="backend_fell_back_to_auto">%1$s could not start on this device. The firewall is running on Automatic instead.</string>
     <string name="backend_changed_title">Backend changed</string>
+    <string name="settings_confirm_firewall_stop_title">Confirm Firewall Stop</string>
+    <string name="settings_confirm_firewall_stop_description">Ask before stopping the firewall from the tile or widget</string>
+    <string name="firewall_stopped_notification_title">Firewall stopped</string>
+    <string name="firewall_stopped_notification_text">All apps can now access the internet. Tap to start it again.</string>
 </resources>

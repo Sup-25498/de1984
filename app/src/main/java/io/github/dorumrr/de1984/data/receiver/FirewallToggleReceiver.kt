@@ -46,13 +46,26 @@ class FirewallToggleReceiver : BroadcastReceiver() {
                 AppLogger.d(TAG, "Current firewall state: isActive=$isCurrentlyActive")
                 
                 if (isCurrentlyActive) {
-                    AppLogger.d(TAG, "🔴 Firewall is active, opening app for stop confirmation...")
-                    val activityIntent = Intent(context, MainActivity::class.java).apply {
-                        action = Constants.Firewall.ACTION_TOGGLE_FIREWALL
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    if (firewallManager.shouldConfirmStop()) {
+                        AppLogger.d(TAG, "🔴 Firewall is active, opening app for stop confirmation...")
+                        val activityIntent = Intent(context, MainActivity::class.java).apply {
+                            action = Constants.Firewall.ACTION_TOGGLE_FIREWALL
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        context.startActivity(activityIntent)
+                        AppLogger.d(TAG, "MainActivity launched for stop confirmation")
+                    } else {
+                        // The user turned the confirmation off (issue #91). Stop here rather than
+                        // opening the app, and SAY SO - a tile tap that silently drops all
+                        // protection is exactly what the confirmation existed to prevent.
+                        AppLogger.d(TAG, "🔴 Firewall is active and confirmation is off - stopping directly")
+                        firewallManager.stopFirewall()
+                            .onSuccess {
+                                AppLogger.d(TAG, "Firewall stopped from tile/widget")
+                                firewallManager.showFirewallStoppedNotification()
+                            }
+                            .onFailure { AppLogger.e(TAG, "Failed to stop firewall: ${it.message}") }
                     }
-                    context.startActivity(activityIntent)
-                    AppLogger.d(TAG, "MainActivity launched for stop confirmation")
                 } else {
                     AppLogger.d(TAG, "🟢 Firewall is stopped, starting directly...")
 

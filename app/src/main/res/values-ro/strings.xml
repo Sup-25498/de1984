@@ -769,5 +769,9 @@
     <string name="backend_not_supported_on_device">Nu este acceptat pe acest dispozitiv</string>
     <string name="backend_fell_back_to_auto">%1$s nu a putut porni pe acest dispozitiv. Firewallul rulează în modul Automat în schimb.</string>
     <string name="backend_changed_title">Backend schimbat</string>
+    <string name="settings_confirm_firewall_stop_title">Confirmă oprirea firewallului</string>
+    <string name="settings_confirm_firewall_stop_description">Întreabă înainte de a opri firewallul din dală sau widget</string>
+    <string name="firewall_stopped_notification_title">Firewall oprit</string>
+    <string name="firewall_stopped_notification_text">Toate aplicațiile pot accesa acum internetul. Atinge pentru a-l porni din nou.</string>
 </resources>
 

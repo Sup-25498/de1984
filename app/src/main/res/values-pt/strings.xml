@@ -767,5 +767,9 @@
     <string name="backend_not_supported_on_device">Não suportado neste dispositivo</string>
     <string name="backend_fell_back_to_auto">%1$s não conseguiu iniciar neste dispositivo. A firewall está a funcionar em modo Automático.</string>
     <string name="backend_changed_title">Backend alterado</string>
+    <string name="settings_confirm_firewall_stop_title">Confirmar paragem da firewall</string>
+    <string name="settings_confirm_firewall_stop_description">Perguntar antes de parar a firewall a partir do mosaico ou widget</string>
+    <string name="firewall_stopped_notification_title">Firewall parada</string>
+    <string name="firewall_stopped_notification_text">Todas as aplicações podem agora aceder à internet. Toque para iniciar novamente.</string>
 </resources>
 

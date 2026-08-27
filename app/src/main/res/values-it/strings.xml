@@ -767,4 +767,8 @@
     <string name="backend_not_supported_on_device">Non supportato su questo dispositivo</string>
     <string name="backend_fell_back_to_auto">%1$s non è riuscito ad avviarsi su questo dispositivo. Il firewall è in esecuzione in modalità Automatica.</string>
     <string name="backend_changed_title">Backend cambiato</string>
+    <string name="settings_confirm_firewall_stop_title">Conferma arresto firewall</string>
+    <string name="settings_confirm_firewall_stop_description">Chiedi prima di arrestare il firewall dal riquadro o dal widget</string>
+    <string name="firewall_stopped_notification_title">Firewall arrestato</string>
+    <string name="firewall_stopped_notification_text">Tutte le app possono ora accedere a internet. Tocca per riavviarlo.</string>
 </resources>

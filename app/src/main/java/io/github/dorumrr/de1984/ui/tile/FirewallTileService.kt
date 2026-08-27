@@ -86,7 +86,15 @@ class FirewallTileService : TileService() {
         val shouldTreatAsActive = isActive || isActiveBackend
         AppLogger.d(TAG, "Final decision - treat as active: $shouldTreatAsActive")
         
-        if (shouldTreatAsActive) {
+        if (shouldTreatAsActive && !firewallManager.shouldConfirmStop()) {
+            // Confirmation turned off (issue #91): hand it to the receiver, which owns the stop and
+            // posts the notification. Same predicate as the widget path, asked of the same place.
+            AppLogger.d(TAG, "Firewall is ON and confirmation is off - stopping without opening the app")
+            val toggleIntent = Intent(this, io.github.dorumrr.de1984.data.receiver.FirewallToggleReceiver::class.java).apply {
+                action = Constants.Firewall.ACTION_TOGGLE_FIREWALL
+            }
+            sendBroadcast(toggleIntent)
+        } else if (shouldTreatAsActive) {
             AppLogger.d(TAG, "Firewall is ON, opening app for stop confirmation")
             val intent = Intent(this, MainActivity::class.java).apply {
                 action = Constants.Firewall.ACTION_TOGGLE_FIREWALL
