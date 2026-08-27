@@ -1,0 +1,7 @@
+- Duplicate iptables rules no longer pile up on every start
+- Root is retried before De1984 decides your device has none #79
+- Widget and tile now ask for VPN permission instead of failing
+- Backends your device cannot run are now greyed out, not offered
+- Fixed an app staying blocked on iptables after you allowed it #84
+- A backend that stops working now switches over on its own
+- Boot Protection stuck without root can now be removed in Settings
