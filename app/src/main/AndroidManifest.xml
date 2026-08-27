@@ -56,11 +56,17 @@
         android:requestLegacyExternalStorage="false"
         tools:targetApi="31">
         
-        <!-- Main activity -->
+        <!--
+            Main activity. No orientation lock here on purpose. It used to be "portrait", which
+            overrode the system setting entirely - auto-rotate did nothing, and on a TV or a tablet
+            the app ran in a portrait strip with the sides wasted (issue #77). Every screen is safe to rotate: the
+            fragment container is a 0dp constraint between the app bar and the bottom nav, all three
+            fragments scroll, every bottom sheet has its own ScrollView, and the current tab is
+            restored from onSaveInstanceState after the activity is recreated.
+        -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.De1984.Views">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -82,7 +88,6 @@
         <activity
             android:name=".ui.logs.LogsActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.De1984.Views"
             android:parentActivityName=".ui.MainActivity" />
 
