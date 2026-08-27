@@ -71,22 +71,55 @@ open it. Fixing it needs a boot hook or a scheduled worker.
 *watches* them over time. And `PackageChangedReceiver.kt:71` does derive a `userId` from `EXTRA_UID`,
 so it is not blind to other profiles — the gap is delivery, not handling.
 
-### 61b. `getInstalledApplicationsAsUser` returns 0 for the work profile — `VERIFIED 2026-08-25`, downgraded `2026-08-27`
+### 61b. `getInstalledApplicationsAsUser` fails for the work profile — `ROOT CAUSE FOUND 2026-08-28`
 
-Observed twice: `Profile 10 (Work): ... returned 0 packages` from the hidden API, before a Shizuku
-fallback found 216. It is why `AndroidPackageDataSource.hasNetworkPermissions` must stay a
-per-package call, and why the `getPackageInfoAsUser` cache is capped near a 49% hit rate.
+**It was never flaky.** It fails on **every single call**, on this device, and always has. The old
+description said "observed twice" because that is how often anyone happened to look.
 
-**Downgraded on 2026-08-27 after reading the code.** The blast radius is much smaller than first
-written: `HiddenApiHelper.kt:295-373` has three strategies, not one — hidden API, then root shell,
-then Shizuku. `cacheInstalledApps` is called only on a non-empty result, so the final `emptyList()`
-is never cached. And `deleteRulesByUserId` / `deleteRule` have **zero call sites**, so no bad read
-can remove a rule. Worst case is a transient empty list, not lasting damage. Fix it for
-correctness, not urgency.
+**Why nobody knew:** the catch logged `e.message`, and the exception is an
+`InvocationTargetException` whose own message is **null** — the reason lives in `cause`. So every
+failure for months printed a bare `null`. Fixed by `describeReflectionFailure`, which walks to the
+root cause. With that one change the answer appeared immediately:
 
-**But read *Block All fails OPEN* below before trusting that.** "A transient empty list" sounds
-harmless; in Block All mode it means nothing gets blocked while the user believes everything is. The
-downgrade is right about lasting damage and wrong about the moment itself.
+```
+RemoteException:
+  at com.android.server.pm.ComputerEngine.enforceCrossUserPermission(ComputerEngine.java:2908)
+  at com.android.server.pm.ComputerEngine.getInstalledApplications(ComputerEngine.java:4664)
+```
+
+**The app does not hold `android.permission.INTERACT_ACROSS_USERS` and never asks for it.** The
+manifest mentions that permission once, at line 164, but as a `android:permission` a receiver
+REQUIRES OF SENDERS — not something the app holds. So the reflection call can never succeed for
+another profile, on any device, and the root/Shizuku shell fallback does all the real work.
+
+`hiddenApiAvailable` is misleading here: it only records that HiddenApiBypass initialised, which says
+nothing about whether the call is permitted.
+
+**Proven fix, tested on hardware 2026-08-28 and then reverted pending a decision.** The permission is
+`prot=signature|privileged|development`, and the `development` flag means a root or Shizuku
+`pm grant` can hold it. Declared it, granted it, and:
+
+```
+before   Hidden API ... failed → "Found 216 apps for user 10 via root shell (synthetic)"
+after    "✅ Found 216 apps for user 10 via hidden API",  shell calls for user 10: 0
+```
+
+Three things it buys:
+
+1. No `pm list packages` shell per profile per enumeration.
+2. **Real `ApplicationInfo` instead of synthetic.** The shell path builds work-profile entries with
+   `createSyntheticApplicationInfo`, copying the PERSONAL profile's copy — the audit finding that an
+   app differing between profiles has its rules computed from the wrong manifest. That disappears.
+3. The whole "flaky work profile" story stops being true.
+
+**Safe by construction:** ungranted, behaviour is exactly what it is today, because the fallbacks
+already handle it.
+
+**Not done, needs a decision.** It adds a permission to the manifest, which F-Droid displays and
+reviewers notice, and it needs the app to run the grant itself via root or Shizuku at startup.
+Reverted from the working tree; only the logging fix was kept.
+
+**Kept:** `describeReflectionFailure`, because a diagnostic that prints `null` is worse than none.
 
 ### 61c. Firewall takes too long to become active — `FIXED 2026-08-27` (16.1 s → 6.2 s of backend work)
 

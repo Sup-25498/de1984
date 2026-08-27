@@ -138,6 +138,21 @@ object HiddenApiHelper {
             }
     }
     
+    /**
+     * A reflection failure in words that are actually useful.
+     *
+     * `InvocationTargetException.message` is **null** - the reason lives in `cause`. Logging
+     * `e.message` therefore printed a bare "null" for every hidden-API failure on this device, which
+     * is how `getInstalledApplicationsAsUser` came to be described as "flaky" for months: it was
+     * failing on every single call and nothing said why.
+     */
+    private fun describeReflectionFailure(e: Throwable): String {
+        val root = generateSequence(e) { it.cause }.last()
+        val name = root.javaClass.simpleName
+        val message = root.message
+        return if (message.isNullOrBlank()) name else "$name: $message"
+    }
+
     fun initialize() {
         if (initialized) return
         
@@ -255,7 +270,7 @@ object HiddenApiHelper {
                     }
                 }
             } catch (e: Exception) {
-                AppLogger.d(TAG, "Hidden API getUsers() failed: ${e.message}")
+                AppLogger.d(TAG, "Hidden API getUsers() failed: ${describeReflectionFailure(e)}")
             }
         }
 
@@ -342,7 +357,7 @@ object HiddenApiHelper {
                     return apps
                 }
             } catch (e: Exception) {
-                AppLogger.d(TAG, "Hidden API getInstalledApplicationsAsUser failed for user $userId: ${e.message}")
+                AppLogger.d(TAG, "Hidden API getInstalledApplicationsAsUser failed for user $userId: ${describeReflectionFailure(e)}")
             }
         }
 
