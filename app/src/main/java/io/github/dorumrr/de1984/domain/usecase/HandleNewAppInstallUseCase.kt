@@ -287,10 +287,14 @@ class HandleNewAppInstallUseCase constructor(
      */
     private fun hasVpnService(packageName: String, userId: Int): Boolean {
         return try {
+                // GET_PERMISSIONS is requested but never read - it makes this share a cache entry
+                // with the getPackagesWithNetworkPermissions sweep, which asks for both.
+                // getPackageInfoAsUser keys on "userId:flags:packageName", so GET_SERVICES alone was
+                // always a different key and always a miss.
             val packageInfo = io.github.dorumrr.de1984.data.multiuser.HiddenApiHelper.getPackageInfoAsUser(
                 context,
                 packageName,
-                PackageManager.GET_SERVICES,
+                PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES,
                 userId
             ) ?: return false
 
