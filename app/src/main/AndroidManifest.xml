@@ -63,10 +63,22 @@
             fragment container is a 0dp constraint between the app bar and the bottom nav, all three
             fragments scroll, every bottom sheet has its own ScrollView, and the current tab is
             restored from onSaveInstanceState after the activity is recreated.
+
+            The rotation is handled in-place rather than by destroying and rebuilding the activity.
+            Safe here because there is nothing orientation-specific to reload: no layout-land, no
+            values-land, no swXXXdp folder, and nothing reads Configuration.orientation - the views
+            simply re-measure.
+
+            uiMode and locale are deliberately NOT in that list. Dark mode has -night resources and
+            the language switcher calls setApplicationLocales(), and both MUST rebuild to pick the
+            new resources up. So a rebuild still happens on those paths, and the state that is not
+            saved across it is still lost there - this reduces how often that is reached, it does
+            not fix it.
         -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.De1984.Views">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -88,6 +100,7 @@
         <activity
             android:name=".ui.logs.LogsActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.De1984.Views"
             android:parentActivityName=".ui.MainActivity" />
 

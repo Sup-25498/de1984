@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val KEY_CURRENT_TAB = "current_tab"
+        private const val KEY_VPN_PERMISSION_CONTEXT = "vpn_permission_context"
     }
 
     private enum class VpnPermissionContext {
@@ -172,7 +173,15 @@ class MainActivity : AppCompatActivity() {
             onPermissionsComplete()
         }
 
-        handleIntent(intent)
+        // Only on a genuine first launch. On a rebuild - a language change, dark mode, low memory -
+        // the original launch intent is still attached, and running it again re-fires whatever it
+        // asked for: a second VPN consent prompt, or the stop-confirmation dialog appearing on its
+        // own. A genuinely new intent arrives through onNewIntent, which is unaffected.
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        } else {
+            AppLogger.d(TAG, "Rebuild - not replaying the launch intent (action: ${intent?.action ?: "null"})")
+        }
 
         AppLogger.d(TAG, "✅ MainActivity onCreate complete")
     }
@@ -332,6 +341,17 @@ class MainActivity : AppCompatActivity() {
         } else {
             val tabOrdinal = savedInstanceState.getInt(KEY_CURRENT_TAB, Tab.FIREWALL.ordinal)
             currentTab = Tab.values()[tabOrdinal]
+
+            // Why this must survive: the system VPN consent dialog is a separate activity, so this
+            // one can be rebuilt underneath it. ActivityResultRegistry still delivers the answer,
+            // but a fresh field would say FIREWALL_START - so an "Enable VPN" tap would be answered
+            // down the wrong branch and the fallback would never start, leaving the firewall down.
+            val contextOrdinal = savedInstanceState.getInt(
+                KEY_VPN_PERMISSION_CONTEXT,
+                VpnPermissionContext.FIREWALL_START.ordinal
+            )
+            vpnPermissionContext = VpnPermissionContext.values()
+                .getOrElse(contextOrdinal) { VpnPermissionContext.FIREWALL_START }
 
             firewallFragment = supportFragmentManager.findFragmentByTag("FIREWALL") as? FirewallFragmentViews
             packagesFragment = supportFragmentManager.findFragmentByTag("APPS") as? PackagesFragmentViews
@@ -799,6 +819,7 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(KEY_CURRENT_TAB, currentTab.ordinal)
+        outState.putInt(KEY_VPN_PERMISSION_CONTEXT, vpnPermissionContext.ordinal)
     }
 
     override fun onDestroy() {
