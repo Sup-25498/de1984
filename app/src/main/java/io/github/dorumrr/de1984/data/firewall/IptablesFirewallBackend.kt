@@ -379,17 +379,16 @@ class IptablesFirewallBackend(
                     Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
                 )
 
-                // Pre-compute UIDs that contain critical packages (for UID-level exemption checks)
-                // This is needed because we block by UID, not by package - so if ANY package
-                // in a UID is critical with no rule, the entire UID should be allowed
-                val uidsWithCritical = if (allowCritical) {
-                    allPackages
-                        .filter { Constants.Firewall.isSystemCritical(it.packageName) || hasVpnService(it.packageName, it.uid / 100000) }
-                        .map { it.uid }
-                        .toSet()
-                } else {
-                    emptySet()
-                }
+                // Computed once for the whole pass. We block by UID, not by package, so if ANY
+                // package in a UID is critical or a VPN app the whole UID has to be handled as one.
+                //
+                // The two sets below are complements: with "allow critical" ON these uids get no
+                // rule of their own but are allowed by default, with it OFF they are exempt from
+                // being written at all. Same membership, opposite use, so one computation serves
+                // both - it used to be worked out twice, one of them per package.
+                val criticalOrVpnUids = uidsWithCriticalOrVpn(allPackages)
+                val uidsWithCritical = if (allowCritical) criticalOrVpnUids else emptySet()
+                val exemptUids = if (allowCritical) emptySet() else criticalOrVpnUids
 
                 for (appInfo in allPackages) {
                     val uid = appInfo.uid
@@ -397,7 +396,7 @@ class IptablesFirewallBackend(
 
                     // Never block UIDs that contain system-critical packages or VPN apps
                     // This prevents shared UID bypass (e.g., Gboard sharing UID with system package)
-                    if (isUidExempted(uid, allPackages)) {
+                    if (isUidExempted(uid, exemptUids)) {
                         continue
                     }
 
@@ -444,10 +443,16 @@ class IptablesFirewallBackend(
                     )
                 }
 
+                val exemptUids = if (allowCriticalEnabled()) {
+                    emptySet()
+                } else {
+                    uidsWithCriticalOrVpn(allPackages)
+                }
+
                 for ((uid, rulesForUid) in rulesByUid) {
                     // Never block UIDs that contain system-critical packages or VPN apps
                     // This prevents shared UID bypass (e.g., Gboard sharing UID with system package)
-                    if (isUidExempted(uid, allPackages)) {
+                    if (isUidExempted(uid, exemptUids)) {
                         continue
                     }
 
@@ -820,8 +825,14 @@ class IptablesFirewallBackend(
 
         val uidsToBlockLan = mutableSetOf<Int>()
 
+        val exemptUids = if (allowCriticalEnabled()) {
+            emptySet()
+        } else {
+            uidsWithCriticalOrVpn(allPackagesForLan)
+        }
+
         for ((uid, rulesForUid) in rulesByUid) {
-            if (isUidExempted(uid, allPackagesForLan)) {
+            if (isUidExempted(uid, exemptUids)) {
                 continue
             }
 
@@ -1169,7 +1180,42 @@ class IptablesFirewallBackend(
         }
     }
 
-    private fun isUidExempted(uid: Int, allPackages: List<android.content.pm.ApplicationInfo>): Boolean {
+    /**
+     * Every uid holding at least one system-critical package or a VPN app, in ONE pass.
+     *
+     * This predicate used to exist twice, computed opposite ways round. The Block All path built it
+     * as a set when "allow critical" was ON, while isUidExempted re-derived the same test per uid
+     * when it was OFF - each call re-reading SharedPreferences and rescanning the whole package
+     * list. Inside `for (appInfo in allPackages)` that is O(n squared): on a 466-package device,
+     * ~217,000 comparisons and 466 preference reads for an answer that does not change during a
+     * pass. Now computed once and read as a set.
+     *
+     * hasVpnService is the expensive half - one binder call per package - so the caller must hold
+     * onto the result rather than recompute it.
+     */
+    private fun uidsWithCriticalOrVpn(
+        allPackages: List<android.content.pm.ApplicationInfo>
+    ): Set<Int> = allPackages
+        .filter {
+            Constants.Firewall.isSystemCritical(it.packageName) ||
+                hasVpnService(it.packageName, it.uid / 100000)
+        }
+        .map { it.uid }
+        .toSet()
+
+    /** Reads the "allow critical" preference once, for a caller about to loop. */
+    private fun allowCriticalEnabled(): Boolean = context
+        .getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(
+            Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
+            Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
+        )
+
+    /**
+     * @param exemptUids from [uidsWithCriticalOrVpn], already emptied by the caller when the user
+     * has allowed critical and VPN packages to be blocked.
+     */
+    private fun isUidExempted(uid: Int, exemptUids: Set<Int>): Boolean {
         // A uid we could not resolve. Unlike the Shizuku backends, iptables deliberately has no
         // app-uid range guard - it can and should block system uids - but the sentinel is not a uid
         // at all, and "--uid-owner -1" is a command that can only fail. See HiddenApiHelper.
@@ -1178,18 +1224,7 @@ class IptablesFirewallBackend(
             return true
         }
 
-        val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-        val allowCritical = prefs.getBoolean(
-            Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
-            Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
-        )
-
-        val packagesWithUid = allPackages.filter { it.uid == uid }
-
-        return packagesWithUid.any { appInfo ->
-            (!allowCritical && Constants.Firewall.isSystemCritical(appInfo.packageName)) ||
-            (!allowCritical && hasVpnService(appInfo.packageName, appInfo.uid / 100000))
-        }
+        return exemptUids.contains(uid)
     }
 }
 

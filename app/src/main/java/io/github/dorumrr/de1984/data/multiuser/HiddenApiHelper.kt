@@ -46,9 +46,21 @@ object HiddenApiHelper {
     private var usersCacheTime: Long = 0
     private const val USERS_CACHE_TTL = 30_000L
 
-    @Volatile
+    /**
+     * Guards [installedAppsCache] and [installedAppsCacheTime].
+     *
+     * @Volatile alone was not enough: it publishes the map REFERENCE, not the map's contents, and
+     * three receivers plus PackageMonitoringService's poll all reach `.clear()` from their own
+     * threads while a sweep is writing entries.
+     *
+     * ONLY ever taken on its own, never while holding [networkPackagesLock]. The reverse nesting is
+     * real - getPackagesWithNetworkPermissions holds that lock and calls
+     * getInstalledApplicationsAsUser underneath it - so taking them the other way round here would
+     * be a deadlock.
+     */
+    private val installedAppsLock = Any()
+
     private var installedAppsCache: MutableMap<Int, List<ApplicationInfo>> = mutableMapOf()
-    @Volatile
     private var installedAppsCacheTime: Long = 0
     // Deliberately short, and NOT raised despite the cost of what it guards.
     //
@@ -304,10 +316,12 @@ object HiddenApiHelper {
         }
 
         val now = System.currentTimeMillis()
-        if (now - installedAppsCacheTime < INSTALLED_APPS_CACHE_TTL) {
-            installedAppsCache[userId]?.let { cached ->
-                AppLogger.d(TAG, "📦 Returning cached ${cached.size} apps for user $userId")
-                return cached
+        synchronized(installedAppsLock) {
+            if (now - installedAppsCacheTime < INSTALLED_APPS_CACHE_TTL) {
+                installedAppsCache[userId]?.let { cached ->
+                    AppLogger.d(TAG, "📦 Returning cached ${cached.size} apps for user $userId")
+                    return cached
+                }
             }
         }
 
@@ -374,8 +388,10 @@ object HiddenApiHelper {
     }
 
     private fun cacheInstalledApps(userId: Int, apps: List<ApplicationInfo>) {
-        installedAppsCache[userId] = apps
-        installedAppsCacheTime = System.currentTimeMillis()
+        synchronized(installedAppsLock) {
+            installedAppsCache[userId] = apps
+            installedAppsCacheTime = System.currentTimeMillis()
+        }
     }
 
     fun clearInstalledAppsCache() {
@@ -384,8 +400,19 @@ object HiddenApiHelper {
             packageInfoCache.clear()
             packageInfoCacheTime = 0
         }
-        installedAppsCache.clear()
-        installedAppsCacheTime = 0
+        synchronized(installedAppsLock) {
+            installedAppsCache.clear()
+            installedAppsCacheTime = 0
+        }
+
+        // networkPackagesLock is deliberately NOT taken here, and this is a known race: a sweep
+        // already inside that lock finishes afterwards and writes its pre-clear result back with a
+        // fresh timestamp, so the stale list survives one more TTL.
+        //
+        // Taking the lock would be worse than the race it fixes. That block takes seconds - measured
+        // at 9,499 ms for 466 packages - and two of this function's callers are BroadcastReceivers,
+        // where a wait that long is an ANR. The correct fix is a generation counter the sweep checks
+        // before publishing, not a lock. Left as a task rather than done badly here.
         networkPackagesCache = null
         networkPackagesCacheTime = 0
         AppLogger.d(TAG, "Cleared installed apps cache")

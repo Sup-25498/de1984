@@ -245,6 +245,12 @@ class PackageMonitoringService : Service() {
             }
         }
 
+        // Forget profiles that no longer exist. Without this, a work profile removed and later
+        // re-created reusing the same userId is compared against the DELETED profile's snapshot, so
+        // its very first read reports a change that never happened.
+        val liveIds = profiles.map { it.userId }.toSet()
+        lastKnownDisabled.keys.retainAll(liveIds)
+
         if (changed) {
             // The disabled sets are already refreshed by the read above, but the built
             // ApplicationInfo objects are cached separately for a few seconds with the OLD enabled
