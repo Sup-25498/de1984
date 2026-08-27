@@ -34,6 +34,20 @@ class PackageMonitoringService : Service() {
      * installed app look newly installed on the first successful pass.
      */
     private var hasBaseline = false
+
+    /**
+     * userId -> the packages disabled in that profile, as of the last successful read.
+     *
+     * Separate from [lastKnownPackages] because the two answer different questions. That set is
+     * (packageName, userId) pairs, and disabling an app does not remove it from the device - so
+     * membership never changes and an enable or disable is completely invisible to it. That is the
+     * whole of issue #61a: ACTION_PACKAGE_CHANGED reaches only user 0, so a work-profile app turned
+     * off by another app stayed "Enabled" in De1984 until something unrelated forced a refresh.
+     *
+     * A profile is absent from this map until it has been read successfully once, so a first read
+     * never counts as a change.
+     */
+    private var lastKnownDisabled: MutableMap<Int, Set<String>> = mutableMapOf()
     
     companion object {
         private const val TAG = "PackageMonitoringService"
@@ -141,6 +155,8 @@ class PackageMonitoringService : Service() {
             }
         }
 
+        checkForEnabledStateChanges()
+
         // Updated unconditionally. Inside the branch above, an uninstall left the package in the
         // baseline, so it was never "new" again and a reinstall was never processed - the exact
         // case the stale-uid refresh exists for.
@@ -179,6 +195,64 @@ class PackageMonitoringService : Service() {
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get installed packages: ${e.message}", e)
             null
+        }
+    }
+
+    /**
+     * Notices an app being enabled or disabled in ANY profile, which nothing else here can see.
+     *
+     * One `pm list packages -d --user N` per profile, not one call per package - that is what makes
+     * this cheap enough to sit in a 15-second poll. No notification is raised: this is not a new
+     * app, it is the same app in a different state, so the only job is to tell the UI to re-read.
+     *
+     * A profile whose read fails is skipped rather than recorded, so a temporary shell failure does
+     * not first look like "everything got enabled" and then like "everything got disabled again".
+     */
+    private fun checkForEnabledStateChanges() {
+        val profiles = try {
+            HiddenApiHelper.getUsers(this)
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Could not list profiles for the enabled-state check: ${e.message}")
+            return
+        }
+
+        var changed = false
+
+        for (profile in profiles) {
+            val fresh = HiddenApiHelper.readDisabledPackagesFresh(profile.userId)
+            if (fresh == null) {
+                AppLogger.d(TAG, "Disabled-state read failed for user ${profile.userId} - leaving the previous snapshot alone")
+                continue
+            }
+
+            val previous = lastKnownDisabled[profile.userId]
+            lastKnownDisabled[profile.userId] = fresh
+
+            if (previous == null) {
+                // First successful read for this profile. It is the starting point, not a change.
+                continue
+            }
+
+            if (previous != fresh) {
+                val nowDisabled = fresh - previous
+                val nowEnabled = previous - fresh
+                AppLogger.d(
+                    TAG,
+                    "📦 Enabled state changed in user ${profile.userId}: " +
+                        "${nowDisabled.size} newly disabled, ${nowEnabled.size} newly enabled"
+                )
+                changed = true
+            }
+        }
+
+        if (changed) {
+            // The disabled sets are already refreshed by the read above, but the built
+            // ApplicationInfo objects are cached separately for a few seconds with the OLD enabled
+            // flag baked in - so without this the screen can redraw showing exactly what we just
+            // detected had changed. Only on a real change, which is rare, so the cost is not paid
+            // on ordinary polls.
+            HiddenApiHelper.clearInstalledAppsCache()
+            (application as De1984Application).dependencies.notifyPackageDataChanged()
         }
     }
 

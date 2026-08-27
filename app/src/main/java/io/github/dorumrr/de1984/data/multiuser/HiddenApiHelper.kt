@@ -620,11 +620,25 @@ object HiddenApiHelper {
         }
     }
 
+    /**
+     * Guards [disabledPackagesCache]. It used to have none, and the only reader was the UI sweep.
+     * PackageMonitoringService now polls it from its own IO thread to notice an enable or disable
+     * made in another profile, so two threads reach this map.
+     */
+    private val disabledPackagesLock = Any()
+
     private val disabledPackagesCache = mutableMapOf<Int, Set<String>>()
 
-    private fun getDisabledPackagesForUser(userId: Int): Set<String> {
-        disabledPackagesCache[userId]?.let { return it }
-
+    /**
+     * The disabled set for one profile, straight from the shell, with no caching either way.
+     *
+     * Returns **null when the query failed**, which is deliberately not the same value as an empty
+     * set. [getDisabledPackagesForUser] collapses the two because a caller asking "is this package
+     * enabled" has to answer something. [readDisabledPackagesFresh] must NOT collapse them: a failed
+     * read that looked like "nothing is disabled" would be reported as every disabled app having
+     * just been enabled.
+     */
+    private fun queryDisabledPackages(userId: Int): Set<String>? {
         return try {
             val cachedShell = Shell.getCachedShell()
             if (cachedShell == null || !cachedShell.isRoot) {
@@ -638,18 +652,11 @@ object HiddenApiHelper {
                 AppLogger.d(TAG, "No cached root shell for disabled packages (user $userId) - trying Shizuku")
                 val viaShizuku = getDisabledPackagesViaShizuku(userId)
                 if (viaShizuku != null) {
-                    disabledPackagesCache[userId] = viaShizuku
                     AppLogger.d(TAG, "Found ${viaShizuku.size} disabled packages for user $userId via Shizuku")
                     return viaShizuku
                 }
-                // CACHED, even though it is a failure. This function is called once per PACKAGE
-                // (createSyntheticApplicationInfo, ~466 of them here), and without caching the
-                // negative every one of them would retry the Shizuku shell - each with its own 5s
-                // timeout. The old code returned early here with no work at all, so leaving this
-                // uncached turned a free path into a very expensive one.
-                AppLogger.d(TAG, "Could not determine disabled packages for user $userId - assuming none")
-                disabledPackagesCache[userId] = emptySet()
-                return emptySet()
+                AppLogger.d(TAG, "Could not determine disabled packages for user $userId")
+                return null
             }
 
             val outputList = mutableListOf<String>()
@@ -659,11 +666,8 @@ object HiddenApiHelper {
                 .exec()
 
             if (!result.isSuccess) {
-                // Cached for the same reason as above - one shell call per enumeration, not one per
-                // package. clearDisabledPackagesCache() is the way back when state changes.
                 AppLogger.d(TAG, "Shell pm list packages -d failed for user $userId: exit code ${result.code}")
-                disabledPackagesCache[userId] = emptySet()
-                return emptySet()
+                return null
             }
 
             val disabledSet = outputList
@@ -672,14 +676,43 @@ object HiddenApiHelper {
                 .filter { it.isNotEmpty() }
                 .toSet()
 
-            disabledPackagesCache[userId] = disabledSet
             AppLogger.d(TAG, "Found ${disabledSet.size} disabled packages for user $userId")
             disabledSet
         } catch (e: Exception) {
             AppLogger.d(TAG, "Shell pm list packages -d failed: ${e.message}")
-            disabledPackagesCache[userId] = emptySet()
-            emptySet()
+            null
         }
+    }
+
+    /**
+     * The disabled set for one profile, cached until [clearDisabledPackagesCache].
+     *
+     * A failed query is cached as an empty set on purpose. This is called once per PACKAGE from
+     * createSyntheticApplicationInfo (~466 of them on the test device); without caching the negative
+     * every one of them would retry the shell, each with its own timeout, turning a cheap path into
+     * a very expensive one.
+     */
+    private fun getDisabledPackagesForUser(userId: Int): Set<String> {
+        synchronized(disabledPackagesLock) { disabledPackagesCache[userId]?.let { return it } }
+
+        val result = queryDisabledPackages(userId) ?: emptySet()
+        synchronized(disabledPackagesLock) { disabledPackagesCache[userId] = result }
+        return result
+    }
+
+    /**
+     * Re-reads one profile's disabled set, ignoring whatever is cached, and refreshes the cache with
+     * what it finds. Null means the read failed and the caller must not treat that as a change.
+     *
+     * This exists for PackageMonitoringService. ACTION_PACKAGE_CHANGED only ever reaches user 0, so
+     * an app enabled or disabled in a work profile by some other app is invisible to De1984 until
+     * something unrelated forces a refresh (issue #61). One `pm list packages -d --user N` per
+     * profile is cheap enough to poll; asking per package would not be.
+     */
+    fun readDisabledPackagesFresh(userId: Int): Set<String>? {
+        val fresh = queryDisabledPackages(userId) ?: return null
+        synchronized(disabledPackagesLock) { disabledPackagesCache[userId] = fresh }
+        return fresh
     }
 
     private fun getDisabledPackagesViaShizuku(userId: Int): Set<String>? {
@@ -711,7 +744,7 @@ object HiddenApiHelper {
     }
 
     fun clearDisabledPackagesCache() {
-        disabledPackagesCache.clear()
+        synchronized(disabledPackagesLock) { disabledPackagesCache.clear() }
         AppLogger.d(TAG, "Cleared disabled packages cache")
     }
 
