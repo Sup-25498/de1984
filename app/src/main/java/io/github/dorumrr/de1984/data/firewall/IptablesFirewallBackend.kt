@@ -73,10 +73,15 @@ class IptablesFirewallBackend(
          * ConnectivityManagerFirewallBackend's.
          *
          * The de1984_output chains live in the kernel and the "chains are installed" record lives
-         * on disk, so both are shared by every instance. FirewallManager, PrivilegedFirewallService
-         * and cleanupAllBackends each build their own, and a per-instance lock made none of them
+         * on disk, so both are shared by every caller. A per-instance lock made none of them
          * exclusive: the sweep could delete the chains while the service was still inside applyRules
          * adding rules to them.
+         *
+         * This stays process-wide even now that there is one shared instance (see
+         * De1984Dependencies.iptablesBackend). Do NOT downgrade it: the callers reach this object
+         * from different coroutines - a firewall start, the service's rules flow, the cold-start
+         * sweep - and the lock is what keeps them off the chains at the same time. One instance
+         * removed the duplicate WORK; it did not remove the concurrency.
          *
          * ConnectivityManager was moved to a process-wide lock when that was found; this backend and
          * NetworkPolicyManager have the identical shape and were simply older than the fix.
@@ -94,9 +99,14 @@ class IptablesFirewallBackend(
      * True while the kernel chain may hold rules this instance never wrote.
      *
      * iptables state lives in the kernel, so it survives a crash, a force-stop and the app itself;
-     * `blockedUids` above does not. Six places build their own IptablesFirewallBackend
-     * (FirewallManager x5, PrivilegedFirewallService), each starting with an empty set, so
-     * "what this object has applied" is never "what the chain contains" on a first apply.
+     * `blockedUids` above does not. On a first apply in a fresh process that set is empty while the
+     * chain may be full, so "what this object has applied" is not "what the chain contains".
+     *
+     * There is now exactly ONE instance of this class per process
+     * (De1984Dependencies.iptablesBackend). Do not add another: this flag is per-instance, so a
+     * second object arms its own copy and rewrites the whole chain even when the first has just
+     * done it. That cost 10.4 s of shell work per start, measured on hardware, until it was
+     * found.
      *
      * Starts true for exactly that reason, and is reset by startInternal() because a start can
      * adopt a chain a previous process left behind.

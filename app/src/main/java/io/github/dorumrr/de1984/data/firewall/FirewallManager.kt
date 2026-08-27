@@ -47,6 +47,12 @@ import kotlinx.coroutines.withContext
 
 class FirewallManager(
     private val context: Context,
+    /**
+     * The process-wide iptables backend. Injected rather than built here: it carries the only
+     * in-memory picture of one kernel chain, so a second instance means two owners that cannot see
+     * each other's writes. See De1984Dependencies.iptablesBackend.
+     */
+    private val iptablesBackend: IptablesFirewallBackend,
     private val rootManager: RootManager,
     private val shizukuManager: ShizukuManager,
     private val errorHandler: ErrorHandler,
@@ -195,7 +201,6 @@ class FirewallManager(
                     }
 
                     val iptablesCheckStart = System.currentTimeMillis()
-                    val iptablesBackend = IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler)
                     if (iptablesBackend.isActive()) {
                         val iptablesCheckEnd = System.currentTimeMillis()
                         AppLogger.i(TAG, "⏱️ TIMING: Detected iptables backend running (check took ${iptablesCheckEnd - iptablesCheckStart}ms, total elapsed: ${iptablesCheckEnd - initStartTime}ms)")
@@ -797,12 +802,6 @@ class FirewallManager(
         // This is the most important cleanup because iptables rules persist in the kernel
         // even after the app is closed or crashes
         try {
-            val iptablesBackend = IptablesFirewallBackend(
-                context,
-                rootManager,
-                shizukuManager,
-                errorHandler
-            )
             // stopInternal(), NOT stop(). stop() only fires ACTION_STOP at PrivilegedFirewallService
             // and returns success immediately - and on a retry that service has already stopped
             // itself, so the intent goes nowhere. The sweep would then "succeed" without touching a
@@ -974,8 +973,7 @@ class FirewallManager(
 
     /** Runs on Dispatchers.IO: checkAvailability shells out to `iptables --version`. */
     suspend fun isIptablesAvailable(): Boolean = withContext(Dispatchers.IO) {
-        val backend = IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler)
-        backend.checkAvailability().isSuccess
+        iptablesBackend.checkAvailability().isSuccess
     }
 
     /**
@@ -1016,7 +1014,7 @@ class FirewallManager(
         val usable = mutableSetOf(FirewallMode.AUTO, FirewallMode.VPN)
 
         if (probeBackend("iptables") {
-                IptablesFirewallBackend(context, rootManager, shizukuManager, errorHandler).checkAvailability()
+                iptablesBackend.checkAvailability()
             }) usable += FirewallMode.IPTABLES
 
         if (probeBackend("ConnectivityManager") {
@@ -1039,9 +1037,6 @@ class FirewallManager(
                 FirewallMode.AUTO -> {
                     AppLogger.d(TAG, "🎯 AUTO MODE: SELECTING BEST BACKEND | Priority: iptables > ConnectivityManager > VPN")
 
-                    val iptablesBackend = IptablesFirewallBackend(
-                        context, rootManager, shizukuManager, errorHandler
-                    )
                     AppLogger.d(TAG, "Checking iptables availability...")
                     val iptablesAvailable = iptablesBackend.checkAvailability()
 
@@ -1072,9 +1067,6 @@ class FirewallManager(
                 }
 
                 FirewallMode.IPTABLES -> {
-                    val iptablesBackend = IptablesFirewallBackend(
-                        context, rootManager, shizukuManager, errorHandler
-                    )
                     iptablesBackend.checkAvailability().getOrElse { error ->
                         return Result.failure(error)
                     }

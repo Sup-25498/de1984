@@ -271,12 +271,12 @@ class PrivilegedFirewallService : Service() {
 
                 val backend = when (backendType) {
                     FirewallBackendType.IPTABLES -> {
-                        val b = IptablesFirewallBackend(
-                            context = applicationContext,
-                            rootManager = deps.rootManager,
-                            shizukuManager = deps.shizukuManager,
-                            errorHandler = deps.errorHandler
-                        )
+                        // The shared instance, NOT a new one. This object holds the only in-memory
+                        // picture of the de1984_output chain - chainNeedsResync, blockedUids,
+                        // blockedLanUids - and FirewallManager applies rules through the same
+                        // object. Building a second one here meant two owners of one chain, each
+                        // arming its own resync flag, so every start rewrote the whole chain twice.
+                        val b = deps.iptablesBackend
                         b.startInternal().getOrElse { error ->
                             AppLogger.e(TAG, "Failed to start iptables backend: ${error.message}")
                             stopSelf()

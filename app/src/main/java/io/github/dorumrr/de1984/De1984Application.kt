@@ -130,12 +130,13 @@ class De1984Application : Application() {
                     val orphans = mutableListOf<Pair<FirewallBackendType, Throwable>>()
 
                     try {
-                        val iptablesBackend = IptablesFirewallBackend(
-                            this@De1984Application,
-                            dependencies.rootManager,
-                            dependencies.shizukuManager,
-                            dependencies.errorHandler
-                        )
+                        // The shared instance, not a new one. stopInternal() deletes the kernel
+                        // chains AND clears blockedUids / re-arms chainNeedsResync. Done on a
+                        // throwaway, the deletion still happens but the live object keeps a
+                        // populated blockedUids and chainNeedsResync=false - so its next applyRules
+                        // diffs against a chain that no longer exists, finds nothing to add, and
+                        // writes no rules at all. Silent total bypass.
+                        val iptablesBackend = dependencies.iptablesBackend
                         // stopInternal() can now genuinely fail - it verifies the chains are gone
                         // instead of assuming it. The old unconditional "Cleaned up" line would
                         // report success over chains that are still in the kernel.
