@@ -865,6 +865,19 @@ build_and_sign_release() {
     check_keystore
 
     # Build release APK (Gradle signs it automatically with keystore.properties)
+    #
+    # ALWAYS clean first. Reproducible builds are the whole point here: IzzyOnDroid rebuilds the
+    # published tag from source and compares the result to this APK. An incremental build reuses
+    # whatever state app/build already holds and emits a classes.dex with a different byte layout -
+    # functionally identical, but not byte-identical, so the check fails.
+    #
+    # Measured 2026-08-28 on v2.6.8: two clean builds from the tag produced classes.dex 28e0c4c5
+    # byte for byte, while the incremental build published as the release produced a32efdcc. 1000 of
+    # 1001 zip entries matched; only classes.dex differed. The build is deterministic - it just was
+    # not clean.
+    log_info "Cleaning previous build output (required for a reproducible build)..."
+    ./gradlew clean --no-daemon
+
     log_info "Building release APK..."
     ./gradlew assembleRelease --no-daemon
 
