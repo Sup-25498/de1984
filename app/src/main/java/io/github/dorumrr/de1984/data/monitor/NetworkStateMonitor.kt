@@ -97,71 +97,20 @@ class NetworkStateMonitor(
         }
     }
 
-    /**
-     * Is a VPN other than De1984's own one active?
-     *
-     * Answered by reading each VPN network's session name, which is the only way to tell De1984's
-     * tunnel apart from somebody else's while both are up.
-     *
-     * **Needs API 29.** `NetworkCapabilities.getTransportInfo()` arrived in Q; on Android 8.0, 8.1
-     * and 9 the method does not exist and calling it throws NoSuchMethodError. The guard used to
-     * say M (API 23) while minSdk is 26, so those three versions reached a method that was not
-     * there - and NoSuchMethodError is an Error, not an Exception, so the catch below never held
-     * it, the caller had no try, and FirewallManager's scope has no CoroutineExceptionHandler. It
-     * reached the default handler and killed the app the moment another VPN connected.
-     *
-     * Below API 29 this returns false, because it genuinely cannot tell. Callers that still need an
-     * answer there use FirewallManager.isAnotherVpnActive(), which decides from the VPN transport
-     * plus our own backend type and works on every version.
-     */
-    fun isOtherVpnActive(): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                @Suppress("DEPRECATION")
-                val allNetworks = connectivityManager.allNetworks
-                for (network in allNetworks) {
-                    val capabilities = connectivityManager.getNetworkCapabilities(network)
-                    if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-                        val transportInfo = capabilities.transportInfo
-                        if (transportInfo != null) {
-                            val sessionId = getVpnSessionId(transportInfo)
-                            AppLogger.d(TAG, "🔐 Found VPN with session: $sessionId")
-                            if (sessionId != null && sessionId != "De1984 Firewall") {
-                                AppLogger.i(TAG, "🔐 External VPN detected: $sessionId")
-                                return true
-                            }
-                        } else {
-                            // If we can't get transport info, assume it might be another VPN
-                            // unless our VPN is running (checked elsewhere)
-                            AppLogger.d(TAG, "🔐 Found VPN without transport info")
-                        }
-                    }
-                }
-            }
-            false
-        } catch (e: Throwable) {
-            // Throwable, not Exception. Everything under here reaches into framework internals -
-            // a hidden TransportInfo subclass by reflection - and the failures that come back from
-            // that are Errors, which an Exception catch is on the wrong branch of the tree to see.
-            AppLogger.e(TAG, "Failed to check other VPN status", e)
-            false
-        }
-    }
+    // isOtherVpnActive() and getVpnSessionId() lived here and were removed 2026-08-28.
+    //
+    // They read each VPN network's session name to tell De1984's own tunnel from somebody else's.
+    // That cannot work: Android redacts sessionId out of NetworkCapabilities.getTransportInfo()
+    // for any app without NETWORK_SETTINGS, which no installable app can hold. Proved on device -
+    // the system logged `VpnTransportInfo{sessionId=ProtonTunnel}` while De1984 read `null` from
+    // the very same object, and then reported "no other VPN" with an external tunnel plainly up.
+    //
+    // It was not needed either. Android runs ONE VPN at a time, so a VPN being up while our own
+    // backend is NOT the VPN one already means it is somebody else's. FirewallManager
+    // .isAnotherVpnActive() decides exactly that, on every version, and is used in six other
+    // places. The guard was also wrong - it checked API 23 for an API 29 method, which crashed
+    // Android 8.0, 8.1 and 9 outright.
 
-    /**
-     * Extract VPN session ID from transport info using reflection.
-     * VpnTransportInfo is not public API, so we use reflection.
-     */
-    private fun getVpnSessionId(transportInfo: android.net.TransportInfo): String? {
-        return try {
-            val method = transportInfo.javaClass.getMethod("getSessionId")
-            method.invoke(transportInfo) as? String
-        } catch (e: Exception) {
-            val str = transportInfo.toString()
-            val match = Regex("sessionId=([^,}]+)").find(str)
-            match?.groupValues?.getOrNull(1)
-        }
-    }
 
     fun observeNetworkType(): Flow<NetworkType> = callbackFlow {
         AppLogger.d(TAG, "📡 Starting network state monitoring")

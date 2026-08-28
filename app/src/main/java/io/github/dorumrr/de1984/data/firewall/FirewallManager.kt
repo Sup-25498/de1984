@@ -2486,18 +2486,17 @@ class FirewallManager(
             return
         }
 
-        // Two detectors, because the precise one needs Android 10.
+        // One detector, on every Android version.
         //
-        // NetworkStateMonitor reads each VPN's session name, which is the only way to tell our own
-        // tunnel from somebody else's while both are up - but getTransportInfo() only exists from
-        // API 29. Below that it cannot answer, so this falls back to isAnotherVpnActive(), which
-        // decides from the VPN transport plus our own backend type and is already trusted in six
-        // other places in this class. Less precise, and available on every version we support.
-        val isOtherVpnActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            networkStateMonitor.isOtherVpnActive()
-        } else {
-            isAnotherVpnActive()
-        }
+        // This used to ask NetworkStateMonitor to read the VPN's session name. That is dead on
+        // arrival: Android redacts sessionId from getTransportInfo() for apps without
+        // NETWORK_SETTINGS, so it always came back null and this always concluded "no other VPN" -
+        // then logged that the tunnel was ours. Proved on device against a real ProtonVPN session.
+        //
+        // Android runs ONE VPN at a time, so a VPN being up while our backend is not the VPN one
+        // already means somebody else owns it. That is what isAnotherVpnActive() answers, and it
+        // needs no hidden field and no API level check.
+        val isOtherVpnActive = isAnotherVpnActive()
         
         AppLogger.i(TAG, "🔐 VPN state change: isAnyVpnActive=$isAnyVpnActive, isOtherVpnActive=$isOtherVpnActive, currentBackend=$currentBackendType, mode=$currentMode")
 
