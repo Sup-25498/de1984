@@ -32,6 +32,7 @@ import io.github.dorumrr.de1984.databinding.FragmentFirewallBinding
 import io.github.dorumrr.de1984.databinding.NetworkTypeToggleBinding
 import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.model.NetworkPackage
+import io.github.dorumrr.de1984.domain.model.PackageType
 import io.github.dorumrr.de1984.domain.model.PackageId
 import io.github.dorumrr.de1984.presentation.viewmodel.FirewallViewModel
 import io.github.dorumrr.de1984.presentation.viewmodel.SettingsViewModel
@@ -677,7 +678,15 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                         }
 
                         val currentFilter = viewModel.uiState.value.filterState.packageType
-                        val packageType = foundPkg.type.toString()
+                        // PackageType.toString() is the ENUM name ("USER"); the chips and this
+                        // filter are keyed on Constants.Packages.TYPE_USER ("user"). filterPackages
+                        // lowercases, so the LIST came out right while the chip showed nothing
+                        // selected. Harmless while this path was only reachable from inside the
+                        // app; the new-app notification now walks straight down it (issue #83).
+                        val packageType = when (foundPkg.type) {
+                            PackageType.USER -> Constants.Packages.TYPE_USER
+                            PackageType.SYSTEM -> Constants.Packages.TYPE_SYSTEM
+                        }
 
                         if (currentFilter.equals(packageType, ignoreCase = true)) {
                             viewModel.uiState.collect { state ->

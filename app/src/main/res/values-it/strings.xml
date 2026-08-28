@@ -63,6 +63,11 @@
     <string name="packages_filter_all">Tutti</string>
     <string name="packages_filter_system">Sistema</string>
     <string name="packages_filter_user">Utente</string>
+    <string name="packages_filter_bloatware">Bloatware</string>
+    <string name="packages_export_description">Esporta l\'elenco mostrato</string>
+    <string name="packages_export_empty">Niente da esportare sullo schermo</string>
+    <string name="packages_export_success">✅ Esportati %d nomi di pacchetti</string>
+    <string name="packages_export_failed">Esportazione fallita: %s</string>
     <string name="packages_filter_enabled">Attivi</string>
     <string name="packages_filter_disabled">Disattivi</string>
     <string name="packages_empty_state_no_uninstalled">Nessuna app di sistema disinstallata</string>

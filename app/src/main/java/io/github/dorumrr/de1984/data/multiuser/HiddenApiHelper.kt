@@ -8,8 +8,10 @@ import io.github.dorumrr.de1984.utils.Constants
 import android.os.Build
 import android.os.UserHandle
 import com.topjohnwu.superuser.Shell
+import io.github.dorumrr.de1984.data.common.RootManager
 import io.github.dorumrr.de1984.data.common.ShizukuManager
 import io.github.dorumrr.de1984.utils.AppLogger
+import io.github.dorumrr.de1984.utils.ShellRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -233,17 +235,22 @@ object HiddenApiHelper {
 
                 val cachedShell = Shell.getCachedShell()
                 if (cachedShell != null && cachedShell.isRoot) {
-                    try {
-                        val result = cachedShell.newJob().add(command).exec()
-                        if (result.isSuccess) {
-                            crossUserGranted = true
-                            AppLogger.i(TAG, "✅ Cross-user permission granted via root")
-                            return@launch
-                        }
-                        AppLogger.d(TAG, "Root pm grant failed: exit ${result.code}")
-                    } catch (e: Exception) {
-                        AppLogger.d(TAG, "Root pm grant threw: ${e.message}")
+                    // Bounded, and no catch: ShellRunner reports every libsu failure as null and
+                    // logs the root cause. The `catch (e: Exception) {}` this replaces also
+                    // swallowed the cancellation of grantScope.
+                    val result = ShellRunner.bounded(
+                        label = "root grant: $command",
+                        timeoutMs = ShellRunner.READ_TIMEOUT_MS,
+                        onAbandon = RootManager::closeWedgedRootShell
+                    ) {
+                        cachedShell.newJob().add(command).exec()
                     }
+                    if (result != null && result.isSuccess) {
+                        crossUserGranted = true
+                        AppLogger.i(TAG, "✅ Cross-user permission granted via root")
+                        return@launch
+                    }
+                    AppLogger.d(TAG, "Root pm grant failed: exit ${result?.code ?: "did not finish"}")
                 }
 
                 val manager = shizukuManager
@@ -721,12 +728,29 @@ object HiddenApiHelper {
             }
 
             val outputList = mutableListOf<String>()
-            val result = cachedShell.newJob()
-                // -U so this one call yields the uids too. Asking separately meant a second blocking
-                // shell command on a path that demonstrably runs on the main thread.
-                .add("pm list packages -U --user $userId")
-                .to(outputList)
-                .exec()
+            // runBlocking because this method is synchronous, exactly like the Shizuku branch below
+            // it. What changed is the ceiling: libsu's exec() had none, and by this file's own note
+            // this path demonstrably runs on the main thread - so a wedged shell was an ANR with no
+            // way out. Bounded and answering "could not read" beats unbounded and frozen.
+            val result = runBlocking {
+                ShellRunner.bounded(
+                    label = "root shell: pm list packages -U --user $userId",
+                    timeoutMs = ShellRunner.READ_TIMEOUT_MS,
+                    onAbandon = RootManager::closeWedgedRootShell
+                ) {
+                    cachedShell.newJob()
+                        // -U so this one call yields the uids too. Asking separately meant a second
+                        // blocking shell command on this same main-thread path.
+                        .add("pm list packages -U --user $userId")
+                        .to(outputList)
+                        .exec()
+                }
+            }
+
+            if (result == null) {
+                AppLogger.d(TAG, "Root shell pm list packages did not finish for user $userId")
+                return emptyList()
+            }
 
             if (!result.isSuccess) {
                 AppLogger.d(TAG, "Root shell pm list packages failed for user $userId: exit code ${result.code}")
@@ -821,10 +845,26 @@ object HiddenApiHelper {
             }
 
             val outputList = mutableListOf<String>()
-            val result = cachedShell.newJob()
-                .add("pm list packages -d --user $userId")
-                .to(outputList)
-                .exec()
+            val result = runBlocking {
+                ShellRunner.bounded(
+                    label = "root shell: pm list packages -d --user $userId",
+                    timeoutMs = ShellRunner.READ_TIMEOUT_MS,
+                    onAbandon = RootManager::closeWedgedRootShell
+                ) {
+                    cachedShell.newJob()
+                        .add("pm list packages -d --user $userId")
+                        .to(outputList)
+                        .exec()
+                }
+            }
+
+            // null is NOT an empty set here, and the difference matters: this function's contract is
+            // that null means "could not read", which readDisabledPackagesFresh must not confuse
+            // with "nothing is disabled".
+            if (result == null) {
+                AppLogger.d(TAG, "Root shell pm list packages -d did not finish for user $userId")
+                return null
+            }
 
             if (!result.isSuccess) {
                 AppLogger.d(TAG, "Shell pm list packages -d failed for user $userId: exit code ${result.code}")
@@ -962,10 +1002,18 @@ object HiddenApiHelper {
             }
 
             val outputList = mutableListOf<String>()
-            val result = cachedShell.newJob()
-                .add("pm dump $packageName --user $userId")
-                .to(outputList)
-                .exec()
+            val result = runBlocking {
+                ShellRunner.bounded(
+                    label = "root shell: pm dump $packageName --user $userId",
+                    timeoutMs = ShellRunner.READ_TIMEOUT_MS,
+                    onAbandon = RootManager::closeWedgedRootShell
+                ) {
+                    cachedShell.newJob()
+                        .add("pm dump $packageName --user $userId")
+                        .to(outputList)
+                        .exec()
+                }
+            } ?: return null
 
             val output = outputList.joinToString("\n")
 

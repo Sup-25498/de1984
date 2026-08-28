@@ -32,12 +32,32 @@ object FilterPrefs {
     private fun prefs(context: Context) =
         context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Keeps only a value `filterPackages` and the chip mappers both understand. */
-    private fun normalisedType(value: String?): String? = when (value?.lowercase()) {
+    /**
+     * Keeps only a value the FIREWALL screen's `filterPackages` and chip mapper both understand.
+     *
+     * Deliberately narrower than [normalisedPackagesType]: the Firewall screen has no Bloatware
+     * chip, so restoring one there would leave a filter selected that no chip can show and no
+     * mapper can undo.
+     */
+    private fun normalisedFirewallType(value: String?): String? = when (value?.lowercase()) {
         Constants.Packages.TYPE_ALL -> Constants.Packages.TYPE_ALL
         Constants.Packages.TYPE_USER -> Constants.Packages.TYPE_USER
         Constants.Packages.TYPE_SYSTEM -> Constants.Packages.TYPE_SYSTEM
         else -> null
+    }
+
+    /**
+     * The same, for the PACKAGES screen, which also has the Bloatware chip (issue #96).
+     *
+     * The two screens get their own function rather than a shared one with a flag, because the
+     * whole point of this file is that each screen's set of legal values is written down once, next
+     * to the reason. A single normaliser that accepted every value either screen might use would
+     * quietly hand the Firewall screen a filter it cannot render - the exact failure this boundary
+     * exists to stop.
+     */
+    private fun normalisedPackagesType(value: String?): String? = when (value?.lowercase()) {
+        Constants.Packages.TYPE_BLOATWARE -> Constants.Packages.TYPE_BLOATWARE
+        else -> normalisedFirewallType(value)
     }
 
     /** Drops a state this screen cannot restore. See the note on "Uninstalled" above. */
@@ -48,7 +68,7 @@ object FilterPrefs {
         val p = prefs(context)
         val defaults = FirewallFilterState()
         return FirewallFilterState(
-            packageType = normalisedType(p.getString(Constants.Settings.KEY_FIREWALL_FILTER_TYPE, null))
+            packageType = normalisedFirewallType(p.getString(Constants.Settings.KEY_FIREWALL_FILTER_TYPE, null))
                 ?: defaults.packageType,
             networkState = p.getString(Constants.Settings.KEY_FIREWALL_FILTER_STATE, null),
             internetOnly = p.getBoolean(
@@ -62,7 +82,7 @@ object FilterPrefs {
 
     fun saveFirewall(context: Context, state: FirewallFilterState) {
         prefs(context).edit()
-            .putString(Constants.Settings.KEY_FIREWALL_FILTER_TYPE, normalisedType(state.packageType))
+            .putString(Constants.Settings.KEY_FIREWALL_FILTER_TYPE, normalisedFirewallType(state.packageType))
             .putString(Constants.Settings.KEY_FIREWALL_FILTER_STATE, state.networkState)
             .putBoolean(Constants.Settings.KEY_FIREWALL_FILTER_INTERNET_ONLY, state.internetOnly)
             .putString(Constants.Settings.KEY_FIREWALL_FILTER_PROFILE, state.profileFilter)
@@ -73,7 +93,7 @@ object FilterPrefs {
         val p = prefs(context)
         val defaults = PackageFilterState()
         return PackageFilterState(
-            packageType = normalisedType(p.getString(Constants.Settings.KEY_PACKAGES_FILTER_TYPE, null))
+            packageType = normalisedPackagesType(p.getString(Constants.Settings.KEY_PACKAGES_FILTER_TYPE, null))
                 ?: defaults.packageType,
             packageState = restorablePackageState(p.getString(Constants.Settings.KEY_PACKAGES_FILTER_STATE, null)),
             profileFilter = p.getString(Constants.Settings.KEY_PACKAGES_FILTER_PROFILE, null)
@@ -83,7 +103,7 @@ object FilterPrefs {
 
     fun savePackages(context: Context, state: PackageFilterState) {
         prefs(context).edit()
-            .putString(Constants.Settings.KEY_PACKAGES_FILTER_TYPE, normalisedType(state.packageType))
+            .putString(Constants.Settings.KEY_PACKAGES_FILTER_TYPE, normalisedPackagesType(state.packageType))
             .putString(Constants.Settings.KEY_PACKAGES_FILTER_STATE, restorablePackageState(state.packageState))
             .putString(Constants.Settings.KEY_PACKAGES_FILTER_PROFILE, state.profileFilter)
             .apply()

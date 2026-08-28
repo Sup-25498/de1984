@@ -36,6 +36,17 @@ object Constants {
         const val TYPE_USER = "user"
         const val TYPE_ALL = "all"
 
+        /**
+         * Issue #96. Packages screen only - the Firewall screen has no such chip and its mapper
+         * would not know what to do with it. See FilterPrefs, which normalises the two separately
+         * for exactly that reason.
+         *
+         * Not a package TYPE in the way the others are: it selects on criticality, which arrives
+         * from the bundled package_safety_levels.json. Apps that file does not mention come back
+         * UNKNOWN, so this shows known bloatware and does not guess.
+         */
+        const val TYPE_BLOATWARE = "bloatware"
+
         const val STATE_ENABLED = "Enabled"
         const val STATE_DISABLED = "Disabled"
         const val STATE_UNINSTALLED = "Uninstalled"

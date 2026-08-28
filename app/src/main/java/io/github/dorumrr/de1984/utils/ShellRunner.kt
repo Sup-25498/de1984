@@ -109,6 +109,17 @@ object ShellRunner {
     private const val LABEL_MAX_CHARS = 120
 
     /**
+     * The ceiling for a read somebody is waiting on.
+     *
+     * Deliberately far tighter than [DEFAULT_TIMEOUT_MS]. These are `pm list packages` and `pm dump`
+     * calls that run SYNCHRONOUSLY on paths that reach the main thread - HiddenApiHelper says so in
+     * its own note - and every one already has a "could not answer" branch to fall into. They
+     * measured under 100ms on a real device, so five seconds is sixty times the honest cost and
+     * still well inside what a person would call frozen.
+     */
+    const val READ_TIMEOUT_MS = 5_000L
+
+    /**
      * A ceiling for [command], scaled to how much work it actually asks for.
      *
      * One flat number cannot serve both `settings get global x` and IptablesFirewallBackend's chain
@@ -139,11 +150,72 @@ object ShellRunner {
     private val shellScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
+     * How one bounded run ended.
+     *
+     * Private on purpose - callers get a [ShellResult] or a plain nullable value. What is shared is
+     * the RULE for deciding between those three endings, and for letting a cancelled CALLER through
+     * untouched. That rule lived in nine places and was wrong in all nine; it now lives in
+     * [attempt] and nowhere else.
+     */
+    private sealed interface Outcome<out T> {
+        data class Done<T>(val value: T) : Outcome<T>
+        data class Failed(val cause: Throwable) : Outcome<Nothing>
+        data object TimedOut : Outcome<Nothing>
+    }
+
+    /**
+     * Runs [work] detached from the caller and gives up on it after [timeoutMs].
+     *
+     * [onAbandon] is the caller's lever for freeing whatever is stuck - `Process.destroy()` for a
+     * process we started, `Shell.close()` for a wedged libsu shell. It runs on [shellScope], never
+     * on the caller: it can itself block, and a wedged thing must not hold us up twice on the way
+     * out.
+     */
+    private suspend fun <T : Any> attempt(
+        label: String,
+        timeoutMs: Long,
+        onAbandon: () -> Unit,
+        work: suspend CoroutineScope.() -> T
+    ): Outcome<T> {
+        val job = shellScope.async { work() }
+
+        val value = try {
+            withTimeoutOrNull(timeoutMs) { job.await() }
+        } catch (e: CancellationException) {
+            // The CALLER was cancelled, not the timeout. Free the work and let the cancel through -
+            // swallowing it would break structured concurrency for everything upstream.
+            abandon(onAbandon)
+            throw e
+        } catch (e: Exception) {
+            // WARN, not ERROR. The common case is `su` on a phone that has no root: the package
+            // fallbacks probe it on every refresh and treat the failure as routine. An ERROR line
+            // for a normal condition rotates away the log the user switched on to capture
+            // something else.
+            report(warn = true, "${shortLabel(label)} could not run: ${describe(e)}")
+            return Outcome.Failed(e)
+        }
+
+        if (value != null) {
+            return Outcome.Done(value)
+        }
+
+        // ERROR, because unlike the case above this one should not happen: something took longer
+        // than the work it was asked to do could justify.
+        report(warn = false, "${shortLabel(label)} timed out after ${timeoutMs}ms - abandoning it")
+        abandon(onAbandon)
+        return Outcome.TimedOut
+    }
+
+    private fun abandon(onAbandon: () -> Unit) {
+        shellScope.launch { runCatching { onAbandon() } }
+    }
+
+    /**
      * Runs [spawn] and reads it to completion, or gives up after [timeoutMs].
      *
      * Never throws for a process failure - a failed start, a thrown read and an abandoned run all
      * come back as [ShellResult] with `exitCode == -1`. Cancellation of the CALLER is passed
-     * through untouched, because swallowing it would break structured concurrency upstream.
+     * through untouched.
      *
      * [label] names the work in the log when something goes wrong. It may be long - callers pass
      * whole scripts - so it is shortened before it is written anywhere. See [shortLabel].
@@ -155,49 +227,69 @@ object ShellRunner {
     ): ShellResult {
         val processRef = AtomicReference<Process?>(null)
 
-        val work = shellScope.async {
+        val outcome = attempt(
+            label = label,
+            timeoutMs = timeoutMs,
+            // Closing the remote ends is the only thing that frees a read already blocked on a
+            // pipe; without it that thread never comes back.
+            onAbandon = { processRef.get()?.destroy() }
+        ) {
             val process = spawn().also { processRef.set(it) }
             try {
-                val out = async { drain(process.inputStream) }
-                val err = async { drain(process.errorStream) }
+                // Both pipes are drained at the same time, and that is not a style preference.
+                // getErrorStream() is a second real pipe over its own descriptor, not a copy of
+                // stdout, so draining stdout to EOF first deadlocks any command that fills the
+                // 64KB stderr buffer: the child blocks writing stderr, therefore never closes
+                // stdout, therefore the stdout read never ends. `dumpsys netpolicy` already
+                // returns thousands of lines.
+                val output = async { drain(process.inputStream) }
+                val error = async { drain(process.errorStream) }
 
-                val stdout = out.await()
-                val stderr = err.await()
+                val stdout = output.await()
+                val stderr = error.await()
 
                 // Safe here and only here: both pipes are at EOF, so the child has stopped writing
                 // and this returns at once.
                 ShellResult(process.waitFor(), stdout, stderr)
             } finally {
-                // Do not touch outputStream: Shizuku's getOutputStream() is lazy, so asking for it
-                // would open an fd over binder that no caller ever wanted. Nothing writes stdin.
+                // Destroy on every path. It is the only thing that releases the process and its
+                // pipes on the far side, and Shizuku's ShizukuRemoteProcess also holds itself in a
+                // static CACHE until its binderDied fires - see issue #93. Do not touch
+                // outputStream: getOutputStream() is lazy, so asking for it would open an fd over
+                // binder that no caller ever wanted. Nothing writes stdin.
                 runCatching { process.destroy() }
             }
         }
 
-        val result = try {
-            withTimeoutOrNull(timeoutMs) { work.await() }
-        } catch (e: CancellationException) {
-            release(processRef)
-            throw e
-        } catch (e: Exception) {
-            // WARN, not ERROR. The common case here is `su` on a phone that has no root: the six
-            // package-operation fallbacks probe it on every refresh, and the caller treats the
-            // failure as routine. Writing an ERROR line for a normal condition rotates the log the
-            // user switched on to capture something else.
-            report(warn = true, "${shortLabel(label)} could not run: ${describe(e)}")
-            return ShellResult(-1, "", describe(e))
+        return when (outcome) {
+            is Outcome.Done -> outcome.value
+            is Outcome.Failed -> ShellResult(-1, "", describe(outcome.cause))
+            Outcome.TimedOut -> ShellResult(-1, "", "Timed out after ${timeoutMs}ms", timedOut = true)
         }
-
-        if (result != null) {
-            return result
-        }
-
-        // ERROR, because unlike the case above this one should never happen: something took longer
-        // than the work it was asked to do could justify.
-        report(warn = false, "${shortLabel(label)} timed out after ${timeoutMs}ms - abandoning it")
-        release(processRef)
-        return ShellResult(-1, "", "Timed out after ${timeoutMs}ms", timedOut = true)
     }
+
+    /**
+     * Bounds a blocking call this class did NOT start, and returns null if it did not finish.
+     *
+     * This is for libsu. `Shell.cmd(...).exec()` and `shell.newJob()...exec()` block the calling
+     * thread with no ceiling of any kind, and libsu serialises every job onto ONE long-lived root
+     * shell - so a single wedged command does not hang one caller, it hangs every caller after it,
+     * for the life of the process. That is the path a ROOTED device actually takes for the
+     * firewall, for boot protection and for reading other user profiles.
+     *
+     * [onAbandon] should close the wedged shell. `ShellImpl.close()` is not synchronized while
+     * `exec0` is, so it can run while a job is stuck and drop the streams the stuck job is reading
+     * - the same lever `destroy()` gives us for a process. Verified in libsu 6.0.0's bytecode.
+     *
+     * Best effort, and honestly so: if libsu will not let go, later commands time out rather than
+     * hang. Bounded and failing beats unbounded and silent.
+     */
+    suspend fun <T : Any> bounded(
+        label: String,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        onAbandon: () -> Unit = {},
+        work: () -> T
+    ): T? = (attempt(label, timeoutMs, onAbandon) { work() } as? Outcome.Done)?.value
 
     /**
      * Logs off the caller's thread.
@@ -224,17 +316,6 @@ object ShellRunner {
         val firstLine = label.substringBefore('\n')
         val head = if (firstLine.length > LABEL_MAX_CHARS) firstLine.take(LABEL_MAX_CHARS) + "..." else firstLine
         return if (label.length > firstLine.length) "$head [+${label.length - firstLine.length} more chars]" else head
-    }
-
-    /**
-     * Frees a process whose reader we have given up on.
-     *
-     * Detached, because `destroy()` can be a binder call too: a wedged privileged service must not
-     * block the caller a second time on the way out. A null reference means the process was not
-     * created yet, so the abandoned job still reaches its own `finally` - nothing leaks either way.
-     */
-    private fun release(processRef: AtomicReference<Process?>) {
-        shellScope.launch { runCatching { processRef.get()?.destroy() } }
     }
 
     private fun drain(stream: InputStream): String {

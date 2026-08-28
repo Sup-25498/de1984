@@ -89,6 +89,19 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private var currentProfileFilter: String? = null
     private var lastSubmittedPackages: List<Package> = emptyList()
 
+    /**
+     * Issue #96. Writes the names of the packages currently on screen to a file the user picks.
+     *
+     * lastSubmittedPackages, not viewModel.uiState.packages: the search box is applied here in the
+     * fragment, so the ViewModel's list is filter-only and would export rows the user cannot see.
+     * This is literally what was handed to the adapter.
+     */
+    private val exportPackagesLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        uri?.let { viewModel.exportVisiblePackages(it, lastSubmittedPackages) }
+    }
+
     private var currentDialog: BottomSheetDialog? = null
 
     /**
@@ -237,13 +250,18 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         }
 
         setupSelectionToolbar()
+
+        binding.exportPackages.setOnClickListener {
+            exportPackagesLauncher.launch(getString(io.github.dorumrr.de1984.R.string.packages_export_filename))
+        }
     }
 
     private fun setupFilterChips() {
         val packageTypeFilters = listOf(
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all),
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user),
-            getString(io.github.dorumrr.de1984.R.string.packages_filter_system)
+            getString(io.github.dorumrr.de1984.R.string.packages_filter_system),
+            getString(io.github.dorumrr.de1984.R.string.packages_filter_bloatware)
         )
         val packageStateFilters = listOf(
             getString(io.github.dorumrr.de1984.R.string.packages_filter_enabled),
@@ -600,6 +618,11 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
             viewModel.clearReinstallSuccess()
         }
+
+        state.exportSuccess?.let { message ->
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+            viewModel.clearExportSuccess()
+        }
     }
 
     private fun handleError(state: PackagesUiState) {
@@ -654,7 +677,15 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
                         }
 
                         val currentFilter = viewModel.uiState.value.filterState.packageType
-                        val packageType = foundPkg.type.toString()
+                        // PackageType.toString() is the ENUM name ("USER"); the chips and this
+                        // filter are keyed on Constants.Packages.TYPE_USER ("user"). filterPackages
+                        // lowercases, so the LIST came out right while the chip showed nothing
+                        // selected. Harmless while this path was only reachable from inside the
+                        // app; the new-app notification now walks straight down it (issue #83).
+                        val packageType = when (foundPkg.type) {
+                            PackageType.USER -> Constants.Packages.TYPE_USER
+                            PackageType.SYSTEM -> Constants.Packages.TYPE_SYSTEM
+                        }
 
                         if (currentFilter.equals(packageType, ignoreCase = true)) {
                             viewModel.uiState.collect { state ->
@@ -1438,6 +1469,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             getString(io.github.dorumrr.de1984.R.string.packages_filter_all) -> Constants.Packages.TYPE_ALL
             getString(io.github.dorumrr.de1984.R.string.packages_filter_user) -> Constants.Packages.TYPE_USER
             getString(io.github.dorumrr.de1984.R.string.packages_filter_system) -> Constants.Packages.TYPE_SYSTEM
+            getString(io.github.dorumrr.de1984.R.string.packages_filter_bloatware) -> Constants.Packages.TYPE_BLOATWARE
             else -> Constants.Packages.TYPE_ALL
         }
     }
@@ -1456,6 +1488,7 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
             Constants.Packages.TYPE_ALL -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
             Constants.Packages.TYPE_USER -> getString(io.github.dorumrr.de1984.R.string.packages_filter_user)
             Constants.Packages.TYPE_SYSTEM -> getString(io.github.dorumrr.de1984.R.string.packages_filter_system)
+            Constants.Packages.TYPE_BLOATWARE -> getString(io.github.dorumrr.de1984.R.string.packages_filter_bloatware)
             else -> getString(io.github.dorumrr.de1984.R.string.packages_filter_all)
         }
     }

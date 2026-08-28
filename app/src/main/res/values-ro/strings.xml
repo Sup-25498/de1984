@@ -64,6 +64,11 @@
     <string name="packages_filter_all">Toate</string>
     <string name="packages_filter_system">Sistem</string>
     <string name="packages_filter_user">Utilizator</string>
+    <string name="packages_filter_bloatware">Bloatware</string>
+    <string name="packages_export_description">Exportă lista afișată</string>
+    <string name="packages_export_empty">Nimic de exportat pe ecran</string>
+    <string name="packages_export_success">✅ %d nume de pachete exportate</string>
+    <string name="packages_export_failed">Export eșuat: %s</string>
     <string name="packages_filter_enabled">Activate</string>
     <string name="packages_filter_disabled">Dezactivate</string>
     <string name="packages_empty_state_no_uninstalled">Nicio aplicație de sistem dezinstalată</string>

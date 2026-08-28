@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.topjohnwu.superuser.Shell
 import io.github.dorumrr.de1984.utils.Constants
+import io.github.dorumrr.de1984.utils.ShellRunner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,25 @@ class RootManager(private val context: Context) {
 
         /** Breathing room for a root manager that is still starting - KernelSU LKM, a slow grant dialog. */
         private const val ROOT_RETRY_DELAY_MS = 800L
+
+        /**
+         * Drops the shared root shell after a command has blown its ceiling.
+         *
+         * libsu runs every job on ONE long-lived shell, so a single wedged command does not hang one
+         * caller - it hangs every caller after it, for the life of the process. Dropping the shell is
+         * the only way out, and libsu opens a fresh one on the next `Shell.getShell()`.
+         *
+         * It works because `ShellImpl.close()` is NOT synchronized while its `exec0` is, so it can
+         * run while a job is stuck and take away the streams that job is blocked reading - the same
+         * lever `Process.destroy()` gives us elsewhere. Verified in libsu 6.0.0's own bytecode.
+         *
+         * Lives here rather than at each call site because HiddenApiHelper needs the same lever, and
+         * two copies of "how to recover the root shell" is how they drift apart.
+         */
+        fun closeWedgedRootShell() {
+            AppLogger.w(TAG, "⚠️ Dropping the cached root shell - a command did not finish in time")
+            runCatching { Shell.getCachedShell()?.close() }
+        }
     }
 
     private val prefs: SharedPreferences by lazy {
@@ -93,7 +113,7 @@ class RootManager(private val context: Context) {
         AppLogger.d(TAG, "Root status check complete: $newStatus")
     }
 
-    private fun verifyRootWithCachedShell(): Boolean {
+    private suspend fun verifyRootWithCachedShell(): Boolean {
         val cachedShell = Shell.getCachedShell()
         if (cachedShell == null) {
             AppLogger.d(TAG, "No cached shell available")
@@ -112,11 +132,24 @@ class RootManager(private val context: Context) {
         // This does NOT spawn a new su process = NO TOAST
         return try {
             val outputList = mutableListOf<String>()
-            val result = cachedShell.newJob()
-                .add(Constants.RootAccess.ROOT_VERIFICATION_COMMAND)
-                .to(outputList)
-                .exec()
-            
+            // Bounded. This runs on the health-check loop; an unbounded exec() here meant a wedged
+            // shell silently stopped the app ever noticing that root had gone.
+            val result = ShellRunner.bounded(
+                label = "root verify: ${Constants.RootAccess.ROOT_VERIFICATION_COMMAND}",
+                timeoutMs = ShellRunner.READ_TIMEOUT_MS,
+                onAbandon = ::closeWedgedRootShell
+            ) {
+                cachedShell.newJob()
+                    .add(Constants.RootAccess.ROOT_VERIFICATION_COMMAND)
+                    .to(outputList)
+                    .exec()
+            }
+
+            if (result == null) {
+                AppLogger.w(TAG, "⚠️ Cached shell did not answer in time - root is not verified")
+                return false
+            }
+
             val isValid = result.isSuccess && 
                 outputList.any { it.contains(Constants.RootAccess.ROOT_VERIFICATION_SUCCESS_MARKER) }
             
@@ -212,20 +245,31 @@ class RootManager(private val context: Context) {
         }
     }
 
-    suspend fun executeRootCommand(command: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+    /**
+     * Runs one command on the shared root shell. Failure is `-1` plus a message, as before.
+     *
+     * Bounded since 2026-08-28. `Shell.cmd(...).exec()` blocks the calling thread with no ceiling of
+     * any kind, and this is the path a ROOTED device takes for the ENTIRE firewall - every iptables
+     * rewrite, boot protection, the lot. It was the last unbounded shell route in the app.
+     *
+     * The ceiling scales with the command because IptablesFirewallBackend sends its whole chain
+     * rewrite as one; see ShellRunner.ceilingFor. The reason a run failed is written to the log by
+     * ShellRunner, with the root cause rather than the wrapper's null message.
+     */
+    suspend fun executeRootCommand(command: String): Pair<Int, String> {
         if (!hasRootPermission) {
-            return@withContext Pair(-1, "No root permission")
+            return Pair(-1, "No root permission")
         }
 
-        try {
-            val result = Shell.cmd(command).exec()
+        val result = ShellRunner.bounded(
+            label = "root shell: $command",
+            timeoutMs = ShellRunner.ceilingFor(command),
+            onAbandon = ::closeWedgedRootShell
+        ) {
+            Shell.cmd(command).exec()
+        } ?: return Pair(-1, "Root command did not finish - see the log")
 
-            val output = result.out.joinToString("\n")
-
-            Pair(result.code, output)
-        } catch (e: Exception) {
-            Pair(-1, e.message ?: "Unknown error")
-        }
+        return Pair(result.code, result.out.joinToString("\n"))
     }
 }
 

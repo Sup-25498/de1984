@@ -1,5 +1,13 @@
 package io.github.dorumrr.de1984.presentation.viewmodel
 
+import io.github.dorumrr.de1984.utils.AppLogger
+import android.net.Uri
+import io.github.dorumrr.de1984.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -159,6 +167,11 @@ class PackagesViewModel(
                 result.filter { it.type == io.github.dorumrr.de1984.domain.model.PackageType.USER }
             io.github.dorumrr.de1984.utils.Constants.Packages.TYPE_SYSTEM.lowercase() ->
                 result.filter { it.type == io.github.dorumrr.de1984.domain.model.PackageType.SYSTEM }
+            // Issue #96. Criticality, not PackageType - bloatware is a judgement the bundled
+            // package_safety_levels.json makes, and it cuts across user and system apps. Anything
+            // that file does not list is UNKNOWN and is left out rather than guessed at.
+            io.github.dorumrr.de1984.utils.Constants.Packages.TYPE_BLOATWARE.lowercase() ->
+                result.filter { it.criticality == io.github.dorumrr.de1984.domain.model.PackageCriticality.BLOATWARE }
             else -> result
         }
 
@@ -184,6 +197,62 @@ class PackagesViewModel(
         return result
     }
     
+    /**
+     * Writes the package names currently ON SCREEN to [uri] (issue #96).
+     *
+     * The list is passed in rather than read from state on purpose: the search box is applied by
+     * the fragment, not by filterPackages, so `uiState.packages` is filter-only and would export
+     * more than the user can see. The fragment hands over exactly what it gave the adapter.
+     *
+     * Same format as SettingsViewModel's uninstalled-apps export - a short comment header and one
+     * package name per line - so a file exported here can be fed straight back into that importer.
+     */
+    fun exportVisiblePackages(uri: Uri, visible: List<Package>) {
+        viewModelScope.launch {
+            if (visible.isEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    error = getApplication<Application>().getString(R.string.packages_export_empty)
+                )
+                return@launch
+            }
+            // One line per NAME, not per row. The list holds a row per package PER PROFILE, so a
+            // phone with a work profile lists com.android.egg twice - and a file of package names
+            // that repeats itself tells the reader nothing and makes the importer do the work
+            // twice. Order is kept, so the file still reads in the order that was on screen.
+            val names = visible.map { it.packageName }.distinct()
+
+            try {
+                val content = buildString {
+                    appendLine("# De1984 Packages Export")
+                    appendLine("# Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+                    appendLine("# Count: ${names.size}")
+                    appendLine()
+                    names.forEach { appendLine(it) }
+                }
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(content.toByteArray())
+                    } ?: throw java.io.IOException("Could not open the chosen file for writing")
+                }
+                AppLogger.d(TAG, "Exported ${names.size} package names from ${visible.size} rows")
+                _uiState.value = _uiState.value.copy(
+                    exportSuccess = getApplication<Application>()
+                        .getString(R.string.packages_export_success, names.size)
+                )
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Package export failed", e)
+                _uiState.value = _uiState.value.copy(
+                    error = getApplication<Application>()
+                        .getString(R.string.packages_export_failed, e.message ?: e.javaClass.simpleName)
+                )
+            }
+        }
+    }
+
+    fun clearExportSuccess() {
+        _uiState.value = _uiState.value.copy(exportSuccess = null)
+    }
+
     fun setPackageTypeFilter(packageType: String) {
         val currentFilterState = _uiState.value.filterState
         val newFilterState = currentFilterState.copy(
@@ -445,7 +514,8 @@ data class PackagesUiState(
     val batchUninstallResult: UninstallBatchResult? = null,
     val batchReinstallResult: ReinstallBatchResult? = null,
     val uninstallSuccess: String? = null,
-    val reinstallSuccess: String? = null
+    val reinstallSuccess: String? = null,
+    val exportSuccess: String? = null
 ) {
     val isLoading: Boolean get() = isLoadingData || isRenderingUI
 }

@@ -63,6 +63,11 @@
     <string name="packages_filter_all">Todos</string>
     <string name="packages_filter_system">Sistema</string>
     <string name="packages_filter_user">Usuário</string>
+    <string name="packages_filter_bloatware">Bloatware</string>
+    <string name="packages_export_description">Exportar a lista na tela</string>
+    <string name="packages_export_empty">Nada na tela para exportar</string>
+    <string name="packages_export_success">✅ %d nomes de pacotes exportados</string>
+    <string name="packages_export_failed">Exportação falhou: %s</string>
     <string name="packages_filter_enabled">Ativados</string>
     <string name="packages_filter_disabled">Desativados</string>
     <string name="packages_empty_state_no_uninstalled">Nenhum app do sistema desinstalado</string>

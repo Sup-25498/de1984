@@ -127,6 +127,19 @@
             android:textSize="14sp"
             android:textColor="?android:attr/textColorHint" />
 
+        <!-- Issue #96. Sits in the 40dp the counter already reserves at the right edge, so it
+             costs no vertical space on a screen that is tight in landscape. -->
+        <ImageButton
+            android:id="@+id/export_packages"
+            android:layout_width="40dp"
+            android:layout_height="41dp"
+            android:layout_gravity="end|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/packages_export_description"
+            android:padding="9dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_export" />
+
     </FrameLayout>
 
     <!-- Packages RecyclerView - Full Width, No Container -->
