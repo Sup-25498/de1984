@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -69,6 +70,16 @@ class FirewallManager(
 
         /** How long to keep asking before calling it a failed start. See awaitBackendActive. */
         private const val BACKEND_ACTIVE_TIMEOUT_MS = 8_000L
+
+        /**
+         * How long a start will wait for the root and Shizuku probes to stop saying CHECKING.
+         *
+         * Matched to BACKEND_ACTIVE_TIMEOUT_MS above, and deliberately under the ten seconds a
+         * FOREGROUND broadcast is allowed - FirewallToggleReceiver reaches startFirewall through
+         * goAsync(), so a longer wait there would be killed by the system rather than by us.
+         * The probe measured about five seconds on a cold start, so this leaves margin.
+         */
+        private const val PRIVILEGE_ANSWER_TIMEOUT_MS = 8_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob())
@@ -362,6 +373,67 @@ class FirewallManager(
      * while still holding the lock, hanging every later start, stop and toggle for the rest of the
      * process.
      */
+    /**
+     * Waits until the root and Shizuku probes have said something other than CHECKING.
+     *
+     * CHECKING is not an answer. `hasRootPermission` and `hasShizukuPermission` are plain
+     * `status == GRANTED` reads, so while a probe is running they return false - which is
+     * indistinguishable from "this device has none". [startFirewallInternal] then decided the only
+     * usable backend was VPN, refused to start because another VPN was up, and raised FIREWALL DOWN
+     * with a notification.
+     *
+     * Measured on hardware 2026-08-28 against a live ProtonVPN session:
+     *
+     *   15:56:18  root=CHECKING, shizuku=CHECKING
+     *   15:56:20  FIREWALL DOWN - "another VPN is active and no privileged access"
+     *   15:56:24  root=ROOTED_WITH_PERMISSION -> started successfully with IPTABLES
+     *
+     * Four seconds of a red notification on a device that had working root the whole time.
+     *
+     * This is the same trap handlePrivilegeChange already guards against further down this file.
+     * That one can simply return, because a finished probe emits again; this is a one-shot request,
+     * so it has to wait instead.
+     *
+     * Bounded, and false on expiry so the caller falls back to whatever it can see - never worse
+     * than before this existed. Only ever reached when another VPN is already up.
+     */
+    private suspend fun awaitPrivilegeAnswer(): Boolean {
+        fun answered() = rootManager.rootStatus.value != RootStatus.CHECKING &&
+            shizukuManager.shizukuStatus.value != ShizukuStatus.CHECKING
+
+        if (answered()) {
+            return true
+        }
+
+        AppLogger.d(
+            TAG,
+            "Privilege probe still running (root=${rootManager.rootStatus.value}, " +
+                "shizuku=${shizukuManager.shizukuStatus.value}) - waiting for a real answer " +
+                "before judging a VPN conflict"
+        )
+
+        val inTime = withTimeoutOrNull(PRIVILEGE_ANSWER_TIMEOUT_MS) {
+            combine(rootManager.rootStatus, shizukuManager.shizukuStatus) { root, shizuku ->
+                root != RootStatus.CHECKING && shizuku != ShizukuStatus.CHECKING
+            }.first { it }
+        } != null
+
+        if (inTime) {
+            AppLogger.d(
+                TAG,
+                "Privilege probe answered: root=${rootManager.rootStatus.value}, " +
+                    "shizuku=${shizukuManager.shizukuStatus.value}"
+            )
+        } else {
+            AppLogger.w(
+                TAG,
+                "Privilege probe gave no answer within ${PRIVILEGE_ANSWER_TIMEOUT_MS}ms - " +
+                    "deciding on what is visible"
+            )
+        }
+        return inTime
+    }
+
     private suspend fun startFirewallInternal(mode: FirewallMode): Result<FirewallBackendType> {
         return try {
             AppLogger.d(TAG, "Starting firewall with mode: $mode")
@@ -375,6 +447,11 @@ class FirewallManager(
             // If another VPN is active but we have root/Shizuku, we can still use iptables/CM backend.
             // Only fail if another VPN is active AND we don't have privileged access (would need VPN backend).
             if (isAnotherVpnActive()) {
+                // CHECKING is not an answer - see awaitPrivilegeAnswer. Without this the two reads
+                // below return false while the probes are still running, and a device with working
+                // root was told it had none.
+                awaitPrivilegeAnswer()
+
                 val hasRoot = rootManager.hasRootPermission
                 val hasShizuku = shizukuManager.hasShizukuPermission
                 val hasPrivilegedAccess = hasRoot || hasShizuku
