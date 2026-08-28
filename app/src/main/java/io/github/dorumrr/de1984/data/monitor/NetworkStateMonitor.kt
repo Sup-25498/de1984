@@ -98,12 +98,25 @@ class NetworkStateMonitor(
     }
 
     /**
-     * Check if another VPN (not De1984's) is active.
-     * Returns true if there's a VPN active with a session ID other than "De1984 Firewall".
+     * Is a VPN other than De1984's own one active?
+     *
+     * Answered by reading each VPN network's session name, which is the only way to tell De1984's
+     * tunnel apart from somebody else's while both are up.
+     *
+     * **Needs API 29.** `NetworkCapabilities.getTransportInfo()` arrived in Q; on Android 8.0, 8.1
+     * and 9 the method does not exist and calling it throws NoSuchMethodError. The guard used to
+     * say M (API 23) while minSdk is 26, so those three versions reached a method that was not
+     * there - and NoSuchMethodError is an Error, not an Exception, so the catch below never held
+     * it, the caller had no try, and FirewallManager's scope has no CoroutineExceptionHandler. It
+     * reached the default handler and killed the app the moment another VPN connected.
+     *
+     * Below API 29 this returns false, because it genuinely cannot tell. Callers that still need an
+     * answer there use FirewallManager.isAnotherVpnActive(), which decides from the VPN transport
+     * plus our own backend type and works on every version.
      */
     fun isOtherVpnActive(): Boolean {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 @Suppress("DEPRECATION")
                 val allNetworks = connectivityManager.allNetworks
                 for (network in allNetworks) {
@@ -126,7 +139,10 @@ class NetworkStateMonitor(
                 }
             }
             false
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not Exception. Everything under here reaches into framework internals -
+            // a hidden TransportInfo subclass by reflection - and the failures that come back from
+            // that are Errors, which an Exception catch is on the wrong branch of the tree to see.
             AppLogger.e(TAG, "Failed to check other VPN status", e)
             false
         }

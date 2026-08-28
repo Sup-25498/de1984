@@ -2486,7 +2486,18 @@ class FirewallManager(
             return
         }
 
-        val isOtherVpnActive = networkStateMonitor.isOtherVpnActive()
+        // Two detectors, because the precise one needs Android 10.
+        //
+        // NetworkStateMonitor reads each VPN's session name, which is the only way to tell our own
+        // tunnel from somebody else's while both are up - but getTransportInfo() only exists from
+        // API 29. Below that it cannot answer, so this falls back to isAnotherVpnActive(), which
+        // decides from the VPN transport plus our own backend type and is already trusted in six
+        // other places in this class. Less precise, and available on every version we support.
+        val isOtherVpnActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            networkStateMonitor.isOtherVpnActive()
+        } else {
+            isAnotherVpnActive()
+        }
         
         AppLogger.i(TAG, "🔐 VPN state change: isAnyVpnActive=$isAnyVpnActive, isOtherVpnActive=$isOtherVpnActive, currentBackend=$currentBackendType, mode=$currentMode")
 
