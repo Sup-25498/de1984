@@ -71,6 +71,27 @@
                 android:maxLines="1"
                 android:ellipsize="end" />
 
+            <!-- Profile Badge (Work/Clone).
+                 In the LEFT column, not with the status badges on the right, and that is the whole
+                 point: that column is a fixed 48dp tall, which fits exactly two badges. With a
+                 safety badge present this one was the third and got clipped away - so on a list
+                 filtered to the work profile, only apps with NO safety rating showed a Work badge.
+                 item_network_package.xml has always put it here for the same reason. -->
+            <TextView
+                android:id="@+id/profile_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#6200EE"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:background="@drawable/badge_background_profile"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <!-- Badges Column (Right Side) -->
@@ -128,22 +149,6 @@
                 android:paddingBottom="2dp"
                 android:background="@drawable/package_type_badge_background"
                 android:textColor="@color/package_type_chip_text"
-                android:visibility="gone" />
-
-            <!-- Profile Badge (Work/Clone) -->
-            <TextView
-                android:id="@+id/profile_badge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:textColor="#6200EE"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:background="@drawable/badge_background_profile"
                 android:visibility="gone" />
 
         </LinearLayout>
