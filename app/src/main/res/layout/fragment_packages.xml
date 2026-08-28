@@ -85,6 +85,7 @@
             android:id="@+id/search_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/search_export_button_size"
             android:hint="@string/packages_search_hint"
             app:startIconDrawable="@android:drawable/ic_menu_search"
             app:endIconMode="custom"
@@ -123,15 +124,16 @@
             android:layout_height="41dp"
             android:layout_gravity="end|center_vertical"
             android:gravity="center_vertical"
-            android:paddingEnd="@dimen/search_counter_padding_end"
+            android:paddingEnd="@dimen/search_counter_padding_end_with_export"
             android:textSize="14sp"
             android:textColor="?android:attr/textColorHint" />
 
-        <!-- Issue #96. Sits in the 40dp the counter already reserves at the right edge, so it
-             costs no vertical space on a screen that is tight in landscape. -->
+        <!-- Issue #96. Takes its own strip at the right edge; search_layout stops short by exactly
+             this width so the box's clear (X) icon is not drawn underneath it. The 40dp the counter
+             reserved was never free - it is where that clear icon lives. -->
         <ImageButton
             android:id="@+id/export_packages"
-            android:layout_width="40dp"
+            android:layout_width="@dimen/search_export_button_size"
             android:layout_height="41dp"
             android:layout_gravity="end|center_vertical"
             android:background="?attr/selectableItemBackgroundBorderless"

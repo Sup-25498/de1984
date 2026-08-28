@@ -241,7 +241,7 @@ object HiddenApiHelper {
                     val result = ShellRunner.bounded(
                         label = "root grant: $command",
                         timeoutMs = ShellRunner.READ_TIMEOUT_MS,
-                        onAbandon = RootManager::closeWedgedRootShell
+                        onAbandon = RootManager::closeRootShellIfIdle
                     ) {
                         cachedShell.newJob().add(command).exec()
                     }
@@ -736,7 +736,7 @@ object HiddenApiHelper {
                 ShellRunner.bounded(
                     label = "root shell: pm list packages -U --user $userId",
                     timeoutMs = ShellRunner.READ_TIMEOUT_MS,
-                    onAbandon = RootManager::closeWedgedRootShell
+                    onAbandon = RootManager::closeRootShellIfIdle
                 ) {
                     cachedShell.newJob()
                         // -U so this one call yields the uids too. Asking separately meant a second
@@ -849,7 +849,7 @@ object HiddenApiHelper {
                 ShellRunner.bounded(
                     label = "root shell: pm list packages -d --user $userId",
                     timeoutMs = ShellRunner.READ_TIMEOUT_MS,
-                    onAbandon = RootManager::closeWedgedRootShell
+                    onAbandon = RootManager::closeRootShellIfIdle
                 ) {
                     cachedShell.newJob()
                         .add("pm list packages -d --user $userId")
@@ -1006,7 +1006,7 @@ object HiddenApiHelper {
                 ShellRunner.bounded(
                     label = "root shell: pm dump $packageName --user $userId",
                     timeoutMs = ShellRunner.READ_TIMEOUT_MS,
-                    onAbandon = RootManager::closeWedgedRootShell
+                    onAbandon = RootManager::closeRootShellIfIdle
                 ) {
                     cachedShell.newJob()
                         .add("pm dump $packageName --user $userId")

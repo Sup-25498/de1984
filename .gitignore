@@ -95,3 +95,5 @@ release-keystore.jks
 release-keystore.jks.backup
 
 keystore.properties
+# Local, one-off working output (audits, mockups, reports)
+artifacts/

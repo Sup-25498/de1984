@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import com.topjohnwu.superuser.Shell
 import io.github.dorumrr.de1984.utils.Constants
 import io.github.dorumrr.de1984.utils.ShellRunner
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,27 @@ class RootManager(private val context: Context) {
         private const val ROOT_RETRY_DELAY_MS = 800L
 
         /**
+         * How many long root commands are running on the shared shell right now.
+         *
+         * A read that blows its 5s ceiling has two very different causes, and the recovery for one
+         * is fatal to the other:
+         *
+         * - the shell is genuinely wedged, and dropping it is the only way out;
+         * - or a legitimate command is simply still running. `ShellRunner.ceilingFor` gives an
+         *   iptables chain rewrite 30s to 10min, and libsu serialises every job on one `ShellImpl`,
+         *   so a read issued during one ALWAYS waits for it and ALWAYS blows a 5s ceiling.
+         *
+         * In the second case dropping the shell kills the rewrite half-written, and
+         * `IptablesFirewallBackend` then has the old rules PLUS a partial new set to trim on the
+         * retry - so each attempt is bigger, slower, and likelier to be cut than the last, and the
+         * chain stops converging. `PackageMonitoringService` polls every 15s for every profile, so
+         * on a rooted device this is not a rare race; it is the normal case.
+         *
+         * This counter is the only thing that tells the two apart.
+         */
+        private val longRootCommandsInFlight = AtomicInteger(0)
+
+        /**
          * Drops the shared root shell after a command has blown its ceiling.
          *
          * libsu runs every job on ONE long-lived shell, so a single wedged command does not hang one
@@ -47,12 +69,36 @@ class RootManager(private val context: Context) {
          * run while a job is stuck and take away the streams that job is blocked reading - the same
          * lever `Process.destroy()` gives us elsewhere. Verified in libsu 6.0.0's own bytecode.
          *
+         * That same power is why a SHORT read must not call this directly - use
+         * [closeRootShellIfIdle]. This one is for a command that blew its OWN generous ceiling,
+         * where "wedged" is the only remaining explanation.
+         *
          * Lives here rather than at each call site because HiddenApiHelper needs the same lever, and
          * two copies of "how to recover the root shell" is how they drift apart.
          */
         fun closeWedgedRootShell() {
             AppLogger.w(TAG, "⚠️ Dropping the cached root shell - a command did not finish in time")
             runCatching { Shell.getCachedShell()?.close() }
+        }
+
+        /**
+         * Recovery for a SHORT read that timed out: drop the shell only if nothing legitimate is
+         * using it. See [longRootCommandsInFlight] for why the distinction is load-bearing.
+         *
+         * Waiting is safe. A truly wedged shell is still recovered, just by the long command's own
+         * ceiling instead of by a 5s read that happened to queue behind it.
+         */
+        fun closeRootShellIfIdle() {
+            val inFlight = longRootCommandsInFlight.get()
+            if (inFlight > 0) {
+                AppLogger.d(
+                    TAG,
+                    "A read did not finish in time, but $inFlight root command(s) are still running " +
+                        "- keeping the shell so their work is not cut"
+                )
+                return
+            }
+            closeWedgedRootShell()
         }
     }
 
@@ -137,7 +183,7 @@ class RootManager(private val context: Context) {
             val result = ShellRunner.bounded(
                 label = "root verify: ${Constants.RootAccess.ROOT_VERIFICATION_COMMAND}",
                 timeoutMs = ShellRunner.READ_TIMEOUT_MS,
-                onAbandon = ::closeWedgedRootShell
+                onAbandon = ::closeRootShellIfIdle
             ) {
                 cachedShell.newJob()
                     .add(Constants.RootAccess.ROOT_VERIFICATION_COMMAND)
@@ -266,7 +312,16 @@ class RootManager(private val context: Context) {
             timeoutMs = ShellRunner.ceilingFor(command),
             onAbandon = ::closeWedgedRootShell
         ) {
-            Shell.cmd(command).exec()
+            // Counted INSIDE the work, not around the bounded() call. ShellRunner returns the
+            // moment the ceiling expires while the job keeps running detached, so counting outside
+            // would drop the count to zero at exactly the wrong moment - while the shell is still
+            // busy - and let a read close the shell out from under this command.
+            longRootCommandsInFlight.incrementAndGet()
+            try {
+                Shell.cmd(command).exec()
+            } finally {
+                longRootCommandsInFlight.decrementAndGet()
+            }
         } ?: return Pair(-1, "Root command did not finish - see the log")
 
         return Pair(result.code, result.out.joinToString("\n"))

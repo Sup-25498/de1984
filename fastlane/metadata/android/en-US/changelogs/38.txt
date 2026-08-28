@@ -1,0 +1,9 @@
+- Work profile apps are listed, and enable or disable is seen #61
+- Tile and widget can stop the firewall without opening the app #91
+- Filter for bloatware, and export the list you see #96
+- Both lists remember their filters #71
+- Tapping a new-app notification opens that app's rules #83
+- No more false "firewall down" alarm at startup
+- The screen now rotates with your device #77
+- Fixed a crash on Android 8 and 9 while another VPN runs
+- A stuck root command no longer freezes the app
