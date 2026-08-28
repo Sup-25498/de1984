@@ -108,163 +108,163 @@ class AndroidPackageDataSource(
             val getUsersStart = System.currentTimeMillis()
             val userProfiles = HiddenApiHelper.getUsers(context)
             val getUsersEnd = System.currentTimeMillis()
-                AppLogger.i(TAG, "⏱️ TIMING: getUsers took ${getUsersEnd - getUsersStart}ms, returned ${userProfiles.size} profiles")
-                AppLogger.d(TAG, "📱 Enumerating packages for ${userProfiles.size} user profiles")
+            AppLogger.i(TAG, "⏱️ TIMING: getUsers took ${getUsersEnd - getUsersStart}ms, returned ${userProfiles.size} profiles")
+            AppLogger.d(TAG, "📱 Enumerating packages for ${userProfiles.size} user profiles")
 
-                val rulesStart = System.currentTimeMillis()
-                val firewallRules = firewallRepository.getAllRules().first()
-                val rulesEnd = System.currentTimeMillis()
-                AppLogger.i(TAG, "⏱️ TIMING: getAllRules().first() took ${rulesEnd - rulesStart}ms, returned ${firewallRules.size} rules")
-                val rulesByKey = firewallRules.associateBy { "${it.packageName}:${it.userId}" }
+            val rulesStart = System.currentTimeMillis()
+            val firewallRules = firewallRepository.getAllRules().first()
+            val rulesEnd = System.currentTimeMillis()
+            AppLogger.i(TAG, "⏱️ TIMING: getAllRules().first() took ${rulesEnd - rulesStart}ms, returned ${firewallRules.size} rules")
+            val rulesByKey = firewallRules.associateBy { "${it.packageName}:${it.userId}" }
 
-                val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
-                val defaultPolicy = prefs.getString(
-                    Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
-                    Constants.Settings.DEFAULT_FIREWALL_POLICY
-                ) ?: Constants.Settings.DEFAULT_FIREWALL_POLICY
-                val isBlockAllDefault = defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL
-                val allowCritical = prefs.getBoolean(
-                    Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
-                    Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
+            val prefs = context.getSharedPreferences(Constants.Settings.PREFS_NAME, Context.MODE_PRIVATE)
+            val defaultPolicy = prefs.getString(
+                Constants.Settings.KEY_DEFAULT_FIREWALL_POLICY,
+                Constants.Settings.DEFAULT_FIREWALL_POLICY
+            ) ?: Constants.Settings.DEFAULT_FIREWALL_POLICY
+            val isBlockAllDefault = defaultPolicy == Constants.Settings.POLICY_BLOCK_ALL
+            val allowCritical = prefs.getBoolean(
+                Constants.Settings.KEY_ALLOW_CRITICAL_FIREWALL,
+                Constants.Settings.DEFAULT_ALLOW_CRITICAL_FIREWALL
+            )
+
+            val allPackages = mutableListOf<PackageEntity>()
+
+            AppLogger.i(TAG, "📱 MULTI-USER SUMMARY: ${userProfiles.size} profiles detected:")
+            for (profile in userProfiles) {
+                AppLogger.i(TAG, "   → userId=${profile.userId}, name=${profile.displayName}, isWork=${profile.isWorkProfile}, isClone=${profile.isCloneProfile}")
+            }
+
+            for (profile in userProfiles) {
+                val profileStart = System.currentTimeMillis()
+                val installedPackages = HiddenApiHelper.getInstalledApplicationsAsUser(
+                    context,
+                    PackageManager.GET_META_DATA,
+                    profile.userId
                 )
+                val profileEnd = System.currentTimeMillis()
 
-                val allPackages = mutableListOf<PackageEntity>()
+                AppLogger.i(TAG, "⏱️ TIMING: Profile ${profile.userId} (${profile.displayName}): getInstalledApplicationsAsUser took ${profileEnd - profileStart}ms, returned ${installedPackages.size} packages")
 
-                AppLogger.i(TAG, "📱 MULTI-USER SUMMARY: ${userProfiles.size} profiles detected:")
-                for (profile in userProfiles) {
-                    AppLogger.i(TAG, "   → userId=${profile.userId}, name=${profile.displayName}, isWork=${profile.isWorkProfile}, isClone=${profile.isCloneProfile}")
+                AppLogger.d(TAG, "📦 User ${profile.userId} (${profile.displayName}): ${installedPackages.size} packages")
+
+                if (profile.userId != 0 && installedPackages.isNotEmpty()) {
+                    val sampleApps = installedPackages.take(5).map { it.packageName }
+                    AppLogger.i(TAG, "📦 MULTI-USER: Sample apps from ${profile.displayName} profile: $sampleApps")
                 }
 
-                for (profile in userProfiles) {
-                    val profileStart = System.currentTimeMillis()
-                    val installedPackages = HiddenApiHelper.getInstalledApplicationsAsUser(
-                        context,
-                        PackageManager.GET_META_DATA,
-                        profile.userId
-                    )
-                    val profileEnd = System.currentTimeMillis()
+                val chunkSize = 25
+                val packageChunks = installedPackages
+                    .filter { !Constants.App.isOwnApp(it.packageName) }
+                    .chunked(chunkSize)
 
-                    AppLogger.i(TAG, "⏱️ TIMING: Profile ${profile.userId} (${profile.displayName}): getInstalledApplicationsAsUser took ${profileEnd - profileStart}ms, returned ${installedPackages.size} packages")
+                for (chunk in packageChunks) {
+                    val chunkResults = chunk.map { appInfo ->
+                        async {
+                            val ruleKey = "${appInfo.packageName}:${profile.userId}"
+                            val rule = rulesByKey[ruleKey]
 
-                    AppLogger.d(TAG, "📦 User ${profile.userId} (${profile.displayName}): ${installedPackages.size} packages")
+                            // OPTIMIZATION: Single batch call instead of 7 separate calls
+                            // This reduces ~1400+ system calls to ~200 for typical device
+                            val metadata = getPackageMetadataBatch(appInfo.packageName, profile.userId)
 
-                    if (profile.userId != 0 && installedPackages.isNotEmpty()) {
-                        val sampleApps = installedPackages.take(5).map { it.packageName }
-                        AppLogger.i(TAG, "📦 MULTI-USER: Sample apps from ${profile.displayName} profile: $sampleApps")
-                    }
+                            val absoluteUid = appInfo.uid
 
-                    val chunkSize = 25
-                    val packageChunks = installedPackages
-                        .filter { !Constants.App.isOwnApp(it.packageName) }
-                        .chunked(chunkSize)
+                            if (metadata.isVpnApp) {
+                                AppLogger.d(TAG, "🔍 VPN APP DETECTED: ${appInfo.packageName} (user ${profile.userId}), hasRule=${rule != null}")
+                            }
 
-                    for (chunk in packageChunks) {
-                        val chunkResults = chunk.map { appInfo ->
-                            async {
-                                val ruleKey = "${appInfo.packageName}:${profile.userId}"
-                                val rule = rulesByKey[ruleKey]
+                            val isCriticalPackage = Constants.Firewall.isSystemCritical(appInfo.packageName) || metadata.isVpnApp
 
-                                // OPTIMIZATION: Single batch call instead of 7 separate calls
-                                // This reduces ~1400+ system calls to ~200 for typical device
-                                val metadata = getPackageMetadataBatch(appInfo.packageName, profile.userId)
-
-                                val absoluteUid = appInfo.uid
-
-                                if (metadata.isVpnApp) {
-                                    AppLogger.d(TAG, "🔍 VPN APP DETECTED: ${appInfo.packageName} (user ${profile.userId}), hasRule=${rule != null}")
-                                }
-
-                                val isCriticalPackage = Constants.Firewall.isSystemCritical(appInfo.packageName) || metadata.isVpnApp
-
-                                val blockingState = if (isCriticalPackage && !allowCritical) {
-                                    BlockingState(
-                                        isNetworkBlocked = false,
-                                        wifiBlocked = false,
-                                        mobileBlocked = false,
-                                        roamingBlocked = false,
-                                        backgroundBlocked = false,
-                                        lanBlocked = false
-                                    )
-                                } else if (rule != null && rule.enabled) {
-                                    BlockingState(
-                                        isNetworkBlocked = rule.wifiBlocked || rule.mobileBlocked,
-                                        wifiBlocked = rule.wifiBlocked,
-                                        mobileBlocked = rule.mobileBlocked,
-                                        roamingBlocked = rule.blockWhenRoaming,
-                                        backgroundBlocked = rule.blockWhenBackground,
-                                        lanBlocked = rule.lanBlocked
-                                    )
-                                } else if (isCriticalPackage && allowCritical) {
-                                    BlockingState(
-                                        isNetworkBlocked = false,
-                                        wifiBlocked = false,
-                                        mobileBlocked = false,
-                                        roamingBlocked = false,
-                                        backgroundBlocked = false,
-                                        lanBlocked = false
-                                    )
-                                } else {
-                                    BlockingState(
-                                        isNetworkBlocked = isBlockAllDefault,
-                                        wifiBlocked = isBlockAllDefault,
-                                        mobileBlocked = isBlockAllDefault,
-                                        roamingBlocked = isBlockAllDefault,
-                                        backgroundBlocked = false,
-                                        lanBlocked = isBlockAllDefault
-                                    )
-                                }
-
-                                val criticality = PackageSafetyLoader.getCriticality(context, appInfo.packageName)
-                                val category = PackageSafetyLoader.getCategory(context, appInfo.packageName)
-                                val affects = PackageSafetyLoader.getAffects(context, appInfo.packageName)
-
-                                PackageEntity(
-                                    packageName = appInfo.packageName,
-                                    userId = profile.userId,
-                                    uid = absoluteUid,
-                                    name = getAppName(appInfo),
-                                    icon = getAppIconEmoji(appInfo),
-                                    isEnabled = appInfo.enabled,
-                                    type = if (isSystemApp(appInfo)) Constants.Packages.TYPE_SYSTEM else Constants.Packages.TYPE_USER,
-                                    versionName = metadata.versionName,
-                                    versionCode = metadata.versionCode,
-                                    installTime = metadata.installTime,
-                                    updateTime = metadata.updateTime,
-                                    permissions = metadata.permissions,
-                                    hasNetworkAccess = metadata.hasNetworkAccess,
-                                    isNetworkBlocked = blockingState.isNetworkBlocked,
-                                    wifiBlocked = blockingState.wifiBlocked,
-                                    mobileBlocked = blockingState.mobileBlocked,
-                                    roamingBlocked = blockingState.roamingBlocked,
-                                    backgroundBlocked = blockingState.backgroundBlocked,
-                                    lanBlocked = blockingState.lanBlocked,
-                                    isVpnApp = metadata.isVpnApp,
-                                    criticality = criticality,
-                                    category = category,
-                                    affects = affects,
-                                    isWorkProfile = profile.isWorkProfile,
-                                    isCloneProfile = profile.isCloneProfile
+                            val blockingState = if (isCriticalPackage && !allowCritical) {
+                                BlockingState(
+                                    isNetworkBlocked = false,
+                                    wifiBlocked = false,
+                                    mobileBlocked = false,
+                                    roamingBlocked = false,
+                                    backgroundBlocked = false,
+                                    lanBlocked = false
+                                )
+                            } else if (rule != null && rule.enabled) {
+                                BlockingState(
+                                    isNetworkBlocked = rule.wifiBlocked || rule.mobileBlocked,
+                                    wifiBlocked = rule.wifiBlocked,
+                                    mobileBlocked = rule.mobileBlocked,
+                                    roamingBlocked = rule.blockWhenRoaming,
+                                    backgroundBlocked = rule.blockWhenBackground,
+                                    lanBlocked = rule.lanBlocked
+                                )
+                            } else if (isCriticalPackage && allowCritical) {
+                                BlockingState(
+                                    isNetworkBlocked = false,
+                                    wifiBlocked = false,
+                                    mobileBlocked = false,
+                                    roamingBlocked = false,
+                                    backgroundBlocked = false,
+                                    lanBlocked = false
+                                )
+                            } else {
+                                BlockingState(
+                                    isNetworkBlocked = isBlockAllDefault,
+                                    wifiBlocked = isBlockAllDefault,
+                                    mobileBlocked = isBlockAllDefault,
+                                    roamingBlocked = isBlockAllDefault,
+                                    backgroundBlocked = false,
+                                    lanBlocked = isBlockAllDefault
                                 )
                             }
-                        }.awaitAll()
 
-                        allPackages.addAll(chunkResults)
-                    }
-                }
+                            val criticality = PackageSafetyLoader.getCriticality(context, appInfo.packageName)
+                            val category = PackageSafetyLoader.getCategory(context, appInfo.packageName)
+                            val affects = PackageSafetyLoader.getAffects(context, appInfo.packageName)
 
-                val personalCount = allPackages.count { !it.isWorkProfile && !it.isCloneProfile }
-                val workCount = allPackages.count { it.isWorkProfile }
-                val cloneCount = allPackages.count { it.isCloneProfile }
-                AppLogger.i(TAG, "📊 MULTI-USER FINAL: Total ${allPackages.size} packages (Personal: $personalCount, Work: $workCount, Clone: $cloneCount)")
+                            PackageEntity(
+                                packageName = appInfo.packageName,
+                                userId = profile.userId,
+                                uid = absoluteUid,
+                                name = getAppName(appInfo),
+                                icon = getAppIconEmoji(appInfo),
+                                isEnabled = appInfo.enabled,
+                                type = if (isSystemApp(appInfo)) Constants.Packages.TYPE_SYSTEM else Constants.Packages.TYPE_USER,
+                                versionName = metadata.versionName,
+                                versionCode = metadata.versionCode,
+                                installTime = metadata.installTime,
+                                updateTime = metadata.updateTime,
+                                permissions = metadata.permissions,
+                                hasNetworkAccess = metadata.hasNetworkAccess,
+                                isNetworkBlocked = blockingState.isNetworkBlocked,
+                                wifiBlocked = blockingState.wifiBlocked,
+                                mobileBlocked = blockingState.mobileBlocked,
+                                roamingBlocked = blockingState.roamingBlocked,
+                                backgroundBlocked = blockingState.backgroundBlocked,
+                                lanBlocked = blockingState.lanBlocked,
+                                isVpnApp = metadata.isVpnApp,
+                                criticality = criticality,
+                                category = category,
+                                affects = affects,
+                                isWorkProfile = profile.isWorkProfile,
+                                isCloneProfile = profile.isCloneProfile
+                            )
+                        }
+                    }.awaitAll()
 
-                val workApps = allPackages.filter { it.isWorkProfile }.take(5).map { it.packageName }
-                val cloneApps = allPackages.filter { it.isCloneProfile }.take(5).map { it.packageName }
-                if (workApps.isNotEmpty()) {
-                    AppLogger.i(TAG, "📊 MULTI-USER: Work profile apps sample: $workApps")
+                    allPackages.addAll(chunkResults)
                 }
-                if (cloneApps.isNotEmpty()) {
-                    AppLogger.i(TAG, "📊 MULTI-USER: Clone profile apps sample: $cloneApps")
-                }
+            }
+
+            val personalCount = allPackages.count { !it.isWorkProfile && !it.isCloneProfile }
+            val workCount = allPackages.count { it.isWorkProfile }
+            val cloneCount = allPackages.count { it.isCloneProfile }
+            AppLogger.i(TAG, "📊 MULTI-USER FINAL: Total ${allPackages.size} packages (Personal: $personalCount, Work: $workCount, Clone: $cloneCount)")
+
+            val workApps = allPackages.filter { it.isWorkProfile }.take(5).map { it.packageName }
+            val cloneApps = allPackages.filter { it.isCloneProfile }.take(5).map { it.packageName }
+            if (workApps.isNotEmpty()) {
+                AppLogger.i(TAG, "📊 MULTI-USER: Work profile apps sample: $workApps")
+            }
+            if (cloneApps.isNotEmpty()) {
+                AppLogger.i(TAG, "📊 MULTI-USER: Clone profile apps sample: $cloneApps")
+            }
 
             val flowEndTime = System.currentTimeMillis()
             AppLogger.i(TAG, "⏱️ TIMING: getPackages COMPLETE - Total time: ${flowEndTime - flowStartTime}ms for ${allPackages.size} packages")

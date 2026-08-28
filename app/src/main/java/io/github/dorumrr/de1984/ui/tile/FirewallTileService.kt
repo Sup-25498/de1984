@@ -108,7 +108,9 @@ class FirewallTileService : TileService() {
                 )
                 startActivityAndCollapse(pendingIntent)
             } else {
-                @Suppress("DEPRECATION")
+                // The API 34 form is used above. Both ids are needed: @Suppress("DEPRECATION")
+                // silences the Kotlin warning, and lint's own check has its own name.
+                @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
                 startActivityAndCollapse(intent)
             }
         } else {
@@ -124,6 +126,10 @@ class FirewallTileService : TileService() {
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 try {
+                    // "statusbar" has no public Context constant - it is hidden - so the literal
+                    // is the only way to ask for it. Lint compares against the public list and
+                    // cannot know that.
+                    @Suppress("WrongConstant")
                     val statusBarService = getSystemService("statusbar")
                     val statusBarManager = Class.forName("android.app.StatusBarManager")
                     val collapse = statusBarManager.getMethod("collapsePanels")
