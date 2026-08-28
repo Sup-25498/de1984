@@ -945,9 +945,25 @@ class IptablesFirewallBackend(
             val failedTrim = output.split(TRIM_FAIL).size - 1
 
             if (exitCode != 0 || failedV4 > 0) {
-                // The old rules are still in place - the trim runs last and a broken script never
-                // reaches it - so this is fail-stale, not fail-open. Say so honestly and stay
-                // armed; the next apply will try the whole rewrite again.
+                // Say so honestly and stay armed; the next apply retries the whole rewrite.
+                //
+                // What the chain actually holds here depends on how far the script got, and since
+                // ShellRunner gained a ceiling that can fire there are TWO shapes, not one:
+                //
+                //  - CUT SHORT. The ceiling fired and the shell was destroyed part way through.
+                //    The trim is the last thing in the script, so the chain holds the old set plus
+                //    whatever new rules were added - over-blocking, never a hole. This is the shape
+                //    the old "a broken script never reaches the trim" note described, and until
+                //    ShellRunner's timeout became reachable it was the only one.
+                //
+                //  - RAN TO THE END with a rejected -A. There is no `set -e`, so the trim runs
+                //    anyway: the old rules ARE removed and a uid whose rule was rejected is left
+                //    with none until the next apply. Armed-and-retry is what closes that.
+                //
+                // The first shape is why ShellRunner.ceilingFor scales with the script instead of
+                // using one flat number: a cut rewrite leaves MORE rules for the next attempt to
+                // delete than this one had, so a ceiling that fires once tends to fire again on a
+                // bigger chain, and the rewrite stops converging.
                 AppLogger.e(TAG, "Chain resync failed: exitCode=$exitCode, v4Failures=$failedV4, v6Failures=$failedV6, output=$output")
                 return@withContext Result.failure(
                     errorHandler.handleError(

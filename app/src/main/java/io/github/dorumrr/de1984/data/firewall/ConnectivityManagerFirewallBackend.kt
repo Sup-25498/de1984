@@ -13,6 +13,7 @@ import io.github.dorumrr.de1984.domain.firewall.FirewallBackendType
 import io.github.dorumrr.de1984.domain.model.FirewallRule
 import io.github.dorumrr.de1984.domain.model.NetworkType
 import io.github.dorumrr.de1984.utils.Constants
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -30,6 +31,19 @@ class ConnectivityManagerFirewallBackend(
         private const val SERVICE_NAME = "connectivity"
         private const val MIN_API_LEVEL = Build.VERSION_CODES.TIRAMISU // Android 13
         private const val FIREWALL_CHAIN_OEM_DENY_3 = 3 // OEM-specific deny chain
+
+        /**
+         * How long the WHOLE restore may take, not one command of it.
+         *
+         * ShellRunner bounds each command, but [restoreBlockedPackages] issues one per denied
+         * package, so N packages simply bought N ceilings and the job itself stayed unbounded.
+         *
+         * Sixty seconds is far above the honest cost - `cmd connectivity` answers in tens of
+         * milliseconds, so even several hundred packages finish in seconds - and it only ever bites
+         * when something is already wrong. Anything not reached comes back as failed, which keeps it
+         * in the durable record, so the next stop retries it. The loop was already built to resume.
+         */
+        private const val RESTORE_DEADLINE_MS = 60_000L
 
         /**
          * Process-wide, NOT per-instance.
@@ -526,7 +540,21 @@ class ConnectivityManagerFirewallBackend(
 
         val restored = mutableSetOf<String>()
         val failed = mutableSetOf<String>()
-        blocked.forEach { packageName ->
+        val deadline = System.currentTimeMillis() + RESTORE_DEADLINE_MS
+
+        for (packageName in blocked) {
+            if (System.currentTimeMillis() >= deadline) {
+                val unreached = blocked - restored - failed
+                failed.addAll(unreached)
+                AppLogger.e(
+                    TAG,
+                    "❌ Restore gave up after ${RESTORE_DEADLINE_MS}ms with ${unreached.size} of " +
+                        "${blocked.size} package(s) not reached - they stay in the record and the " +
+                        "next stop retries them"
+                )
+                break
+            }
+
             try {
                 val (exitCode, output) = shizukuManager.executeShellCommand(
                     "cmd connectivity set-package-networking-enabled true $packageName"
@@ -547,6 +575,18 @@ class ConnectivityManagerFirewallBackend(
                     failed.add(packageName)
                     AppLogger.e(TAG, "Failed to restore networking for $packageName: $output")
                 }
+            } catch (e: CancellationException) {
+                // The teardown itself was cancelled - PrivilegedFirewallService waits five seconds
+                // for it and then cancels its scope. Let the cancel through, but write down what
+                // was restored first, so the next stop retries only what is genuinely left.
+                //
+                // The `catch (e: Exception)` this splits out of used to swallow it and then grind
+                // through every remaining package, each one failing instantly on the same
+                // cancellation, before saving anyway.
+                withContext(NonCancellable) {
+                    saveBlockedPackages(loadBlockedPackages() - restored, durable = true)
+                }
+                throw e
             } catch (e: Exception) {
                 failed.add(packageName)
                 AppLogger.e(TAG, "Failed to restore networking for $packageName", e)

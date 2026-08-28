@@ -330,7 +330,11 @@ class ShizukuManager(private val context: Context) {
         val method = newProcessMethod
             ?: return Pair(-1, "Shizuku.newProcess() method not available")
 
-        val result = ShellRunner.run("Shizuku shell: $command") {
+        // The ceiling is worked out from the command itself. IptablesFirewallBackend sends its
+        // entire chain rewrite as ONE command, and a flat thirty seconds cuts that script in half
+        // somewhere past a hundred blocked apps - see ShellRunner.ceilingFor for why that is worse
+        // than it sounds.
+        val result = ShellRunner.run("Shizuku shell: $command", ShellRunner.ceilingFor(command)) {
             method.invoke(
                 null,
                 arrayOf("sh", "-c", command),

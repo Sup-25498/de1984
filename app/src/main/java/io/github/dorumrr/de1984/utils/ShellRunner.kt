@@ -43,8 +43,15 @@ data class ShellResult(
 /**
  * Runs one external process with a ceiling that can actually fire, and returns its output.
  *
- * The single place in the app that talks to a [Process]. It exists because the same three bugs had
- * been copied to nine call sites, and a second way to do this is how they would come back.
+ * The single place in the app that starts a [Process] ITSELF - nine call sites that had each copied
+ * the same three bugs. It is NOT the only way the app reaches a shell: RootManager and
+ * HiddenApiHelper go through libsu (`Shell.cmd`, `Shell.getCachedShell`), which keeps one long-lived
+ * root shell and drains it on its own threads. That route has none of the three bugs below and none
+ * of the protections either - it has no ceiling at all.
+ *
+ * The distinction matters when reading a bug report. IptablesFirewallBackend and
+ * BootProtectionManager both test root FIRST, so on a ROOTED device the firewall never comes through
+ * here. Everything below applies to the Shizuku path and to the raw `su` fallbacks.
  *
  * ## 1. A timeout wrapped round blocking code does nothing
  *
@@ -78,21 +85,50 @@ object ShellRunner {
     private const val TAG = "ShellRunner"
 
     /**
-     * How long one command may take before it is abandoned.
+     * The floor, and the ceiling for any ordinary one-line command.
      *
-     * Deliberately generous, because this bounds liveness and not performance. Two callers set the
-     * floor, and both were measured rather than guessed:
-     *
-     *  - IptablesFirewallBackend puts two iptables invocations per blocked uid into a SINGLE
-     *    command. At ~20ms per invocation on a real device - and writes cost more than reads - a
-     *    user blocking 200 apps pays 400 invocations. A five-second cap would have cut their
-     *    firewall mid-write.
-     *  - A `su` command has to outlast the root manager's grant dialog. This is the same 30 seconds
-     *    De1984Application already gives libsu for exactly that reason, so the two agree.
-     *
-     * A cap that fires on a healthy device is worse than the hang it replaces.
+     * Thirty seconds because a `su` command has to outlast the root manager's grant dialog, which is
+     * the same reason De1984Application already gives libsu thirty. The two now agree.
      */
     const val DEFAULT_TIMEOUT_MS = 30_000L
+
+    /**
+     * What one script line is allowed to cost before the whole script is called hung.
+     *
+     * ~20ms per iptables invocation was measured on a real device. A rewrite pays that twice per
+     * line - once to add the new rule, once for the trailing pass that deletes the matching old one
+     * - so ~40ms is the honest figure, and this is roughly four times that to survive a slower
+     * phone. It is head-room, not a target.
+     */
+    private const val PER_LINE_BUDGET_MS = 150L
+
+    /** Absolute backstop, so an enormous command cannot buy itself an unbounded ceiling. */
+    private const val MAX_TIMEOUT_MS = 10 * 60_000L
+
+    /** How much of a label reaches the log. See [shortLabel]. */
+    private const val LABEL_MAX_CHARS = 120
+
+    /**
+     * A ceiling for [command], scaled to how much work it actually asks for.
+     *
+     * One flat number cannot serve both `settings get global x` and IptablesFirewallBackend's chain
+     * rewrite, which sends the ENTIRE rule set as a single command. That rewrite costs up to seven
+     * iptables invocations per blocked app - two for the internet DROPs, five for the LAN ranges,
+     * and "Block All Networks" turns LAN blocking on for every app - plus a trailing pass that
+     * deletes one old rule at a time. A flat thirty seconds runs out near a hundred blocked apps.
+     *
+     * Cutting that script is not a small failure. The rewrite adds every new rule BEFORE deleting
+     * any old one, deliberately, so that a broken script fails closed. Kill it mid-delete and the
+     * chain holds both sets; the next attempt then has MORE rules to delete than this one, so every
+     * retry is slower than the one before and the rewrite can diverge instead of settling.
+     *
+     * So the ceiling is per line, with a floor and a hard cap. It still bounds a wedged shell. It
+     * simply stops calling a large job a hung one.
+     */
+    fun ceilingFor(command: String): Long {
+        val lines = command.count { it == '\n' } + 1
+        return (lines * PER_LINE_BUDGET_MS).coerceIn(DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
+    }
 
     /**
      * Process-lifetime, and detached from every caller. See the note on this class.
@@ -109,7 +145,8 @@ object ShellRunner {
      * come back as [ShellResult] with `exitCode == -1`. Cancellation of the CALLER is passed
      * through untouched, because swallowing it would break structured concurrency upstream.
      *
-     * [label] names the work in the log when something goes wrong. Keep it short.
+     * [label] names the work in the log when something goes wrong. It may be long - callers pass
+     * whole scripts - so it is shortened before it is written anywhere. See [shortLabel].
      */
     suspend fun run(
         label: String,
@@ -143,7 +180,11 @@ object ShellRunner {
             release(processRef)
             throw e
         } catch (e: Exception) {
-            AppLogger.e(TAG, "$label failed: ${describe(e)}")
+            // WARN, not ERROR. The common case here is `su` on a phone that has no root: the six
+            // package-operation fallbacks probe it on every refresh, and the caller treats the
+            // failure as routine. Writing an ERROR line for a normal condition rotates the log the
+            // user switched on to capture something else.
+            report(warn = true, "${shortLabel(label)} could not run: ${describe(e)}")
             return ShellResult(-1, "", describe(e))
         }
 
@@ -151,9 +192,38 @@ object ShellRunner {
             return result
         }
 
-        AppLogger.e(TAG, "$label timed out after ${timeoutMs}ms - abandoning it")
+        // ERROR, because unlike the case above this one should never happen: something took longer
+        // than the work it was asked to do could justify.
+        report(warn = false, "${shortLabel(label)} timed out after ${timeoutMs}ms - abandoning it")
         release(processRef)
         return ShellResult(-1, "", "Timed out after ${timeoutMs}ms", timedOut = true)
+    }
+
+    /**
+     * Logs off the caller's thread.
+     *
+     * AppLogger is not free when the user has file logging on: it appends to the log AND re-counts
+     * every line of it, up to a megabyte, on whatever thread calls it. run() can be awaited from
+     * the main thread - SettingsFragmentViews does exactly that - so logging inline would put file
+     * IO on the UI thread on the one path that reports a failure.
+     */
+    private fun report(warn: Boolean, message: String) {
+        shellScope.launch {
+            if (warn) AppLogger.w(TAG, message) else AppLogger.e(TAG, message)
+        }
+    }
+
+    /**
+     * A label short enough to log.
+     *
+     * Callers name the work with the command itself, and IptablesFirewallBackend's command is the
+     * whole chain rewrite - thousands of lines. Dumping that into a rotating one-megabyte log
+     * destroys the very history someone turned logging on to read.
+     */
+    private fun shortLabel(label: String): String {
+        val firstLine = label.substringBefore('\n')
+        val head = if (firstLine.length > LABEL_MAX_CHARS) firstLine.take(LABEL_MAX_CHARS) + "..." else firstLine
+        return if (label.length > firstLine.length) "$head [+${label.length - firstLine.length} more chars]" else head
     }
 
     /**

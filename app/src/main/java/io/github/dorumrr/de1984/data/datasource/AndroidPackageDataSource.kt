@@ -420,19 +420,19 @@ class AndroidPackageDataSource(
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
-                    try {
-                        val command = if (enabled) {
-                            "pm enable --user $userId $packageName"
-                        } else {
-                            "pm disable-user --user $userId $packageName"
-                        }
+                    val command = if (enabled) {
+                        "pm enable --user $userId $packageName"
+                    } else {
+                        "pm disable-user --user $userId $packageName"
+                    }
 
-                        val (exitCode, _) = shizukuManager.executeShellCommand(command)
-                        if (exitCode == 0) {
-                            HiddenApiHelper.clearDisabledPackagesCache()
-                            return@withContext true
-                        }
-                    } catch (e: Exception) {
+                    // No catch: executeShellCommand reports every process failure as exitCode -1
+                    // rather than throwing. The `catch (e: Exception) {}` that used to sit here
+                    // swallowed coroutine cancellation, which must reach the caller.
+                    val (exitCode, _) = shizukuManager.executeShellCommand(command)
+                    if (exitCode == 0) {
+                        HiddenApiHelper.clearDisabledPackagesCache()
+                        return@withContext true
                     }
                 }
             }
@@ -552,13 +552,10 @@ class AndroidPackageDataSource(
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
-                    try {
-                        val command = "pm uninstall --user $userId $packageName"
-                        val (exitCode, _) = shizukuManager.executeShellCommand(command)
-                        if (exitCode == 0) {
-                            return@withContext true
-                        }
-                    } catch (e: Exception) {
+                    val command = "pm uninstall --user $userId $packageName"
+                    val (exitCode, _) = shizukuManager.executeShellCommand(command)
+                    if (exitCode == 0) {
+                        return@withContext true
                     }
                 }
             }
@@ -589,13 +586,10 @@ class AndroidPackageDataSource(
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
-                    try {
-                        val command = "cmd package install-existing --user $userId $packageName"
-                        val (exitCode, _) = shizukuManager.executeShellCommand(command)
-                        if (exitCode == 0) {
-                            return@withContext true
-                        }
-                    } catch (e: Exception) {
+                    val command = "cmd package install-existing --user $userId $packageName"
+                    val (exitCode, _) = shizukuManager.executeShellCommand(command)
+                    if (exitCode == 0) {
+                        return@withContext true
                     }
                 }
             }
@@ -626,13 +620,10 @@ class AndroidPackageDataSource(
                 }
 
                 if (shizukuManager.hasShizukuPermission) {
-                    try {
-                        val command = "am force-stop --user $userId $packageName"
-                        val (exitCode, _) = shizukuManager.executeShellCommand(command)
-                        if (exitCode == 0) {
-                            return@withContext true
-                        }
-                    } catch (e: Exception) {
+                    val command = "am force-stop --user $userId $packageName"
+                    val (exitCode, _) = shizukuManager.executeShellCommand(command)
+                    if (exitCode == 0) {
+                        return@withContext true
                     }
                 }
             }
