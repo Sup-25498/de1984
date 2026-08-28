@@ -71,7 +71,7 @@ open it. Fixing it needs a boot hook or a scheduled worker.
 *watches* them over time. And `PackageChangedReceiver.kt:71` does derive a `userId` from `EXTRA_UID`,
 so it is not blind to other profiles — the gap is delivery, not handling.
 
-### 61b. `getInstalledApplicationsAsUser` fails for the work profile — `ROOT CAUSE FOUND 2026-08-28`
+### 61b. `getInstalledApplicationsAsUser` fails for the work profile — `FIXED 2026-08-28`
 
 **It was never flaky.** It fails on **every single call**, on this device, and always has. The old
 description said "observed twice" because that is how often anyone happened to look.
@@ -115,11 +115,36 @@ Three things it buys:
 **Safe by construction:** ungranted, behaviour is exactly what it is today, because the fallbacks
 already handle it.
 
-**Not done, needs a decision.** It adds a permission to the manifest, which F-Droid displays and
-reviewers notice, and it needs the app to run the grant itself via root or Shizuku at startup.
-Reverted from the working tree; only the logging fix was kept.
+**Shipped 2026-08-28.** `INTERACT_ACROSS_USERS` is declared in the manifest and the app grants it to
+itself in `HiddenApiHelper.ensureCrossUserPermission` — root first, then Shizuku, once per process,
+skipped entirely if already held. Called only for a non-zero userId, since user 0 never needed it.
 
-**Kept:** `describeReflectionFailure`, because a diagnostic that prints `null` is worse than none.
+**Verified on hardware from a revoked state:**
+
+```
+after install    INTERACT_ACROSS_USERS: granted=false
+                 ✅ Cross-user permission granted via root
+   +99 ms        ✅ Found 216 apps for user 10 via hidden API
+```
+
+**The grant takes effect inside the same process** — no restart, no relaunch, the very next call
+succeeds. That was the open question and it is answered.
+
+After a full UI sweep: `via root shell (synthetic)` count **0**, `pm list packages -U` count **0**.
+The synthetic path is not merely avoided, it is unused. Cross-profile enable/disable detection (61a)
+re-verified on the new data path, both directions. Firewall rules unchanged, 0 crashes, lint at
+baseline.
+
+**Degrades safely.** No root and no Shizuku means the grant fails, the permission stays absent, and
+every caller falls back exactly as before. This cannot make a non-privileged device worse.
+
+**What it means for users:** `INTERACT_ACROSS_USERS` now appears on the F-Droid listing. It reads as
+alarming for a privacy app and will draw questions — the honest answer is that it is the only way to
+ask Android about work-profile apps directly, and the alternative was copying answers from the
+personal profile's copy of each app.
+
+**Also kept:** `describeReflectionFailure`, because a diagnostic that prints `null` is worse than
+none. It is what found this.
 
 ### 61c. Firewall takes too long to become active — `FIXED 2026-08-27` (16.1 s → 6.2 s of backend work)
 
