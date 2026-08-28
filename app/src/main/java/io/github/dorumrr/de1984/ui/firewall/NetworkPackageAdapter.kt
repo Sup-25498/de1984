@@ -116,6 +116,23 @@ class NetworkPackageAdapter(
         onSelectionChanged = listener
     }
 
+
+    /**
+     * Put a saved selection back in one go.
+     *
+     * selectPackage() would work but fires notifyDataSetChanged() per item - 40 full refreshes for a
+     * restore. Capped the same way selectPackage caps, so a tampered or stale bundle cannot exceed
+     * the multi-select limit.
+     */
+    fun restoreSelection(ids: Set<PackageId>) {
+        selectedPackages.clear()
+        selectedPackages.addAll(ids.take(Constants.Packages.MultiSelect.MAX_SELECTION_COUNT))
+        onSelectionChanged?.invoke(selectedPackages)
+        // No notify: this is called at the end of onViewCreated, before the first submitList, so
+        // there is nothing bound yet. Every row reads selectedPackages when it binds, so the list
+        // arrives already showing the restored selection.
+    }
+
     fun getSelectedPackages(): Set<PackageId> = selectedPackages.toSet()
 
     fun clearSelection() {

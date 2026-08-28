@@ -111,8 +111,32 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     private var lastSubmittedPackages: List<NetworkPackage> = emptyList()
 
     private var currentDialog: BottomSheetDialog? = null
+
+    /**
+     * Dismiss anything still on screen before this view goes away.
+     *
+     * These dialogs are plain Dialog/BottomSheetDialog held in fields, not DialogFragments, so
+     * nothing dismisses them for us. Without this the window leaks - `android.view.WindowLeaked` -
+     * and worse, a long batch operation carries on behind a progress box the user can no longer
+     * see, because the recreated fragment's field is null and its own dismiss is a no-op.
+     *
+     * Reachable on every activity rebuild: a language change (this app has a language switcher) or
+     * a dark-mode change. Rotation no longer rebuilds, but those two still do.
+     *
+     * Wrapped: dismissing a dialog whose window has already gone throws, and there is nothing to do
+     * about it here beyond not crashing on the way out.
+     */
+    override fun onDestroyView() {
+        runCatching { currentDialog?.dismiss() }
+        currentDialog = null
+        super.onDestroyView()
+    }
+
     private var dialogOpenTimestamp: Long = 0
     private var pendingDialogPackageId: PackageId? = null
+
+    /** A selection read back from savedInstanceState, waiting for the adapter to settle. */
+    private var pendingRestoredSelection: Set<PackageId>? = null
 
     private var isSelectionMode = false
     private val selectedPackages = mutableSetOf<PackageId>()
@@ -164,6 +188,9 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
         observeUiState()
         observeSettingsState()
+    
+        // Last, so enterSelectionMode() finds a live adapter and toolbar.
+        restoreSelection(savedInstanceState)
     }
 
     override fun onResume() {
@@ -516,6 +543,10 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
                     binding.packagesRecyclerView.adapter = adapter
 
                     lastSubmittedPackages = emptyList()
+
+                    // The adapter is new, so anything selected is gone. If a restore was waiting for
+                    // exactly this moment, apply it now.
+                    applyPendingSelection()
                     }
                     previousObservedShowIcons = settingsState.showAppIcons
 
@@ -1340,6 +1371,71 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         return true
     }
 
+
+    /**
+     * Keep a multi-selection across an activity rebuild.
+     *
+     * Rotation no longer rebuilds (configChanges), but a LANGUAGE change does - and this app has a
+     * language switcher - as does a dark-mode change. Selecting 40 apps for a batch action and
+     * losing all of it to one of those is a real thing to lose.
+     *
+     * Stored as "packageName|userId" strings rather than making PackageId Parcelable: two fields,
+     * and a Bundle of strings cannot drift out of step with a data class definition.
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!isSelectionMode) return
+        outState.putBoolean(KEY_SELECTION_MODE, true)
+        outState.putStringArrayList(
+            KEY_SELECTED_PACKAGES,
+            ArrayList(selectedPackages.map { "${it.packageName}|${it.userId}" })
+        )
+    }
+
+    /** Rebuilds the selection saved by [onSaveInstanceState]. Bad entries are dropped, not fatal. */
+    private fun restoreSelection(savedInstanceState: Bundle?) {
+        if (savedInstanceState?.getBoolean(KEY_SELECTION_MODE) != true) return
+
+        val restored = savedInstanceState.getStringArrayList(KEY_SELECTED_PACKAGES)
+            .orEmpty()
+            .mapNotNull { entry ->
+                val parts = entry.split("|")
+                val userId = parts.getOrNull(1)?.toIntOrNull()
+                if (parts.size == 2 && parts[0].isNotEmpty() && userId != null) {
+                    PackageId(parts[0], userId)
+                } else {
+                    null
+                }
+            }
+            .toSet()
+
+        if (restored.isEmpty()) return
+
+        // Held, not applied here. observeSettingsState ALWAYS rebuilds the adapter on its first
+        // emission - previousObservedShowIcons starts null, so iconsChanged is true - and that
+        // branch calls exitSelectionMode() first. Applying the restore now means it is wiped about
+        // 100 ms later; measured exactly that on hardware before this was held.
+        // Held only. Do NOT apply here: observeSettingsState always rebuilds the adapter on its
+        // first emission and calls exitSelectionMode() first, so anything applied now is wiped about
+        // 100 ms later. Measured exactly that, twice, on hardware. The rebuild branch applies it.
+        pendingRestoredSelection = restored
+    }
+
+    /**
+     * Put a held restore onto the live adapter, once. Called from both places that can be "after the
+     * adapter exists": here, and the end of the settings observer's rebuild branch. Whichever runs
+     * second finds nothing left to do.
+     */
+    private fun applyPendingSelection() {
+        val restored = pendingRestoredSelection ?: return
+        if (!isAdded || _binding == null) return
+        pendingRestoredSelection = null
+
+        AppLogger.d(TAG, "Restoring ${restored.size} selected packages after a rebuild")
+        enterSelectionMode()
+        adapter.restoreSelection(restored)
+    }
+
     private fun enterSelectionMode() {
         AppLogger.d(TAG, "🔘 Entering selection mode")
         isSelectionMode = true
@@ -1829,6 +1925,8 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     companion object {
+        private const val KEY_SELECTION_MODE = "selection_mode"
+        private const val KEY_SELECTED_PACKAGES = "selected_packages"
         private const val TAG = "FirewallFragmentViews"
     }
 }

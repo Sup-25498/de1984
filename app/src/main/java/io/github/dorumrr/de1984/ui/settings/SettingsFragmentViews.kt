@@ -156,6 +156,29 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
 
     private var progressDialog: androidx.appcompat.app.AlertDialog? = null
 
+    /**
+     * Dismiss anything still on screen before this view goes away.
+     *
+     * These dialogs are plain Dialog/BottomSheetDialog held in fields, not DialogFragments, so
+     * nothing dismisses them for us. Without this the window leaks - `android.view.WindowLeaked` -
+     * and worse, a long batch operation carries on behind a progress box the user can no longer
+     * see, because the recreated fragment's field is null and its own dismiss is a no-op.
+     *
+     * Reachable on every activity rebuild: a language change (this app has a language switcher) or
+     * a dark-mode change. Rotation no longer rebuilds, but those two still do.
+     *
+     * Wrapped: dismissing a dialog whose window has already gone throws, and there is nothing to do
+     * about it here beyond not crashing on the way out.
+     */
+    override fun onDestroyView() {
+        runCatching { progressDialog?.dismiss() }
+        progressDialog = null
+        runCatching { rebootingDialog?.dismiss() }
+        rebootingDialog = null
+        super.onDestroyView()
+    }
+
+
     private var lastRootTestTime = 0L
 
     private var isDynamicColorsSwitchListenerAttached = false

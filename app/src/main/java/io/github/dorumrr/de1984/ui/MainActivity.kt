@@ -327,7 +327,14 @@ class MainActivity : AppCompatActivity() {
 
             binding.toolbar.setPadding(0, systemBars.top, 0, 0)
 
-            view.setPadding(0, 0, 0, 0)
+            // Left and right matter now that the app can rotate. On a phone with 3-button
+            // navigation the bar moves to the SIDE in landscape, and with the root padded to zero it
+            // sat on top of the toolbar and the right-hand edge of the app list. In portrait both
+            // are 0, so this changes nothing there.
+            //
+            // Bottom is deliberately left alone: BottomNavigationView applies the bottom system
+            // window inset itself, and padding the root as well would double it.
+            view.setPadding(systemBars.left, 0, systemBars.right, 0)
 
             insets
         }
@@ -341,6 +348,17 @@ class MainActivity : AppCompatActivity() {
         } else {
             val tabOrdinal = savedInstanceState.getInt(KEY_CURRENT_TAB, Tab.FIREWALL.ordinal)
             currentTab = Tab.values()[tabOrdinal]
+
+            // Put the bar on the restored tab before anything is drawn. setupBottomNavigation()
+            // above force-selects Firewall, which fires the listener and commits a show-Firewall
+            // transaction - so a rebuild while on Settings showed Firewall, then corrected itself.
+            // A visible flash of the wrong screen, and the firewall toggle group appearing with it,
+            // on every language or dark-mode change.
+            binding.bottomNavigation.selectedItemId = when (currentTab) {
+                Tab.FIREWALL -> R.id.firewallFragment
+                Tab.APPS -> R.id.packagesFragment
+                Tab.SETTINGS -> R.id.settingsFragment
+            }
 
             // Why this must survive: the system VPN consent dialog is a separate activity, so this
             // one can be rebuilt underneath it. ActivityResultRegistry still delivers the answer,

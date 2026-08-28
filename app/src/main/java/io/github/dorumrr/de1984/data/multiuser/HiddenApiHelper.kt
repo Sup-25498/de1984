@@ -10,6 +10,10 @@ import android.os.UserHandle
 import com.topjohnwu.superuser.Shell
 import io.github.dorumrr.de1984.data.common.ShizukuManager
 import io.github.dorumrr.de1984.utils.AppLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 
@@ -155,9 +159,26 @@ object HiddenApiHelper {
 
     private const val PERM_INTERACT_ACROSS_USERS = "android.permission.INTERACT_ACROSS_USERS"
 
-    /** One attempt per process. A refusal will not change while we are running. */
+    /** Once true, stays true - a granted permission is not taken away behind our back. */
     @Volatile
-    private var crossUserGrantAttempted = false
+    private var crossUserGranted = false
+
+    /** Guards against piling up grant attempts while one is already running. */
+    @Volatile
+    private var grantInFlight = false
+
+    /** When the last attempt started, so a failure retries later instead of latching forever. */
+    @Volatile
+    private var lastGrantAttempt = 0L
+
+    /**
+     * Long enough that a hot loop over hundreds of packages costs one attempt, short enough that a
+     * user who enables root or Shizuku mid-session gets the benefit within the same sitting.
+     */
+    private const val GRANT_RETRY_INTERVAL_MS = 30_000L
+
+    /** Its own scope: the grant must never run on whatever thread happened to ask. */
+    private val grantScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Give ourselves permission to ask Android about other profiles.
@@ -165,57 +186,86 @@ object HiddenApiHelper {
      * `getInstalledApplicationsAsUser` is rejected without it - verified on hardware 2026-08-28,
      * `ComputerEngine.enforceCrossUserPermission`, on every single call. The shell fallback that
      * covers for it returns names and uids only, so everything else about a work-profile app is
-     * copied from the personal profile's copy. This removes the need for that guesswork entirely.
+     * copied from the personal profile's copy of that app.
      *
      * `INTERACT_ACROSS_USERS` is `signature|privileged|development`, and the **development** flag is
-     * what makes this possible at all: a shell running as root, or Shizuku, may grant it. A normal
-     * install cannot, and does not need to - every caller already falls back.
+     * what makes this possible: a shell running as root, or Shizuku, may grant it. A normal install
+     * cannot, and does not need to - every caller already falls back.
      *
-     * Best effort by design. No root and no Shizuku means it stays ungranted and behaviour is
-     * exactly what it was before this existed.
+     * **Returns immediately, always.** The grant runs on [grantScope], never on the caller's thread.
+     * This is called from `getInstalledApplicationsAsUser`, and `PackageMonitoringService.
+     * startMonitoring` reaches that synchronously from `onStartCommand` - which Android runs on the
+     * MAIN thread. A blocking `pm grant` there is an ANR on first launch.
+     *
+     * **A failure is not latched.** The first version set an "attempted" flag before trying, and
+     * `Shell.getCachedShell()` is null until RootManager has actually opened a root shell - so at
+     * boot the one attempt was skipped and the process never tried again. It now retries every
+     * [GRANT_RETRY_INTERVAL_MS], which also covers root being re-enabled in Magisk or Shizuku being
+     * started while the app is running. MainActivity already re-checks for exactly those.
+     *
+     * The caller does not wait for the result and does not need to: this pass falls back exactly as
+     * before, and the next one benefits.
      */
     private fun ensureCrossUserPermission(context: Context) {
-        if (crossUserGrantAttempted) return
-        crossUserGrantAttempted = true
+        if (crossUserGranted) return
 
         if (context.checkSelfPermission(PERM_INTERACT_ACROSS_USERS) ==
             PackageManager.PERMISSION_GRANTED
         ) {
-            AppLogger.d(TAG, "✅ Cross-user permission already held")
+            crossUserGranted = true
             return
         }
 
-        val command = "pm grant ${context.packageName} $PERM_INTERACT_ACROSS_USERS"
+        if (grantInFlight) return
+        val now = System.currentTimeMillis()
+        if (now - lastGrantAttempt < GRANT_RETRY_INTERVAL_MS) return
 
-        val cachedShell = Shell.getCachedShell()
-        if (cachedShell != null && cachedShell.isRoot) {
+        lastGrantAttempt = now
+        grantInFlight = true
+
+        grantScope.launch {
             try {
-                val result = cachedShell.newJob().add(command).exec()
-                if (result.isSuccess) {
-                    AppLogger.i(TAG, "✅ Cross-user permission granted via root")
-                    return
+                // --user matters: pm grant otherwise targets the shell's own user, and De1984 is not
+                // always installed in user 0.
+                val myUserId = android.os.Process.myUid() / 100000
+                val command =
+                    "pm grant --user $myUserId ${context.packageName} $PERM_INTERACT_ACROSS_USERS"
+
+                val cachedShell = Shell.getCachedShell()
+                if (cachedShell != null && cachedShell.isRoot) {
+                    try {
+                        val result = cachedShell.newJob().add(command).exec()
+                        if (result.isSuccess) {
+                            crossUserGranted = true
+                            AppLogger.i(TAG, "✅ Cross-user permission granted via root")
+                            return@launch
+                        }
+                        AppLogger.d(TAG, "Root pm grant failed: exit ${result.code}")
+                    } catch (e: Exception) {
+                        AppLogger.d(TAG, "Root pm grant threw: ${e.message}")
+                    }
                 }
-                AppLogger.d(TAG, "Root pm grant failed: exit ${result.code}")
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Root pm grant threw: ${e.message}")
+
+                val manager = shizukuManager
+                if (manager != null && manager.hasShizukuPermission) {
+                    try {
+                        val (exitCode, _) = manager.executeShellCommand(command)
+                        if (exitCode == 0) {
+                            crossUserGranted = true
+                            AppLogger.i(TAG, "✅ Cross-user permission granted via Shizuku")
+                            return@launch
+                        }
+                        AppLogger.d(TAG, "Shizuku pm grant failed: exit $exitCode")
+                    } catch (e: Exception) {
+                        AppLogger.d(TAG, "Shizuku pm grant threw: ${e.message}")
+                    }
+                }
+
+                AppLogger.d(TAG, "Cross-user permission not granted - using the shell fallback, will retry")
+            } finally {
+                grantInFlight = false
             }
         }
-
-        val manager = shizukuManager
-        if (manager != null && manager.hasShizukuPermission) {
-            try {
-                val (exitCode, _) = runBlocking { manager.executeShellCommand(command) }
-                if (exitCode == 0) {
-                    AppLogger.i(TAG, "✅ Cross-user permission granted via Shizuku")
-                    return
-                }
-                AppLogger.d(TAG, "Shizuku pm grant failed: exit $exitCode")
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Shizuku pm grant threw: ${e.message}")
-            }
-        }
-
-        AppLogger.d(TAG, "Cross-user permission not granted - falling back to shell enumeration")
     }
 
     fun initialize() {
@@ -875,6 +925,10 @@ object HiddenApiHelper {
             }
         }
 
+        // Same permission, same reason as getInstalledApplicationsAsUser. Cheap after the first
+        // call - a volatile read once granted - and it never blocks, so it is safe on a hot path.
+        ensureCrossUserPermission(context)
+
         if (hiddenApiAvailable) {
             try {
                 val pm = context.packageManager
@@ -981,6 +1035,12 @@ object HiddenApiHelper {
         flags: Int,
         userId: Int
     ): PackageInfo? {
+        if (userId != 0) {
+            // Same permission, same reason as getInstalledApplicationsAsUser. Cheap after the first
+            // call - a volatile read once granted - and it never blocks, so it is safe on a hot path.
+            ensureCrossUserPermission(context)
+        }
+
         val key = "$userId:$flags:$packageName"
 
         synchronized(packageInfoLock) {

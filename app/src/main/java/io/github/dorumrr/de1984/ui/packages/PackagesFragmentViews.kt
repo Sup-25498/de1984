@@ -51,6 +51,9 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
     private val TAG = "PackagesFragmentViews"
 
+    private val KEY_SELECTION_MODE = "selection_mode"
+    private val KEY_SELECTED_PACKAGES = "selected_packages"
+
     private val viewModel: PackagesViewModel by viewModels {
         val app = requireActivity().application as De1984Application
         PackagesViewModel.Factory(
@@ -87,6 +90,29 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
     private var lastSubmittedPackages: List<Package> = emptyList()
 
     private var currentDialog: BottomSheetDialog? = null
+
+    /**
+     * Dismiss anything still on screen before this view goes away.
+     *
+     * These dialogs are plain Dialog/BottomSheetDialog held in fields, not DialogFragments, so
+     * nothing dismisses them for us. Without this the window leaks - `android.view.WindowLeaked` -
+     * and worse, a long batch operation carries on behind a progress box the user can no longer
+     * see, because the recreated fragment's field is null and its own dismiss is a no-op.
+     *
+     * Reachable on every activity rebuild: a language change (this app has a language switcher) or
+     * a dark-mode change. Rotation no longer rebuilds, but those two still do.
+     *
+     * Wrapped: dismissing a dialog whose window has already gone throws, and there is nothing to do
+     * about it here beyond not crashing on the way out.
+     */
+    override fun onDestroyView() {
+        runCatching { currentDialog?.dismiss() }
+        currentDialog = null
+        runCatching { progressDialog?.dismiss() }
+        progressDialog = null
+        super.onDestroyView()
+    }
+
     private var dialogOpenTimestamp: Long = 0
     private var pendingDialogPackageId: PackageId? = null
 
@@ -151,6 +177,9 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
 
         binding.packagesRecyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         }
+    
+        // Last, so enterSelectionMode() finds a live adapter and toolbar.
+        restoreSelection(savedInstanceState)
     }
 
     private fun setupBackPressHandler() {
@@ -1092,6 +1121,51 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         val currentState = viewModel.uiState.value.filterState.packageState?.lowercase()
         return currentState != Constants.Packages.STATE_DISABLED.lowercase() &&
                currentState != Constants.Packages.STATE_UNINSTALLED.lowercase()
+    }
+
+
+    /**
+     * Keep a multi-selection across an activity rebuild.
+     *
+     * Rotation no longer rebuilds (configChanges), but a LANGUAGE change does - and this app has a
+     * language switcher - as does a dark-mode change. Selecting apps for a batch action and losing
+     * all of it to one of those is a real thing to lose.
+     *
+     * Stored as "packageName|userId" strings rather than making PackageId Parcelable: two fields,
+     * and a Bundle of strings cannot drift out of step with a data class definition.
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!isSelectionMode) return
+        outState.putBoolean(KEY_SELECTION_MODE, true)
+        outState.putStringArrayList(
+            KEY_SELECTED_PACKAGES,
+            ArrayList(selectedPackages.map { "${it.packageName}|${it.userId}" })
+        )
+    }
+
+    /** Rebuilds the selection saved by [onSaveInstanceState]. Bad entries are dropped, not fatal. */
+    private fun restoreSelection(savedInstanceState: Bundle?) {
+        if (savedInstanceState?.getBoolean(KEY_SELECTION_MODE) != true) return
+
+        val restored = savedInstanceState.getStringArrayList(KEY_SELECTED_PACKAGES)
+            .orEmpty()
+            .mapNotNull { entry ->
+                val parts = entry.split("|")
+                val userId = parts.getOrNull(1)?.toIntOrNull()
+                if (parts.size == 2 && parts[0].isNotEmpty() && userId != null) {
+                    PackageId(parts[0], userId)
+                } else {
+                    null
+                }
+            }
+            .toSet()
+
+        if (restored.isEmpty()) return
+
+        AppLogger.d(TAG, "Restoring ${restored.size} selected packages after a rebuild")
+        enterSelectionMode()
+        adapter.restoreSelection(restored)
     }
 
     private fun enterSelectionMode(initialPackage: Package? = null) {

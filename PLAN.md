@@ -32,7 +32,7 @@ gone, list scrolling is smooth.
 
 **Still open, four pieces:**
 
-### 61a. Work-profile status never refreshes by itself — `FIXED 2026-08-27`, one gap left
+### 61a. Work-profile status never refreshes by itself — `FIXED 2026-08-27`
 
 **The bug.** `PackageMonitoringService` compared a set of `(packageName, userId)` pairs. Disabling an
 app does not remove it from the device, so that set never changed and an enable or disable was
@@ -63,8 +63,20 @@ lock changes with the same result.
 
 **Still open — nothing watches other profiles until the app is opened.** The service is started from
 `MainActivity.kt:165` alone. `START_STICKY` restarts it after a kill, but nothing bootstraps it at
-boot, so a work-profile app installed or disabled while De1984 is closed is unnoticed until you next
-open it. Fixing it needs a boot hook or a scheduled worker.
+boot, so a work-profile app installed or disabled while De1984 is closed was unnoticed until you next
+opened it.
+
+**Closed 2026-08-27.** Both boot paths now start the watcher once the firewall is up — `BootWorker`
+(Android 12+) and `BootReceiver` (older, and app updates). Only on the success path, and
+deliberately: this is a plain background service, and starting one is legal there only because the
+firewall has just brought a foreground service up.
+
+**Verified through a real reboot 2026-08-27:** `Cross-profile package watcher started` in the boot
+log, `MAINACTIVITY CREATED` count 0, and disabling then re-enabling NewPipe in user 10 was detected
+both ways — with the app never opened since the reboot.
+
+One honest limit remains: with the firewall OFF and the app closed, the process is not kept alive by
+anything, so nothing watches. That is Android, not a bug here.
 
 **One correction kept from the audit:** `PackageMonitoringService` is not the only code that
 *enumerates* profiles — `HiddenApiHelper.getUsers` has 12 call sites. It is only the code that
@@ -145,6 +157,29 @@ personal profile's copy of each app.
 
 **Also kept:** `describeReflectionFailure`, because a diagnostic that prints `null` is worse than
 none. It is what found this.
+
+**Audit follow-up 2026-08-28 — the first version had three real faults, all fixed:**
+
+- **It blocked the main thread.** `PackageMonitoringService.onStartCommand` runs on the main thread
+  and calls `startMonitoring()`, which calls `getCurrentInstalledPackages()` **synchronously** before
+  launching its coroutine. A blocking `pm grant` there is an ANR on first launch. The grant now runs
+  on its own IO scope and the caller never waits.
+- **It latched a failure forever.** The flag was set before the attempt, and `Shell.getCachedShell()`
+  is null until RootManager has actually opened a root shell — so at boot the single attempt was
+  skipped and the process never tried again. **Reproduced live:** the first attempt logged *"not
+  granted - using the shell fallback, will retry"*, and the retry succeeded **35 s later**. The old
+  code would have spent that whole process on synthetic data. Now retries every 30 s until granted,
+  which also covers root re-enabled in Magisk or Shizuku started mid-session.
+- **`pm grant` had no `--user`**, so it targeted the shell's own user rather than the one De1984 runs
+  in. Now `pm grant --user <myUserId>`.
+
+Also: `getApplicationInfoAsUser` and `getPackageInfoAsUser` use the same cross-user APIs and never
+asked for the permission — a process reaching those first got nothing. Both now do, which is cheap
+because the granted case is a single volatile read.
+
+**Re-verified from a revoked state:** grant retried and succeeded, `via hidden API` in use,
+`via root shell (synthetic)` count **0**, firewall rules unchanged, 0 crashes, 0 main-thread stalls,
+lint at baseline.
 
 ### 61c. Firewall takes too long to become active — `FIXED 2026-08-27` (16.1 s → 6.2 s of backend work)
 
@@ -243,29 +278,71 @@ Tab switching cannot lose the position for a second reason: `MainActivity.loadFr
 **Untested: lock/unlock**, which is the reporter's headline case. It could not be driven from adb —
 the test device has a pattern lock. Needs a human to scroll, lock, unlock and look.
 
-## Landscape state loss — no issue number, ours — `VERIFIED 2026-08-27`
+## Landscape state loss — no issue number, ours — `FIXED 2026-08-28`
 
-Not a reported issue. Opened by our own #77 fix and found by the audit that followed it. Rotation is
-now handled in place (`configChanges` on both activities), so the everyday trigger is gone — but a
-rebuild still happens on a **language change** and on **dark mode**, and the app has an in-app
-language switcher. So these are still reachable, just rarer.
+Opened by our own #77 fix and found by the audit after it. Rotation no longer rebuilds the activity
+(`configChanges`), but a **language change** and a **dark-mode change** still do, and this app has a
+language switcher — so all of these stayed reachable.
 
-**Fixed 2026-08-27:** the launch intent is no longer replayed on a rebuild
-(`MainActivity.onCreate`), and `vpnPermissionContext` now survives one
-(`KEY_VPN_PERMISSION_CONTEXT`). Those two were the dangerous pair — the second left the firewall
-down after the user granted VPN permission.
+**Fixed earlier (2026-08-27):** the launch intent is no longer replayed on a rebuild, and
+`vpnPermissionContext` survives one. Those were the dangerous pair.
 
-**Still open, all reachable via the language switcher:**
+**Fixed 2026-08-28:**
 
-- No fragment overrides `onSaveInstanceState` — grep count 0. A 40-app multi-select is lost.
-- `PackagesFragmentViews` has **no** `onDestroyView` or `onDestroy` at all, so the batch-uninstall
-  `progressDialog` (created at :1211) leaks its window on a rebuild.
-- Every dialog in the app is a plain `Dialog`/`BottomSheetDialog`, never a `DialogFragment`, and
-  `currentDialog` is not dismissed on destroy.
-- `setupMainUI` calls `setupBottomNavigation()` before restoring the saved tab, and
-  `MainActivity.kt:400` force-selects the Firewall tab — a wrong-tab flash on every rebuild.
-- Edge-to-edge consumes only `systemBars.top`; no left/right inset is applied anywhere, so a
-  3-button navigation bar overlays the toolbar in landscape.
+- **Dialogs leaked.** None of the three fragments had ANY cleanup override. `onDestroyView` now
+  dismisses `currentDialog`, `progressDialog` and `rebootingDialog`, wrapped because dismissing a
+  dialog whose window has gone throws. Without it a batch job carried on behind a progress box the
+  user could no longer see, and the recreated fragment's own dismiss was a no-op against a null.
+- **Wrong-tab flash.** `setupBottomNavigation()` force-selects Firewall, which commits a fragment
+  transaction, and only afterwards was the saved tab read. The bar is now put on the restored tab
+  before anything draws. **Verified:** rebuild while on Settings comes back on Settings.
+- **Side insets — our own damage from enabling landscape.** Only `systemBars.top` was applied and the
+  root was padded to zero, so a 3-button navigation bar in landscape sat over the toolbar and the
+  right edge of the list. Now `left`/`right` too; bottom is left to BottomNavigationView, which
+  applies it itself. Portrait is unaffected — both are 0 there.
+- **Multi-select lost.** Saved as "packageName|userId" strings and restored through a new
+  `restoreSelection` on both adapters. **Verified on hardware:** select 3, force a rebuild, "3
+  selected" with all three still ticked.
+
+  Two false starts worth remembering: `observeSettingsState` ALWAYS rebuilds the adapter on its first
+  emission (`previousObservedShowIcons` starts null, so `iconsChanged` is true) and that branch calls
+  `exitSelectionMode()` first. Restoring in `onViewCreated` was wiped ~100 ms later, measured twice.
+  The restore is now held and applied at the end of that rebuild branch.
+
+## Filter chips reset themselves on every rebuild — `FIXED 2026-08-28`
+
+Found while testing the above, and **a regression this project made worse**: the chips have always
+lost their state on a rebuild, but while filters lived only in memory it was invisible. Once #71
+persisted them, the bogus value was written to **disk** — so one language or dark-mode change
+permanently cleared a filter the user had set.
+
+**Measured:** `internet_only` pref `true` before a rebuild, `false` after, with two
+"USER ACTION: Internet-only filter changed: false" in the log that no user performed.
+
+**Root cause, from a captured stack rather than a guess:**
+
+```
+ViewGroup.dispatchRestoreInstanceState -> CompoundButton.onRestoreInstanceState ->
+Chip.setChecked -> onCheckedChanged -> onPermissionFilterSelected(false)
+```
+
+Android restores the saved view hierarchy onto the chips and their listeners cannot tell that apart
+from a tap. Every chip is inflated from the same layout and shares the id `filter_chip`, so the
+restored state lands on the wrong chips as well.
+
+**Fixed** with `isSaveEnabled = false` on every chip at creation. The chips are not the source of
+truth — the ViewModel is — so the view tree has no business restoring them.
+
+**Three earlier attempts failed and are worth recording**, because all three assumed the callback came
+from BUILDING the chips: detaching listeners before `removeAllViews`, guarding construction with
+`isUpdatingProgrammatically`, and adding the view before attaching its listener. None touch state
+restore. The stack trace found it in one go; three guesses had not.
+
+Kept anyway, as defence rather than fix: listeners are now detached before removal, and construction
+runs inside a guard. Note the guard alone could never have worked — the type-chip listener sets
+`isUpdatingProgrammatically = false` inside itself, disarming it mid-build.
+
+**Verified:** pref `true` before and after a rebuild, 0 bogus user actions (was 2).
 
 ## #91 — Quick tile — `FIXED 2026-08-27`, one half already covered
 
@@ -330,37 +407,39 @@ MORE blocking, which is already fail-closed.
 times. **Not verified:** the guard actually firing. Forcing a real enumeration failure on hardware
 was not attempted. The user is still not TOLD when this happens; surfacing it is a further step.
 
-## The firewall can stay DOWN after an app update — `OBSERVED 2026-08-27`, not investigated
+## The firewall could stay DOWN after an app update — `FIXED 2026-08-27`
 
-Seen on hardware, on **committed** code, with no uncommitted change present. After `adb install -r`
-while the firewall was running, `FirewallManager` logged
-`FIREWALL DOWN (START_FAILED, backend=null): apps are UNBLOCKED - New backend failed to become
-active`, the chain was empty, and it **stayed** that way. It only recovered when the app was opened
-by hand, which started the firewall normally.
+Seen on hardware, on committed code, with nothing uncommitted. After `adb install -r` while the
+firewall was running, `FirewallManager` logged `FIREWALL DOWN (START_FAILED, backend=null): apps are
+UNBLOCKED`, the chain was empty, and it **stayed** that way until the app was opened by hand.
 
-**Suspect, not proven:** `FirewallManager.kt:517-524`. `start()` on the iptables backend only fires
-an Intent at `PrivilegedFirewallService` and returns immediately; the manager then waits a fixed
-`delay(500)` and calls `isActive()`. `isActive()` (`IptablesFirewallBackend.kt:550`) reads
-SharedPreferences and then asks ActivityManager whether the service process is really alive — and
-right after an install the device is busy enough that 500 ms is not enough for it to come up. There
-is already a comment on that function naming *"after app reinstall (e.g. dev.sh update)"* as the
-case it worries about.
+**Two faults, not one.** `start()` on the privileged backends only posts an Intent and returns; the
+manager then waited a single fixed `delay(500)` and checked `isActive()` once. If that check failed
+it called `stop()` — **tearing down the service that was still coming up**. So a slow start became a
+guaranteed failure, and nothing retried.
 
-Why this matters more than a slow start: **the user is told the firewall is on when it is not**, and
-nothing retries. A real user updating from F-Droid hits the same path as `install -r`.
+**Measured after the fix, twice, on a real app update:**
 
-Reproduce: firewall running, `adb install -r <apk>`, then watch the chain without opening the app.
+```
+reinstall 1   IPTABLES became active after 609ms
+reinstall 2   IPTABLES became active after 613ms
+```
 
-## The same-backend restart path has no active-check — `VERIFIED 2026-08-27`, pre-existing
+**Both over 500 ms.** Under the old code both would have failed and told the user the firewall was on
+while it was not. Not a rare race — it happened on every update.
 
-`FirewallManager.kt:443-457` calls `start()` and then `applyRulesToBackend()` straight away. The
-switch path at `:517-524` does the same thing but with a `delay(500)` and an `isActive()` gate
-first. So the restart path can start writing `-A de1984_output` before `-N de1984_output` has been
-created — the exact ordering race the switch path documents.
+**Fixed** by `FirewallManager.awaitBackendActive`: poll every 200 ms, give up only after 8 s. The
+healthy path got faster too, returning at ~408 ms instead of always sleeping 500 ms.
 
-Found by the audit of the shared-instance change; the change does not cause it, and in fact makes it
-self-heal (a later `startInternal()` re-arms the resync flag on the same object) rather than fixing
-it.
+## The same-backend restart path had no active-check — `FIXED 2026-08-27`
+
+The restart branch called `start()` and went straight on to `applyRulesToBackend()`. Since `start()`
+is fire-and-forget for the privileged backends, rules could be written before the chain existed —
+`-A de1984_output` against a chain `-N de1984_output` had not created yet. That is the ordering race
+the switch path already documented, on a path that simply never got the guard.
+
+Found by the audit of the shared-instance change. **Fixed with the same `awaitBackendActive` helper
+as the update gap above**, so both start paths now wait the same way and the rule lives in one place.
 
 ## `networkPackagesCache` is cleared without its lock — `VERIFIED 2026-08-27`, deliberately not fixed
 
