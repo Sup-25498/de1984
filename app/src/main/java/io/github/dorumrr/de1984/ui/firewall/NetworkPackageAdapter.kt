@@ -43,6 +43,25 @@ class NetworkPackageAdapter(
         private const val ICON_CACHE_SIZE = 100
     }
 
+    init {
+        // Issue #73. Hold the restored scroll anchor until there is something to scroll to.
+        //
+        // The package list arrives asynchronously - AndroidPackageDataSource.getPackages() runs its
+        // scan in onStart on Dispatchers.IO, so even the replay=1 cache is withheld until that
+        // finishes. Meanwhile FirewallFragmentViews.updateUI sets the RecyclerView to INVISIBLE
+        // while the list is empty, and INVISIBLE views are still measured and laid out. With the
+        // default ALLOW policy, that layout pass consumes the anchor Android had just restored
+        // against an empty adapter and throws it away, so the data lands at position 0.
+        //
+        // PREVENT_WHEN_EMPTY makes RecyclerView keep the anchor until the first submitList lands.
+        //
+        // Why the reporter saw Firewall lose it and Packages hold it: MainActivity hides the
+        // non-current tabs on restore, and a hidden fragment's view is GONE, so it is never laid out
+        // empty. Firewall is the tab that is visible on restore, so Firewall is the one that got
+        // hit. PackageAdapter has the same shape and is only shielded by being hidden.
+        stateRestorationPolicy = StateRestorationPolicy.PREVENT_WHEN_EMPTY
+    }
+
     private var isSelectionMode = false
     private val selectedPackages = mutableSetOf<PackageId>()
     private var onSelectionChanged: ((Set<PackageId>) -> Unit)? = null

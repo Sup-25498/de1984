@@ -34,6 +34,16 @@ class PackageAdapter(
         private const val ICON_CACHE_SIZE = 100
     }
 
+    init {
+        // Same reasoning as NetworkPackageAdapter - see the comment there for the full mechanism.
+        //
+        // This screen has never been reported for it because MainActivity hides the non-current tabs
+        // on restore and a hidden fragment's view is GONE, so it is not laid out while empty. That
+        // shield only holds while Packages is NOT the restored tab. Leave the last session on
+        // Packages, let the process die, and this list drops to the top exactly like Firewall did.
+        stateRestorationPolicy = StateRestorationPolicy.PREVENT_WHEN_EMPTY
+    }
+
     private var isSelectionMode = false
     private val selectedPackages = mutableSetOf<PackageId>()
     private var onSelectionChanged: ((Set<PackageId>) -> Unit)? = null

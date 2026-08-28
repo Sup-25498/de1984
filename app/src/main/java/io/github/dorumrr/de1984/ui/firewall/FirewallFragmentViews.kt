@@ -226,8 +226,28 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
     }
 
     private fun setupRecyclerView() {
+        // Build with the REAL setting, not a hardcoded true, and record what we built for.
+        //
+        // Issue #73. observeSettingsState computes iconsChanged as
+        // `previousObservedShowIcons != settingsState.showAppIcons`. Left null, that is true on the
+        // very first emission every single time, so the guard below it never fired on a fresh
+        // fragment and the adapter was rebuilt and REASSIGNED to the RecyclerView at :545.
+        // Reassigning an adapter throws away the layout manager's pending scroll state, which is the
+        // state Android had just restored - so the list jumped to the top.
+        //
+        // A screen lock alone no longer does that (the fragment survives), but anything that
+        // rebuilds the fragment did: a dark-mode flip or a language change, neither of which is in
+        // this activity's configChanges. On a phone with scheduled dark mode that reproduces the
+        // reporter's exact steps - scroll, lock, unlock at dusk, position gone.
+        //
+        // Seeding both values here makes the first emission a no-op, which is what the Packages
+        // screen has effectively always done: it only ever calls adapter.updateShowIcons() and never
+        // reassigns. That asymmetry is exactly what the reporter described.
+        val initialShowIcons = settingsViewModel.uiState.value.showAppIcons
+        previousObservedShowIcons = initialShowIcons
+
         adapter = NetworkPackageAdapter(
-            showIcons = true,
+            showIcons = initialShowIcons,
             onPackageClick = { pkg ->
                 showPackageActionSheet(pkg)
             },
