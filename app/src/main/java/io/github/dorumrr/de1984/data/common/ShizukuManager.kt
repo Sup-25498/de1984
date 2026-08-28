@@ -2,6 +2,7 @@ package io.github.dorumrr.de1984.data.common
 
 import io.github.dorumrr.de1984.utils.AppLogger
 import io.github.dorumrr.de1984.utils.Constants
+import io.github.dorumrr.de1984.utils.ShellRunner
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.IBinder
@@ -313,57 +314,32 @@ class ShizukuManager(private val context: Context) {
         return getShizukuUid() == 0
     }
 
-    suspend fun executeShellCommand(command: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+    /**
+     * Runs one shell command through Shizuku and returns its exit code and output.
+     *
+     * The bounded run, the concurrent pipe drain and the destroy on every path all live in
+     * [ShellRunner] now - they were three separate bugs here, and the same three were copied to
+     * eight other call sites. This only names the work and keeps the merged-output shape that the
+     * twenty-two callers of this method already read. Failure is `-1` plus a message, unchanged.
+     */
+    suspend fun executeShellCommand(command: String): Pair<Int, String> {
         if (!hasShizukuPermission) {
-            return@withContext Pair(-1, "No Shizuku permission")
+            return Pair(-1, "No Shizuku permission")
         }
 
-        try {
-            val method = newProcessMethod
-                ?: return@withContext Pair(-1, "Shizuku.newProcess() method not available")
+        val method = newProcessMethod
+            ?: return Pair(-1, "Shizuku.newProcess() method not available")
 
-            val process = method.invoke(
+        val result = ShellRunner.run("Shizuku shell: $command") {
+            method.invoke(
                 null,
                 arrayOf("sh", "-c", command),
                 null,
                 null
             ) as Process
-
-            // Destroy on every path, not just on timeout: destroy() is the only thing here that
-            // releases the process and its pipes on the Shizuku side. ShizukuRemoteProcess also
-            // holds itself in a static CACHE until its binderDied fires. See issue #93.
-            try {
-                val output = StringBuilder()
-                val error = StringBuilder()
-
-                process.inputStream.bufferedReader().use { reader ->
-                    reader.forEachLine { line ->
-                        output.append(line).append("\n")
-                    }
-                }
-
-                process.errorStream.bufferedReader().use { reader ->
-                    reader.forEachLine { line ->
-                        error.append(line).append("\n")
-                    }
-                }
-
-                val exitCode = kotlinx.coroutines.withTimeoutOrNull(5000) {
-                    process.waitFor()
-                } ?: -1
-
-                val outputStr = output.toString().trim()
-                val errorStr = error.toString().trim()
-
-                return@withContext Pair(exitCode, if (outputStr.isNotEmpty()) outputStr else errorStr)
-            } finally {
-                // Do not close outputStream here: getOutputStream() is lazy, so asking for it would
-                // open an fd over binder that no caller ever wanted. Nothing writes stdin.
-                runCatching { process.destroy() }
-            }
-        } catch (e: Exception) {
-            return@withContext Pair(-1, "Shizuku command execution failed: ${e.message}")
         }
+
+        return Pair(result.exitCode, result.merged)
     }
 
     fun registerListeners() {

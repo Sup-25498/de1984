@@ -1,6 +1,7 @@
 package io.github.dorumrr.de1984.data.common
 
 import io.github.dorumrr.de1984.utils.AppLogger
+import io.github.dorumrr.de1984.utils.ShellRunner
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -351,12 +352,13 @@ class CaptivePortalManager(
                 shizukuManager.hasShizukuPermission -> shizukuManager.executeShellCommand(command)
                 rootManager.hasRootPermission -> rootManager.executeRootCommand(command)
                 else -> {
-                    val process = Runtime.getRuntime().exec(command)
-                    val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-                    process.errorStream.bufferedReader().use { it.readText() }
-                    val exitCode = process.waitFor()
-                    process.destroy()
-                    Pair(exitCode, output)
+                    // Reading a global setting needs no privilege, so this runs as the app's own
+                    // uid. Bounded and drained like every other process the app starts. stdout
+                    // only, as before: a setting value must never be answered with stderr.
+                    val plain = ShellRunner.run("shell: $command") {
+                        Runtime.getRuntime().exec(command)
+                    }
+                    Pair(plain.exitCode, plain.stdout.trim())
                 }
             }
 

@@ -48,6 +48,7 @@ import io.github.dorumrr.de1984.ui.common.StandardDialog
 import io.github.dorumrr.de1984.ui.logs.LogsActivity
 import io.github.dorumrr.de1984.ui.permissions.PermissionSetupViewModel
 import io.github.dorumrr.de1984.utils.AppLogger
+import io.github.dorumrr.de1984.utils.ShellRunner
 import io.github.dorumrr.de1984.utils.Constants
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
@@ -1302,35 +1303,33 @@ class SettingsFragmentViews : BaseFragment<FragmentSettingsBinding>() {
         }
     }
 
-    private suspend fun testRootAccess(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        return@withContext try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+    private suspend fun testRootAccess(): String {
+        // The ceiling here could not fire before: the old guard sat round process.waitFor(), which
+        // ignores cancellation, so the "Root Test Timeout" branch below was unreachable - including
+        // for the one case its own text names, a user who never answers the grant dialog.
+        //
+        // It is also deliberately no longer the old 5 seconds. Destroying the su process while the
+        // root manager's prompt is still on screen would land the user's "Grant" tap on a dead
+        // process. 30 seconds is what De1984Application already allows libsu for this same wait,
+        // for this same reason, so the two now agree.
+        //
+        // No withContext: nothing here blocks the caller any more, ShellRunner owns the IO.
+        val result = ShellRunner.run("root test: su -c id") {
+            Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+        }
 
-            val completed = kotlinx.coroutines.withTimeoutOrNull(5000) {
-                process.waitFor()
-            }
-
-            if (completed == null) {
-                try {
-                    process.inputStream.bufferedReader().use { it.readText() }
-                    process.errorStream.bufferedReader().use { it.readText() }
-                } catch (e: Exception) {
-                }
-                process.destroy()
+        return when {
+            result.timedOut ->
                 "⏱️ Root Test Timeout\n\nThe root permission request timed out. This may happen if:\n• You didn't respond to the permission dialog\n• Your root manager is not responding\n\nPlease try again."
-            } else if (completed == 0) {
-                val output = process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-                process.destroy()
-                "✅ Root Access Granted!\n\nYour device is rooted and De1984 has been granted superuser permission.\n\nOutput: $output"
-            } else {
-                process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-                process.destroy()
-                "ROOT_ACCESS_DENIED"
-            }
-        } catch (e: Exception) {
-            "NO_PRIVILEGED_ACCESS"
+
+            result.exitCode == 0 ->
+                "✅ Root Access Granted!\n\nYour device is rooted and De1984 has been granted superuser permission.\n\nOutput: ${result.stdout}"
+
+            // -1 is never a real exit status - it means su could not be started at all. That is
+            // "this device has no root", which is not the same answer as "root said no".
+            result.exitCode == -1 -> "NO_PRIVILEGED_ACCESS"
+
+            else -> "ROOT_ACCESS_DENIED"
         }
     }
 

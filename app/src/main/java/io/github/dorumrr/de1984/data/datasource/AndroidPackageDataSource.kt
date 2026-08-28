@@ -15,6 +15,7 @@ import io.github.dorumrr.de1984.domain.model.FirewallRule
 import io.github.dorumrr.de1984.domain.repository.FirewallRepository
 import io.github.dorumrr.de1984.utils.Constants
 import io.github.dorumrr.de1984.utils.PackageSafetyLoader
+import io.github.dorumrr.de1984.utils.ShellRunner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -436,26 +437,22 @@ class AndroidPackageDataSource(
                 }
             }
 
-            try {
-                val command = if (enabled) {
-                    "pm enable --user $userId $packageName"
-                } else {
-                    "pm disable-user --user $userId $packageName"
-                }
+            val rootCommand = if (enabled) {
+                "pm enable --user $userId $packageName"
+            } else {
+                "pm disable-user --user $userId $packageName"
+            }
 
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            // ShellRunner bounds the wait, drains both pipes together, and reports a failed start
+            // as exitCode -1 instead of throwing - so there is nothing left here to catch. The
+            // `catch (e: Exception) {}` this replaces also swallowed coroutine cancellation.
+            val rootResult = ShellRunner.run("root: $rootCommand") {
+                Runtime.getRuntime().exec(arrayOf("su", "-c", rootCommand))
+            }
 
-                process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-
-                val exitCode = process.waitFor()
-                process.destroy()
-
-                if (exitCode == 0) {
-                    HiddenApiHelper.clearDisabledPackagesCache()
-                    return@withContext true
-                }
-            } catch (e: Exception) {
+            if (rootResult.exitCode == 0) {
+                HiddenApiHelper.clearDisabledPackagesCache()
+                return@withContext true
             }
 
             false
@@ -469,32 +466,22 @@ class AndroidPackageDataSource(
                     val (exitCode, output) = shizukuManager.executeShellCommand("pm list packages -u -s")
                     if (exitCode == 0) output else ""
                 } else {
-                    try {
-                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -u -s"))
-                        val output = process.inputStream.bufferedReader().use { it.readText() }
-                        process.errorStream.bufferedReader().use { it.readText() }
-                        process.waitFor()
-                        process.destroy()
-                        output
-                    } catch (e: Exception) {
-                        ""
-                    }
+                    // stdout regardless of exit code, which is what this has always used. A
+                    // failed run yields an empty string, same as the catch it replaces.
+                    ShellRunner.run("root: pm list packages -u -s") {
+                        Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -u -s"))
+                    }.stdout
                 }
 
                 val installedSystemPackagesOutput = if (shizukuManager.isShizukuAvailable() && shizukuManager.hasShizukuPermission) {
                     val (exitCode, output) = shizukuManager.executeShellCommand("pm list packages -s")
                     if (exitCode == 0) output else ""
                 } else {
-                    try {
-                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -s"))
-                        val output = process.inputStream.bufferedReader().use { it.readText() }
-                        process.errorStream.bufferedReader().use { it.readText() }
-                        process.waitFor()
-                        process.destroy()
-                        output
-                    } catch (e: Exception) {
-                        ""
-                    }
+                    // stdout regardless of exit code, which is what this has always used. A
+                    // failed run yields an empty string, same as the catch it replaces.
+                    ShellRunner.run("root: pm list packages -s") {
+                        Runtime.getRuntime().exec(arrayOf("su", "-c", "pm list packages -s"))
+                    }.stdout
                 }
 
                 val allSystemPackages = allSystemPackagesOutput.lines()
@@ -576,20 +563,13 @@ class AndroidPackageDataSource(
                 }
             }
 
-            try {
-                val command = "pm uninstall --user $userId $packageName"
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val rootCommand = "pm uninstall --user $userId $packageName"
+            val rootResult = ShellRunner.run("root: $rootCommand") {
+                Runtime.getRuntime().exec(arrayOf("su", "-c", rootCommand))
+            }
 
-                process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-
-                val exitCode = process.waitFor()
-                process.destroy()
-
-                if (exitCode == 0) {
-                    return@withContext true
-                }
-            } catch (e: Exception) {
+            if (rootResult.exitCode == 0) {
+                return@withContext true
             }
 
             false
@@ -620,20 +600,13 @@ class AndroidPackageDataSource(
                 }
             }
 
-            try {
-                val command = "cmd package install-existing --user $userId $packageName"
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val rootCommand = "cmd package install-existing --user $userId $packageName"
+            val rootResult = ShellRunner.run("root: $rootCommand") {
+                Runtime.getRuntime().exec(arrayOf("su", "-c", rootCommand))
+            }
 
-                process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-
-                val exitCode = process.waitFor()
-                process.destroy()
-
-                if (exitCode == 0) {
-                    return@withContext true
-                }
-            } catch (e: Exception) {
+            if (rootResult.exitCode == 0) {
+                return@withContext true
             }
 
             false
@@ -664,20 +637,13 @@ class AndroidPackageDataSource(
                 }
             }
 
-            try {
-                val command = "am force-stop --user $userId $packageName"
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val rootCommand = "am force-stop --user $userId $packageName"
+            val rootResult = ShellRunner.run("root: $rootCommand") {
+                Runtime.getRuntime().exec(arrayOf("su", "-c", rootCommand))
+            }
 
-                process.inputStream.bufferedReader().use { it.readText() }
-                process.errorStream.bufferedReader().use { it.readText() }
-
-                val exitCode = process.waitFor()
-                process.destroy()
-
-                if (exitCode == 0) {
-                    return@withContext true
-                }
-            } catch (e: Exception) {
+            if (rootResult.exitCode == 0) {
+                return@withContext true
             }
 
             try {
