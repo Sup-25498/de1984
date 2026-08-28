@@ -616,7 +616,12 @@
 
     <!-- Batch Reinstall Dialog -->
     <string name="batch_reinstall_dialog_title">Переустановить %d выбранных приложений?</string>
-    <string name="batch_reinstall_dialog_message_prefix">Переустановить %1$d выбранных системных приложений?\n\nСледующие приложения будут переустановлены:\n\n</string>
+    <plurals name="batch_reinstall_dialog_message_prefix">
+        <item quantity="one">Переустановить %d выбранное системное приложение?\n\nСледующие приложения будут переустановлены:\n\n</item>
+        <item quantity="few">Переустановить %d выбранных системных приложения?\n\nСледующие приложения будут переустановлены:\n\n</item>
+        <item quantity="many">Переустановить %d выбранных системных приложений?\n\nСледующие приложения будут переустановлены:\n\n</item>
+        <item quantity="other">Переустановить %d выбранных системных приложений?\n\nСледующие приложения будут переустановлены:\n\n</item>
+    </plurals>
     <string name="batch_reinstall_dialog_message_item">• %s\n</string>
     <string name="batch_reinstall_dialog_message_more">\n…и ещё %d</string>
     <string name="batch_reinstall_dialog_button_reinstall_all">Переустановить все</string>
@@ -751,6 +756,7 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
+    <string name="tile_label_firewall_loading">Запуск брандмауэра</string>
     <string name="tile_label_firewall_on">Файрволл ВКЛ</string>
     <string name="tile_label_firewall_off">Файрволл ВЫКЛ</string>
     <string name="tile_label_firewall_error">Ошибка</string>

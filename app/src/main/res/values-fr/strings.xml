@@ -613,7 +613,11 @@
 
     <!-- Batch Reinstall Dialog -->
     <string name="batch_reinstall_dialog_title">Réinstaller %d applications sélectionnées?</string>
-    <string name="batch_reinstall_dialog_message_prefix">Réinstaller %1$d application%2$s système?\n\nLes applications suivantes seront réinstallées:\n\n</string>
+    <plurals name="batch_reinstall_dialog_message_prefix">
+        <item quantity="one">Réinstaller %d application système?\n\nLes applications suivantes seront réinstallées:\n\n</item>
+        <item quantity="many">Réinstaller %d applications système?\n\nLes applications suivantes seront réinstallées:\n\n</item>
+        <item quantity="other">Réinstaller %d applications système?\n\nLes applications suivantes seront réinstallées:\n\n</item>
+    </plurals>
     <string name="batch_reinstall_dialog_message_item">• %s\n</string>
     <string name="batch_reinstall_dialog_message_more">\n…et %d de plus</string>
     <string name="batch_reinstall_dialog_button_reinstall_all">Réinstaller tout</string>
@@ -753,6 +757,7 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
+    <string name="tile_label_firewall_loading">Démarrage du pare-feu</string>
     <string name="tile_label_firewall_on">Pare-feu ON</string>
     <string name="tile_label_firewall_off">Pare-feu OFF</string>
     <string name="tile_label_firewall_error">Erreur</string>

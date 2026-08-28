@@ -7,5 +7,14 @@
     <dimen name="design_bottom_navigation_active_item_max_width">168dp</dimen>
     <dimen name="design_bottom_navigation_active_item_min_width">96dp</dimen>
     <dimen name="m3_navigation_item_padding">0dp</dimen>
+
+    <!-- The search box reserves this much of its right edge for the package counter drawn on top
+         of it, and the counter keeps this much of that for itself. Extensions.setPackageCount
+         subtracts one from the other to know how wide the count may be before it starts covering
+         the hint. They live here, not inline in two layouts, because three places had to agree. -->
+    <dimen name="search_counter_reserved">100dp</dimen>
+    <dimen name="search_counter_padding_end">40dp</dimen>
+    <!-- Breathing space kept between the search hint and the counter. -->
+    <dimen name="search_counter_gap">12dp</dimen>
 </resources>
 

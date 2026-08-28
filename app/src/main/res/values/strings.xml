@@ -619,7 +619,10 @@
 
     <!-- Batch Reinstall Dialog -->
     <string name="batch_reinstall_dialog_title">Reinstall %d Selected Apps?</string>
-    <string name="batch_reinstall_dialog_message_prefix">Reinstall %1$d selected system app%2$s?\n\nThe following apps will be reinstalled:\n\n</string>
+    <plurals name="batch_reinstall_dialog_message_prefix">
+        <item quantity="one">Reinstall %d selected system app?\n\nThe following apps will be reinstalled:\n\n</item>
+        <item quantity="other">Reinstall %d selected system apps?\n\nThe following apps will be reinstalled:\n\n</item>
+    </plurals>
     <string name="batch_reinstall_dialog_message_item">• %s\n</string>
     <string name="batch_reinstall_dialog_message_more">\n…and %d more</string>
     <string name="batch_reinstall_dialog_button_reinstall_all">Reinstall All</string>

@@ -1,5 +1,6 @@
 package io.github.dorumrr.de1984.ui.firewall
 
+import io.github.dorumrr.de1984.utils.setPackageCount
 import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
@@ -621,15 +622,11 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
         }
 
         val count = displayedPackages.size
-        binding.packageCounter.text = if (count == 0 && state.searchQuery.isBlank()) {
-            ""
-        } else {
-            resources.getQuantityString(
-                R.plurals.package_count,
-                count,
-                count
-            )
-        }
+        binding.packageCounter.setPackageCount(
+            count = count,
+            blank = count == 0 && state.searchQuery.isBlank(),
+            searchInput = binding.searchInput
+        )
 
         val listChanged = displayedPackages != lastSubmittedPackages
         if (!listChanged) {

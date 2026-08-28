@@ -613,7 +613,11 @@
 
     <!-- Batch Reinstall Dialog -->
     <string name="batch_reinstall_dialog_title">Reinstalar %d Apps Selecionados?</string>
-    <string name="batch_reinstall_dialog_message_prefix">Reinstalar %1$d app%2$s do sistema selecionado%2$s?\n\nOs seguintes apps serão reinstalados:\n\n</string>
+    <plurals name="batch_reinstall_dialog_message_prefix">
+        <item quantity="one">Reinstalar %d app do sistema selecionado?\n\nOs seguintes apps serão reinstalados:\n\n</item>
+        <item quantity="many">Reinstalar %d apps do sistema selecionados?\n\nOs seguintes apps serão reinstalados:\n\n</item>
+        <item quantity="other">Reinstalar %d apps do sistema selecionados?\n\nOs seguintes apps serão reinstalados:\n\n</item>
+    </plurals>
     <string name="batch_reinstall_dialog_message_item">• %s\n</string>
     <string name="batch_reinstall_dialog_message_more">\n…e mais %d</string>
     <string name="batch_reinstall_dialog_button_reinstall_all">Reinstalar Todos</string>
@@ -753,6 +757,7 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
+    <string name="tile_label_firewall_loading">Iniciando firewall</string>
     <string name="tile_label_firewall_on">Firewall ON</string>
     <string name="tile_label_firewall_off">Firewall OFF</string>
     <string name="tile_label_firewall_error">Erro</string>

@@ -623,7 +623,9 @@
 
     <!-- Batch Reinstall Dialog -->
     <string name="batch_reinstall_dialog_title">重新安装 %d 个选定的应用？</string>
-    <string name="batch_reinstall_dialog_message_prefix">重新安装 %1$d 个选定的系统应用%2$s？\n\n以下应用将被重新安装：\n\n</string>
+    <plurals name="batch_reinstall_dialog_message_prefix">
+        <item quantity="other">重新安装 %d 个选定的系统应用？\n\n以下应用将被重新安装：\n\n</item>
+    </plurals>
     <string name="batch_reinstall_dialog_message_item">• %s\n</string>
     <string name="batch_reinstall_dialog_message_more">\n…以及其他 %d 个</string>
     <string name="batch_reinstall_dialog_button_reinstall_all">全部重新安装</string>
@@ -763,6 +765,7 @@
 
     <!-- Quick Settings Tile -->
     <string name="tile_label_firewall">De1984</string>
+    <string name="tile_label_firewall_loading">防火墙正在启动</string>
     <string name="tile_label_firewall_on">防火墙 开启</string>
     <string name="tile_label_firewall_off">防火墙 关闭</string>
     <string name="tile_label_firewall_error">错误</string>

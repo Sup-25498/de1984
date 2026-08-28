@@ -1,5 +1,6 @@
 package io.github.dorumrr.de1984.ui.packages
 
+import io.github.dorumrr.de1984.utils.setPackageCount
 import io.github.dorumrr.de1984.utils.AppLogger
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -556,15 +557,11 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         }
 
         val count = displayedPackages.size
-        binding.packageCounter.text = if (count == 0 && state.searchQuery.isBlank()) {
-            ""
-        } else {
-            resources.getQuantityString(
-                R.plurals.package_count,
-                count,
-                count
-            )
-        }
+        binding.packageCounter.setPackageCount(
+            count = count,
+            blank = count == 0 && state.searchQuery.isBlank(),
+            searchInput = binding.searchInput
+        )
 
         val listChanged = displayedPackages != lastSubmittedPackages
         if (!listChanged) {
@@ -1376,8 +1373,15 @@ class PackagesFragmentViews : BaseFragment<FragmentPackagesBinding>() {
         val count = packages.size
 
         val message = buildString {
-            val pluralSuffix = if (count > 1) "s" else ""
-            append(getString(R.string.batch_reinstall_dialog_message_prefix, count, pluralSuffix))
+            // A real plural, not an English "s" glued on with a second format argument. Romanian
+            // needs a third form for 2-19 and Russian a fourth, so the suffix could never be
+            // translated - the Russian string simply used one of the two arguments it was handed,
+            // which is exactly what lint was reporting as a wrong argument count.
+            append(
+                resources.getQuantityString(
+                    R.plurals.batch_reinstall_dialog_message_prefix, count, count
+                )
+            )
             packages.take(10).forEach { pkg ->
                 append(getString(R.string.batch_reinstall_dialog_message_item, pkg.name))
             }
