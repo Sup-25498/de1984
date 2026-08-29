@@ -1,0 +1,2 @@
+- De1984 now tells you when it moves to a better backend option after you grant root or Shizuku.
+- Less background work while checking for newly installed apps, saving battery.
