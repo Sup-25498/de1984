@@ -49,10 +49,36 @@ class PackageMonitoringService : Service() {
      */
     private var lastKnownDisabled: MutableMap<Int, Set<String>> = mutableMapOf()
     
+    /**
+     * Whether a profile other than user 0 existed on the previous tick.
+     *
+     * A work or clone profile appearing must NOT be read as "every app in it was just installed" -
+     * that would fire one rule write and one notification per app. When the answer flips, the
+     * baseline is rebuilt instead of diffed.
+     */
+    private var hadSecondaryProfiles = false
+
     companion object {
         private const val TAG = "PackageMonitoringService"
         const val ACTION_START_MONITORING = "io.github.dorumrr.de1984.action.START_PACKAGE_MONITORING"
         const val ACTION_STOP_MONITORING = "io.github.dorumrr.de1984.action.STOP_PACKAGE_MONITORING"
+
+        /**
+         * How often to look while the screen is ON.
+         *
+         * The only event this poll can see first is an app appearing in a work or clone profile, and
+         * that is something a person does while looking at the phone. 30s is comfortably inside the
+         * time an install itself takes, so the notification still feels immediate.
+         *
+         * Was a flat 15s in every state. Measured on hardware 2026-08-29: 480 root shell spawns an
+         * hour and 2.4% CPU with the screen OFF, on a device with 83 apps and two profiles. The cost
+         * grows with installed app count - getCurrentInstalledPackages enumerates every app in every
+         * profile on every tick - which is why users with several hundred apps reported heavy drain.
+         */
+        private const val POLL_INTERVAL_SCREEN_ON_MS = 30_000L
+
+        /** After a failed tick. Unchanged. */
+        private const val POLL_ERROR_BACKOFF_MS = 60_000L
         
         fun startMonitoring(context: Context) {
             val intent = Intent(context, PackageMonitoringService::class.java).apply {
@@ -84,8 +110,25 @@ class PackageMonitoringService : Service() {
         when (intent?.action) {
             ACTION_START_MONITORING -> startMonitoring()
             ACTION_STOP_MONITORING -> stopMonitoring()
+
+            // A NULL action is what START_STICKY redelivers after Android has killed and restarted
+            // this service - low memory, a crash, an app update. Nothing matched it, so the service
+            // came back alive and did NOTHING: the poll never restarted, and because this service is
+            // the only thing that sees installs in a work or clone profile, those simply stopped
+            // being noticed until the user next opened the app or rebooted. Silently, with no signal.
+            //
+            // Found 2026-08-29 while measuring the poll: an install killed the process, the service
+            // was restarted by the system with a null intent, and it logged nothing for the whole
+            // test window.
+            //
+            // Resuming is safe to do unconditionally - startMonitoring() returns immediately if the
+            // job is already active.
+            null -> {
+                AppLogger.i(TAG, "Restarted by the system with no intent - resuming monitoring")
+                startMonitoring()
+            }
         }
-        
+
         return START_STICKY
     }
     
@@ -99,26 +142,150 @@ class PackageMonitoringService : Service() {
         if (monitoringJob?.isActive == true) {
             return
         }
-        
-        getCurrentInstalledPackages()?.let {
-            lastKnownPackages = it
-            hasBaseline = true
+
+        hadSecondaryProfiles = secondaryProfilesExist()
+        if (hadSecondaryProfiles) {
+            getCurrentInstalledPackages()?.let {
+                lastKnownPackages = it
+                hasBaseline = true
+            }
         }
+        registerScreenOnReceiver()
+
         monitoringJob = serviceScope.launch {
             while (isActive) {
                 try {
-                    delay(15_000)
-                    checkForNewPackages()
+                    if (isScreenOn()) {
+                        delay(POLL_INTERVAL_SCREEN_ON_MS)
+                        // The screen may have gone off during that sleep. Do not spend the tick.
+                        if (isScreenOn()) runOneCheck()
+                    } else {
+                        // NOT a long sleep - a suspend. Zero ticks while the screen is off.
+                        //
+                        // A long screen-off interval was the first attempt, to catch an app pushed
+                        // unattended into a managed work profile. That reasoning does not hold:
+                        //
+                        // - This app holds NO wakelock and sets NO alarm, so delay() cannot wake a
+                        //   suspended CPU. A screen-off poll could never reliably run in exactly the
+                        //   sleeping-phone case it was being kept for.
+                        // - Enforcement never depended on this poll anyway. Under a Block All
+                        //   default, IptablesFirewallBackend.applyRules enumerates every package
+                        //   ITSELF rather than reading the rules table, and PrivilegedFirewallService
+                        //   re-applies on screen-off, screen-on AND network changes. A newly
+                        //   installed app is blocked whether or not this service ever saw it.
+                        //
+                        // What is left - the rule row, the "new app" notification, UI freshness - is
+                        // only ever experienced with the screen on, and the check below delivers all
+                        // three the moment it comes back.
+                        AppLogger.d(TAG, "Screen off - suspending package monitoring until it returns")
+                        screenOnSignal.receive()
+                        AppLogger.d(TAG, "Screen on - running one immediate check")
+                        runOneCheck()
+                    }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    delay(60_000)
+                    AppLogger.w(TAG, "Poll tick failed, backing off: ${e.message}")
+                    delay(POLL_ERROR_BACKOFF_MS)
                 }
             }
         }
+    }
+
+    private fun isScreenOn(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        return pm?.isInteractive ?: true
+    }
+
+    /**
+     * Is there any profile besides user 0?
+     *
+     * Everything this service can see first is a non-zero profile event. For user 0,
+     * PackageAddedReceiver and PackageChangedReceiver already deliver installs, removals and
+     * enable/disable instantly - so on a single-profile device, which is most devices, this poll had
+     * nothing to contribute and was pure cost.
+     *
+     * Cheap to ask: HiddenApiHelper.getUsers caches, and reads UserManager.getUserProfiles, a binder
+     * call - not a shell command.
+     */
+    private fun secondaryProfilesExist(): Boolean = try {
+        HiddenApiHelper.getUsers(this).any { it.userId != 0 }
+    } catch (e: Exception) {
+        AppLogger.w(TAG, "Could not list profiles - assuming none: ${e.message}")
+        false
+    }
+
+    /**
+     * One poll tick, with the profile gate and the appear/disappear transitions around it.
+     */
+    private suspend fun runOneCheck() {
+        val hasSecondary = secondaryProfilesExist()
+
+        if (!hasSecondary) {
+            if (hadSecondaryProfiles) {
+                // The last secondary profile went away. Drop its state so a profile later re-created
+                // on the same userId is not compared against the deleted one's snapshot.
+                AppLogger.d(TAG, "No secondary profiles left - clearing baseline and idling")
+                lastKnownPackages = emptySet()
+                hasBaseline = false
+                lastKnownDisabled.clear()
+                hadSecondaryProfiles = false
+            }
+            return
+        }
+
+        if (!hadSecondaryProfiles) {
+            // A profile just appeared. Everything in it is pre-existing from this service's point of
+            // view; diffing here would report every app in it as newly installed.
+            AppLogger.d(TAG, "A secondary profile appeared - establishing a baseline, not reporting installs")
+            hadSecondaryProfiles = true
+            getCurrentInstalledPackages()?.let {
+                lastKnownPackages = it
+                hasBaseline = true
+            }
+            return
+        }
+
+        checkForNewPackages()
+    }
+
+    /**
+     * Wakes the monitoring loop when the screen comes back on.
+     *
+     * CONFLATED, so a burst of screen-ons collapses to one pending wake and the receiver never
+     * blocks. It only signals - the check itself runs on the loop, so there is exactly one checker
+     * and no chance of two running at once.
+     */
+    private val screenOnSignal = kotlinx.coroutines.channels.Channel<Unit>(
+        kotlinx.coroutines.channels.Channel.CONFLATED
+    )
+
+    private val screenOnReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_SCREEN_ON) return
+            screenOnSignal.trySend(Unit)
+        }
+    }
+    private var screenOnReceiverRegistered = false
+
+    private fun registerScreenOnReceiver() {
+        if (screenOnReceiverRegistered) return
+        runCatching {
+            registerReceiver(screenOnReceiver, android.content.IntentFilter(Intent.ACTION_SCREEN_ON))
+            screenOnReceiverRegistered = true
+        }.onFailure { AppLogger.w(TAG, "Could not register the screen-on receiver: ${it.message}") }
+    }
+
+    private fun unregisterScreenOnReceiver() {
+        if (!screenOnReceiverRegistered) return
+        runCatching { unregisterReceiver(screenOnReceiver) }
+        screenOnReceiverRegistered = false
     }
     
     private fun stopMonitoring() {
         monitoringJob?.cancel()
         monitoringJob = null
+        unregisterScreenOnReceiver()
     }
     
     private suspend fun checkForNewPackages() {
@@ -172,7 +339,12 @@ class PackageMonitoringService : Service() {
     private fun getCurrentInstalledPackages(): Set<Pair<String, Int>>? {
         return try {
             val result = mutableSetOf<Pair<String, Int>>()
-            val userProfiles = HiddenApiHelper.getUsers(this)
+            // user 0 is deliberately skipped. PackageAddedReceiver and PackageChangedReceiver
+            // deliver installs, removals and enable/disable for the personal profile instantly, so
+            // enumerating it here found nothing they had not already handled - it just re-listed
+            // every app on the device on every tick. Other profiles get no such broadcast, which is
+            // the entire reason this service exists (#61a).
+            val userProfiles = HiddenApiHelper.getUsers(this).filter { it.userId != 0 }
 
             for (profile in userProfiles) {
                 val packages = HiddenApiHelper.getInstalledApplicationsAsUser(
@@ -210,7 +382,11 @@ class PackageMonitoringService : Service() {
      */
     private fun checkForEnabledStateChanges() {
         val profiles = try {
-            HiddenApiHelper.getUsers(this)
+            // user 0 skipped: ACTION_PACKAGE_CHANGED already reaches PackageChangedReceiver for the
+            // personal profile, which is exactly why #61a was only ever a work-profile bug. Reading
+            // it here cost one `pm list packages -d --user 0` - a root or Shizuku process spawn -
+            // on every tick, for information the system had already pushed to us for free.
+            HiddenApiHelper.getUsers(this).filter { it.userId != 0 }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Could not list profiles for the enabled-state check: ${e.message}")
             return
