@@ -881,7 +881,30 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
-                val updatedPkg = state.packages.find { it.packageName == pkg.packageName }
+                // Match the FULL identity, name AND userId. Issue #97.
+                //
+                // A package name is not unique: the same app in a work or cloned profile is a second
+                // row with the same name and its own rules. Matching on name alone returned whichever
+                // row came first, so this sheet repainted its switches from ANOTHER PROFILE's flags.
+                //
+                // It looked like the toggles simply did not update. What actually happened: the sheet
+                // seeds correctly from `pkg` at setupNetworkToggle, this collector (Main.immediate,
+                // so it runs synchronously) then repaints from the wrong row, and it wins because
+                // emissions are guaranteed - the tap's own optimistic updatePackageInList, the
+                // debounced reload a rule write triggers, the isRenderingUI round trip, and the
+                // shared flow the Packages screen also collects. Corrected for one frame, wrong after.
+                //
+                // Only visible where the two rows DIFFER. Measured on hardware 2026-08-29: LAN blocked
+                // in the work profile, allowed in the personal one, so LAN alone displayed wrong while
+                // WiFi/Mobile/Roaming agreed by coincidence and looked fine. Because the switch never
+                // showed "blocked", every further tap wrote "block" again and LAN could not be undone
+                // from this sheet at all.
+                //
+                // The write path was never wrong - onToggle passes pkg.userId, and
+                // updatePackageInList already matches on it. Only this read back was.
+                val updatedPkg = state.packages.find {
+                    it.packageName == pkg.packageName && it.userId == pkg.userId
+                }
                 AppLogger.d(TAG, "showGranularControlSheet: uiState collected - updatedPkg found=${updatedPkg != null}, isUpdatingProgrammatically=$isUpdatingProgrammatically")
                 if (updatedPkg != null && !isUpdatingProgrammatically) {
                     AppLogger.d(TAG, "showGranularControlSheet: Calling updateTogglesFromPackage for ${updatedPkg.packageName}")
@@ -1163,7 +1186,12 @@ class FirewallFragmentViews : BaseFragment<FragmentFirewallBinding>() {
 
         val observerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collect { state ->
-                val updatedPkg = state.packages.find { it.packageName == pkg.packageName }
+                // Same fix as showGranularControlSheet - see the note there for the full mechanism.
+                // This sheet's Internet Access switch drifts the same way on a multi-profile device;
+                // fixing only one of the two leaves the other reporting another profile's state.
+                val updatedPkg = state.packages.find {
+                    it.packageName == pkg.packageName && it.userId == pkg.userId
+                }
                 if (updatedPkg != null && !isUpdatingProgrammatically) {
                     updateToggleFromPackage(updatedPkg)
                 }

@@ -1,0 +1,1 @@
+- Fixed an app's rules showing another profile's state on devices with a work or cloned profile. The LAN switch could not be turned back off #97
