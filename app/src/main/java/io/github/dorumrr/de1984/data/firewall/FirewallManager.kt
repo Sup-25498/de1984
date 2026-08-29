@@ -85,6 +85,23 @@ class FirewallManager(
     private val scope = CoroutineScope(SupervisorJob())
     private val startStopMutex = Mutex()
     private var healthMonitoringJob: Job? = null
+
+    /**
+     * True only while the health job is calling startFirewall on itself, for a privilege-gain switch.
+     *
+     * That call re-enters startBackendHealthMonitoring, whose first act is
+     * `healthMonitoringJob?.cancel()` - cancelling the very job sitting in the call. startFirewall is
+     * `withContext(Dispatchers.IO)`, so it rethrows CancellationException on the way out: `result`
+     * never binds and the whole success block is skipped. The switch itself completes, but silently -
+     * no privilege-gain notification (that is its only call site), no orphaned-tunnel report, and
+     * :1381 logs it as a routine "Health check exception".
+     *
+     * The author already guarded the reentrancy they saw - see the "we're inside the health job"
+     * note at the switch - but stopMonitoring was not the only way back in.
+     *
+     * stopMonitoring() still cancels unconditionally, so a concurrent stopFirewall always wins.
+     */
+    private var switchingInsideHealthJob = false
     private var privilegeMonitoringJob: Job? = null
     private var vpnPermissionMonitoringJob: Job? = null
     private var vpnStateMonitoringJob: Job? = null
@@ -1277,15 +1294,26 @@ class FirewallManager(
 
         AppLogger.d(TAG, "🔍 STARTING ADAPTIVE HEALTH MONITORING | Backend: $backendType | Type: $monitoringType | Initial interval: ${currentHealthCheckInterval}ms | Stable interval: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS}ms | Threshold: ${Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD} successful checks")
 
-        healthMonitoringJob?.cancel()
+        // Not while the running health job is the one asking. See switchingInsideHealthJob:
+        // cancelling here kills the coroutine sitting in startFirewall, so its result never binds and
+        // the privilege-gain notification never fires. The old job breaks out of its loop by itself
+        // straight after the switch, so nothing is left running.
+        if (!switchingInsideHealthJob) {
+            healthMonitoringJob?.cancel()
+        }
         healthMonitoringJob = scope.launch {
             while (true) {
                 delay(currentHealthCheckInterval)
 
                 try {
-                    // VPN backend: Check if better backends become available (privilege gain detection)
-                    // BUT: Only switch if user is in AUTO mode. If user manually selected VPN mode,
-                    // respect their choice - they may have a reason for using VPN specifically.
+                    // VPN backend: check whether a better backend has become available.
+                    //
+                    // The test below is `currentMode == VPN`, not `== AUTO`. Only a MANUAL VPN choice
+                    // is respected and left alone; every other stored mode - AUTO, and any privileged
+                    // mode that fell back to VPN - enters the switching branch. That is deliberate:
+                    // a user whose iptables mode fell back to VPN wants to be moved back when root
+                    // returns. This comment used to say "only switch in AUTO mode", which the code
+                    // has never done.
                     if (backendType == FirewallBackendType.VPN) {
                         // Ask the backend before claiming it is healthy. Both VPN branches below
                         // incremented the success counter and logged "VPN backend is active" without
@@ -1329,7 +1357,16 @@ class FirewallManager(
                                     currentBackend = null
                                     _activeBackendType.value = null
 
-                                    val result = startFirewall(FirewallMode.AUTO)
+                                    // Guarded: this call re-enters startBackendHealthMonitoring,
+                                    // which would otherwise cancel THIS coroutine mid-call and throw
+                                    // away everything below. Cleared in finally so a failure cannot
+                                    // leave the flag set and make a later stop unable to cancel.
+                                    switchingInsideHealthJob = true
+                                    val result = try {
+                                        startFirewall(FirewallMode.AUTO)
+                                    } finally {
+                                        switchingInsideHealthJob = false
+                                    }
                                     result.onSuccess { newBackend ->
                                         AppLogger.d(TAG, "✅ Successfully switched to $newBackend backend via privilege gain detection")
                                         // The tunnel that would not close is still dropping traffic
@@ -1375,7 +1412,7 @@ class FirewallManager(
                     if (consecutiveSuccessfulHealthChecks >= Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD &&
                         currentHealthCheckInterval == Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS) {
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS
-                        AppLogger.d(TAG, "⚡ BACKEND STABLE - INCREASING HEALTH CHECK INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | Battery savings: ~90% reduction in wake-ups")
+                        AppLogger.d(TAG, "⚡ BACKEND STABLE - INCREASING HEALTH CHECK INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | 4x fewer ticks (15s to 60s)")
                     }
 
                 } catch (e: Exception) {

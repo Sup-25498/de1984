@@ -347,9 +347,17 @@ class PackageMonitoringService : Service() {
             val userProfiles = HiddenApiHelper.getUsers(this).filter { it.userId != 0 }
 
             for (profile in userProfiles) {
+                // Flags 0, not GET_META_DATA. The lambda below reads only .flags and .packageName;
+                // nothing in the app reads .metaData at all (a repo-wide grep for it returns
+                // nothing), so filling a Bundle for every app on every tick bought nothing.
+                //
+                // Deliberately changed HERE ONLY. installedAppsCache is keyed by userId alone, never
+                // by flags, so a flags-blind list can be served to a GET_META_DATA caller inside its
+                // 5s window - harmless while nothing reads .metaData, but it is why the other seven
+                // call sites are left as they are rather than swept along with this one.
                 val packages = HiddenApiHelper.getInstalledApplicationsAsUser(
                     this,
-                    PackageManager.GET_META_DATA,
+                    0,
                     profile.userId
                 )
 
@@ -440,8 +448,18 @@ class PackageMonitoringService : Service() {
 
     private fun hasInternetPermission(packageName: String, userId: Int = 0): Boolean {
         return try {
+            // GET_PERMISSIONS *or* GET_SERVICES, matching HiddenApiHelper.kt:604 and
+            // AndroidPackageDataSource.getPackageMetadataBatch. Only GET_PERMISSIONS is read here,
+            // but the flags are part of the cache key - packageInfoCache is keyed
+            // "userId:flags:packageName" (HiddenApiHelper.kt:1092). Asking for a narrower set meant
+            // this poll could never hit the entry the network-permission sweep had just cached, and
+            // stored a second copy of every package alongside it. The comment at HiddenApiHelper:602
+            // warns about exactly this; the poll was making the mistake from another file.
             val packageInfo = HiddenApiHelper.getPackageInfoAsUser(
-                this, packageName, PackageManager.GET_PERMISSIONS, userId
+                this,
+                packageName,
+                PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES,
+                userId
             ) ?: return false
             packageInfo.requestedPermissions?.contains(android.Manifest.permission.INTERNET) == true
         } catch (e: Exception) {

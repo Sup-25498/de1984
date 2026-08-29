@@ -51,8 +51,9 @@ class RootManager(private val context: Context) {
          * In the second case dropping the shell kills the rewrite half-written, and
          * `IptablesFirewallBackend` then has the old rules PLUS a partial new set to trim on the
          * retry - so each attempt is bigger, slower, and likelier to be cut than the last, and the
-         * chain stops converging. `PackageMonitoringService` polls every 15s for every profile, so
-         * on a rooted device this is not a rare race; it is the normal case.
+         * chain stops converging. `PackageMonitoringService` polls every 30s while the screen is on,
+         * for every profile EXCEPT user 0, and not at all while the screen is off - so on a rooted
+         * device in use this race is real, not rare.
          *
          * This counter is the only thing that tells the two apart.
          */
@@ -127,8 +128,19 @@ class RootManager(private val context: Context) {
     }
 
     /**
-     * Internal helper that allows callers (like backend health monitoring)
-     * to force a re-check even if we previously had ROOTED_WITH_PERMISSION.
+     * Re-checks root, ignoring the cached answer. Public, with call sites in BootReceiver,
+     * BootWorker, MainActivity, BootProtectionManager, PrivilegedFirewallService and the backend
+     * health loop.
+     *
+     * Not free on a device that is NOT rooted: it runs the full retry loop below - three
+     * `Shell.getShell()` builds, each a failed `su` exec then a short-lived `sh`, with two 800ms
+     * waits between them. Roughly 1.6s of wall time, though only milliseconds of CPU, since the
+     * waits are `delay` and hold no thread.
+     *
+     * That cost is deliberate and must not be "optimised" with a negative cache. The retry IS the
+     * fix for issue #79: KernelSU's LKM can load after boot has completed, so a rooted device that
+     * answers NOT_ROOTED at first can start answering correctly a few seconds later. The guard at
+     * [checkRootStatus] skips only ROOTED_WITH_PERMISSION for the same reason.
      */
     suspend fun forceRecheckRootStatus() {
         checkRootStatusInternalWithCaching(forceRecheck = true)

@@ -537,7 +537,7 @@ class PrivilegedFirewallService : Service() {
                     if (consecutiveSuccessfulHealthChecks >= Constants.HealthCheck.BACKEND_HEALTH_CHECK_STABLE_THRESHOLD &&
                         currentHealthCheckInterval == Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_INITIAL_MS) {
                         currentHealthCheckInterval = Constants.HealthCheck.BACKEND_HEALTH_CHECK_INTERVAL_STABLE_MS
-                        AppLogger.d(TAG, "⚡ SERVICE: BACKEND STABLE - INCREASING INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | Battery savings: ~90% reduction in wake-ups")
+                        AppLogger.d(TAG, "⚡ SERVICE: BACKEND STABLE - INCREASING INTERVAL | Backend: $backendType | New interval: ${currentHealthCheckInterval}ms | 4x fewer ticks (15s to 60s)")
                     }
 
                 } catch (e: Exception) {
