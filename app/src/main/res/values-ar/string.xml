@@ -24,11 +24,8 @@
     <string name="dialog_firewall_stop_message">⚠️ سيؤدي إيقاف جدار الحماية إلى السماح لجميع التطبيقات بالوصول إلى الإنترنت.\n\nسيتم تعطيل حماية خصوصيتك حتى تقوم بإعادة تشغيل جدار الحماية.</string>
     <string name="dialog_firewall_stop_confirm">إيقاف جدار الحماية</string>
 
-
-
-    <!-- Quick Toggle Dialogs -->
     <string name="dialog_quick_toggle_block_title">حظر %1$s?</string>
-    <string name="dialog_quick_toggle_allow_title">السماح %1$s?</string>
+    <string name="dialog_quick_toggle_allow_title">السماح لـ%1$s?</string>
     <string name="dialog_quick_toggle_message_wifi">هذا سيؤدي إلى %1$s الوصول إلى الواي فاي لـ %2$s</string>
     <string name="dialog_quick_toggle_message_mobile">هذا سيؤدي إلى %1$s الوصول إلى بيانات الهاتف لـ %2$s</string>
     <string name="dialog_quick_toggle_message_roaming">هذا سيؤدي إلى %1$s الوصول إلى التجوال لـ %2$s</string>
@@ -67,8 +64,8 @@
 
     <string name="status_uninstalled">غير مثبّت</string>
 
-    <string name="packages_status_enabled">مُعطّل</string>
-    <string name="packages_status_disabled">مُفعّل</string>
+    <string name="packages_status_enabled">مُفعّل</string>
+    <string name="packages_status_disabled">مُعطّل</string>
 
     <string name="action_enable">تفعيل</string>
     <string name="action_disable">تعطيل</string>
@@ -95,11 +92,11 @@
     <string name="dialog_disable_message">سيمنع هذا %s من التشغيل.\n\nهل أنت متأكد؟</string>
 
     <string name="permission_network_state">حالة الشبكة</string>
-    <string name="permission_wifi_state">حالة الWi-Fi</string>
+    <string name="permission_wifi_state">حالة الـWi-Fi</string>
     <string name="permission_notification">إذن الإشعارات</string>
     <string name="permission_battery_optimization">إعفاء من تحسينات البطارية</string>
     <string name="permission_modify_system_settings">تعديل إعدادات النظام</string>
-    <string name="permission_enable_disable_components">Enable/Disable Components</string>
+    <string name="permission_enable_disable_components">تفعيل/تعطيل المكونات</string>
     <string name="permission_superuser_access">Superuser الوصول إلى</string>
     <string name="permission_vpn">VPN إذن</string>
 
@@ -110,166 +107,136 @@
     <string name="permission_modify_system_settings_desc">تغيير إعدادات الأمان على مستوى النظام</string>
     <string name="permission_enable_disable_components_desc">تمكين مكونات التطبيق أو تعطيلها</string>
     <string name="permission_superuser_access_desc">وصول كامل إلى النظام للعمليات المتقدمة</string>
-    <string name="permission_vpn_desc">Allows automatic fallback to VPN when privileged backends (iptables/ConnectivityManager) fail. Ensures firewall stays active.</string>
+    <string name="permission_vpn_desc">يسمح بالرجوع التلقائي إلى VPN عند فشل الواجهات الخلفية المميزة (iptables/ConnectivityManager). يضمن بقاء جدار الحماية نشطًا.</string>
 
-    <!-- Permission Tier Titles -->
-    <string name="permission_tier_basic_title">Basic Functionality</string>
-    <string name="permission_tier_battery_title">Background Process</string>
-    <string name="permission_tier_advanced_title">Advanced Operations</string>
+    <string name="permission_tier_basic_title">الوظائف الأساسية</string>
+    <string name="permission_tier_battery_title">العمل في الخلفية</string>
+    <string name="permission_tier_advanced_title">العمليات المتقدمة</string>
     <string name="permission_tier_vpn_title">VPN Fallback</string>
 
-    <!-- Permission Tier Descriptions -->
-    <string name="permission_tier_basic_desc">View installed packages and basic information</string>
-    <string name="permission_tier_battery_desc">Prevents Android from killing the firewall service to save battery. Critical for VPN reliability.</string>
-    <string name="permission_tier_advanced_desc">Package management and system-level operations (via Shizuku or root)</string>
-    <string name="permission_tier_vpn_desc">Allows automatic fallback to VPN when privileged backends (iptables/ConnectivityManager) fail. Ensures firewall stays active.</string>
-    <string name="permission_tier_vpn_desc_privileged">Not needed when using privileged firewall backend (iptables/ConnectivityManager). Only required as fallback.</string>
+    <string name="permission_tier_basic_desc">عرض الحزم المثبتة والمعلومات الأساسية</string>
+    <string name="permission_tier_battery_desc">يمنع أندوريد من قتل خدمة جدار الحماية لتوفير طاقة البطارية. أمر بالغ الأهمية لموثوقية VPN.</string>
+    <string name="permission_tier_advanced_desc">إدارة الحزم والعمليات على مستوى النظام (عبر Shizuku أو root)</string>
+    <string name="permission_tier_vpn_desc">يسمح بالرجوع التلقائي إلى VPN عند فشل واجهات الخلفية المميزة (iptables/ConnectivityManager). يضمن بقاء جدار الحماية نشطًا.</string>
+    <string name="permission_tier_vpn_desc_privileged">غير مطلوب عند استخدام الواجهة الخلفية لجدار الحماية المميز (iptables/ConnectivityManager). مطلوب فقط كحل احتياطي.</string>
 
-    <!-- Permission Tier Status -->
-    <string name="permission_status_completed">Completed</string>
-    <string name="permission_status_required">Permission Required</string>
-    <string name="permission_status_not_required">Not Required</string>
-    <string name="permission_status_shizuku_or_root_required">Shizuku or Root Required</string>
+    <string name="permission_status_completed">مكتمل</string>
+    <string name="permission_status_required">الإذن مطلوب</string>
+    <string name="permission_status_not_required">غير مطلوب</string>
+    <string name="permission_status_shizuku_or_root_required">Shizuku أو Root مطلوب</string>
 
-    <!-- Permission Tier Buttons -->
-    <string name="permission_button_grant">Grant Permission</string>
-    <string name="permission_button_grant_shizuku">Grant Shizuku Permission</string>
-    <string name="permission_button_grant_privileged">Grant Privileged Access</string>
-    <string name="permission_button_grant_vpn">Grant VPN Permission</string>
+    <string name="permission_button_grant">منح الإذن</string>
+    <string name="permission_button_grant_shizuku">منح إذن Shizuku</string>
+    <string name="permission_button_grant_privileged">منح الوصول المميز</string>
+    <string name="permission_button_grant_vpn">منح إذن VPN</string>
 
-    <!-- Multi-Select Package Operations -->
-    <string name="multiselect_toast_not_available_disabled">Multi-select not available for disabled packages</string>
-    <string name="multiselect_toast_not_available_uninstalled">Multi-select not available for uninstalled packages</string>
-    <string name="multiselect_toolbar_title_format">%d selected</string>
-    <string name="multiselect_toolbar_button_uninstall">Uninstall</string>
-    <string name="multiselect_toolbar_button_reinstall">Reinstall</string>
+    <string name="multiselect_toast_not_available_disabled">التحديد المتعدد غير متاح للحزم المعطلة</string>
+    <string name="multiselect_toast_not_available_uninstalled">التحديد المتعدد غير متاح للحزم غير المثبتة</string>
+    <string name="multiselect_toolbar_title_format">تم تحديد %d</string>
+    <string name="multiselect_toolbar_button_uninstall">إلغاء التثبيت</string>
+    <string name="multiselect_toolbar_button_reinstall">إعادة التثبيت</string>
 
+    <string name="multiselect_toast_limit_reached">يمكن تحديد %d حزم كحد أقصى في وقت واحد</string>
 
+    <string name="firewall_multiselect_toast_cannot_select_critical">لا يمكن تحديد الحزم الحرجة/VPN</string>
+    <string name="firewall_multiselect_toolbar_button_block">حظر</string>
+    <string name="firewall_multiselect_toolbar_button_allow">سماح</string>
+    <string name="firewall_multiselect_toolbar_button_rules">تغيير القواعد</string>
+    <string name="firewall_multiselect_dialog_title_results">نتائج جدار الحماية</string>
+    <string name="firewall_multiselect_dialog_message_success_format">✓ بنجاح %2$s: %1$d من التطبيقات</string>
+    <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d نجح، ✗ %2$d فشل لـ%3$s</string>
 
+    <string name="firewall_multiselect_sheet_header_format">تم تحديد %d حزم</string>
+    <string name="firewall_multiselect_sheet_section_network_rules">قواعد الشبكة</string>
+    <string name="firewall_multiselect_sheet_state_mixed">مختلط</string>
+    <string name="firewall_multiselect_sheet_quick_actions">الإجراءات السريعة</string>
+    <string name="firewall_multiselect_sheet_allow_all">السماح لكل الشبكات</string>
+    <string name="firewall_multiselect_sheet_block_all">حظر كل الشبكاتstring>
 
+    <string name="cd_app_icon">أيقونة التطبيق</string>
+    <string name="cd_wifi_status">حالة الـWifi</string>
+    <string name="cd_wifi_blocked">WiFi محظور</string>
+    <string name="cd_mobile_data_status">حالة بيانات الهاتف</string>
+    <string name="cd_mobile_blocked">بيانات الهاتف محظور</string>
+    <string name="cd_roaming_status">حالة التجوال</string>
+    <string name="cd_roaming_blocked">التجوال محظور</string>
+    <string name="cd_shield_icon">أيقونة الدرع</string>
+    <string name="cd_open_app_settings">فتح إعدادات التطبيق</string>
+    <string name="cd_package_control_icon">أيقونة تحكم الحزم</string>
+    <string name="cd_status_icon">أيقونة الحالة</string>
+    <string name="cd_de1984_logo">شعار De1984</string>
+    <string name="cd_force_stop_icon">أيقونة الإيقاف الإجباري</string>
+    <string name="cd_enable_disable_icon">أيقونة التفعيل/التعطيل</string>
+    <string name="cd_uninstall_icon">أيقونة إلغاء التثبيت</string>
+    <string name="cd_firewall_rules_icon">أيقونة قواعد جدار الحماية</string>
+    <string name="cd_settings_icon">أيقونة الإعدادات</string>
+    <string name="cd_backend_information">معلومات الواجهة الخلفية</string>
+    <string name="cd_captive_portal_icon">أيقونة البوابة المقيدة</string>
+    <string name="cd_apps_icon">أيقونة التطبيقات</string>
+    <string name="cd_permission_status">حالة الإذن</string>
+    <string name="cd_multiselect_icon">تم تحديد حزم متعددة</string>
 
+    <string name="footer_tagline">ليالٍ متأخرة لأيام أكثر إشراقًا.\nتم الإنشاء بواسطة Doru Moraru</string>
 
-    <string name="multiselect_toast_limit_reached">Maximum %d packages can be selected at once</string>
-
-    <!-- Firewall Multi-Select -->
-    <string name="firewall_multiselect_toast_cannot_select_critical">Critical/VPN packages cannot be selected</string>
-    <string name="firewall_multiselect_toolbar_button_block">Block</string>
-    <string name="firewall_multiselect_toolbar_button_allow">Allow</string>
-    <string name="firewall_multiselect_toolbar_button_rules">Change Rules</string>
-    <string name="firewall_multiselect_dialog_title_results">Firewall Results</string>
-    <string name="firewall_multiselect_dialog_message_success_format">✓ Successfully %2$s: %1$d apps</string>
-    <string name="firewall_multiselect_dialog_message_failed_format">✓ %1$d succeeded, ✗ %2$d failed to %3$s</string>
-
-    <!-- Firewall Multi-Select Bottom Sheet -->
-    <string name="firewall_multiselect_sheet_header_format">%d packages selected</string>
-    <string name="firewall_multiselect_sheet_section_network_rules">Network Rules</string>
-    <string name="firewall_multiselect_sheet_state_mixed">Mixed</string>
-    <string name="firewall_multiselect_sheet_quick_actions">Quick Actions</string>
-    <string name="firewall_multiselect_sheet_allow_all">Allow All Networks</string>
-    <string name="firewall_multiselect_sheet_block_all">Block All Networks</string>
-
-    <!-- Theme -->
-
-    <!-- Common -->
-
-    <!-- Content Descriptions -->
-    <string name="cd_app_icon">App icon</string>
-    <string name="cd_wifi_status">WiFi status</string>
-    <string name="cd_wifi_blocked">WiFi blocked</string>
-    <string name="cd_mobile_data_status">Mobile data status</string>
-    <string name="cd_mobile_blocked">Mobile blocked</string>
-    <string name="cd_roaming_status">Roaming status</string>
-    <string name="cd_roaming_blocked">Roaming blocked</string>
-    <string name="cd_shield_icon">Shield icon</string>
-    <string name="cd_open_app_settings">Open app settings</string>
-    <string name="cd_package_control_icon">Package control icon</string>
-    <string name="cd_status_icon">Status icon</string>
-    <string name="cd_de1984_logo">De1984 Logo</string>
-    <string name="cd_force_stop_icon">Force stop icon</string>
-    <string name="cd_enable_disable_icon">Enable/Disable icon</string>
-    <string name="cd_uninstall_icon">Uninstall icon</string>
-    <string name="cd_firewall_rules_icon">Firewall rules icon</string>
-    <string name="cd_settings_icon">Settings icon</string>
-    <string name="cd_backend_information">Backend information</string>
-    <string name="cd_captive_portal_icon">Captive Portal icon</string>
-    <string name="cd_apps_icon">Apps icon</string>
-    <string name="cd_permission_status">Permission status</string>
-    <string name="cd_multiselect_icon">Multiple packages selected</string>
-
-    <!-- Footer / Branding -->
-    <string name="footer_tagline">Late nights for brighter days.\nCreated by Doru Moraru</string>
-    <string name="footer_author_name" translatable="false">Doru Moraru</string>
-    <string name="footer_author_url" translatable="false">https://github.com/dorumrr/de1984</string>
-
-    <!-- Plurals -->
     <plurals name="package_count">
-        <item quantity="one">%d app</item>
-        <item quantity="other">%d apps</item>
+        <item quantity="zero">%d تطبيق</item>
+        <item quantity="one">%d تطبيق</item>
+        <item quantity="two">%d تطبيقان</item>
+        <item quantity="few">%d تطبيقات</item>
+        <item quantity="many">%d تطبيق</item>
+        <item quantity="other">%d تطبيق</item>
     </plurals>
 
-    <!-- Root Access -->
-    <string name="root_status_denied">Root Access: Denied</string>
-    <string name="root_status_not_available">Root Access: Not Available</string>
+    <string name="root_status_denied">الوصول إلى الجذر: مرفوض</string>
+    <string name="root_status_not_available">الوصول إلى الجذر: غير متاح</string>
 
-    <string name="root_desc_denied">Root permission was denied. Follow the instructions below to grant access.</string>
-    <string name="root_desc_not_available">Your device is not rooted. Root access is required for advanced package management operations.</string>
+    <string name="root_desc_denied">تم رفض إذن الجذر. اتبع التعليمات أدناه لمنح الوصول.</string>
+    <string name="root_desc_not_available">جهازك غير مُتجذّر. الوصول إلى الجذر مطلوب لعمليات إدارة الحزمة المتقدمة.</string>
 
-    <string name="root_grant_instructions_title">To grant root access:</string>
-    <string name="root_grant_instructions_body">• Reinstall the app to trigger the permission dialog again\n• Or manually add De1984 to your superuser app (Magisk, KernelSU, etc.)</string>
+    <string name="root_grant_instructions_title">لمنح الوصول إلى الجذر:</string>
+    <string name="root_grant_instructions_body">• أعد تثبيت التطبيق لتشغيل مربع حوار الإذن مرة أخرى\n• أو أضف De1984 يدويًا إلى تطبيق SuperUser خاصتّك (Magisk، وKernelSU، إلخ.).</string>
 
-    <string name="root_rooting_tools_title"><![CDATA[<b>Recommended rooting tools:</b>]]></string>
-    <string name="root_rooting_tools_body">• Magisk - Most popular and widely supported root solution. Works on Android 5.0+ and supports modules for additional features.\n• KernelSU - Modern kernel-based root management. Provides better security isolation and doesn\'t modify system partition.\n• APatch - Newer alternative with kernel patching approach. Good for devices with strict security policies.</string>
-
-
-    <!-- Shizuku Access -->
-    <string name="shizuku_status_denied">Shizuku: Denied</string>
-    <string name="shizuku_status_not_running">Shizuku: Not Running</string>
-
-    <string name="shizuku_desc_denied">Shizuku permission was denied. Tap \'Grant Shizuku Permission\' to try again.</string>
-    <string name="shizuku_desc_not_running">Shizuku is installed but not running. Start Shizuku to enable package management.</string>
+    <string name="root_rooting_tools_title"><![CDATA[<b>أدوات التجذير الموصى بها:</b>]]></string>
+    <string name="root_rooting_tools_body">• Magisk - حل التجذير الأكثر شعبية والأوسع دعمًا. يعمل على Android 5.0+ ويدعم الوحدات للميزات الإضافية.\n• KernelSU - إدارة جذر حديثة قائمة على النواة. يوفر عزل أمان أفضل ولا يُعدّل قسم النظام.\n• APatch - بديل أحدث مع نهج تصحيح النواة. مناسب للأجهزة ذات السياسات الأمنية الصارمة.</string>
 
 
+    <string name="shizuku_status_denied">Shizuku: مرفوض</string>
+    <string name="shizuku_status_not_running">Shizuku: لا يعمل</string>
 
-    <!-- Privileged Access Banner -->
+    <string name="shizuku_desc_denied">تم رفض إذن Shizuku. اضغط على \'منح إذن Shizuku\' لإعادة المحاولة.</string>
+    <string name="shizuku_desc_not_running">تم تثبيت Shizuku ولكنه لا يعمل. شغّل Shizuku لتمكين إدارة الحزم.</string>
 
+    <string name="backend_notification_title_waiting">جدار حماية De1984 نشط (وضع VPN)</string>
+    <string name="backend_notification_title_switching">De1984 يقوم بتبديل الواجهة الخلفية...</string>
+    <string name="backend_notification_title_success">تم تبديل الواجهة الخلفية لجدار الحماية De1984</string>
+    <string name="backend_notification_title_failed">De1984 فشل تبديل الواجهة الخلفية لجدار الحماية</string>
 
-    <!-- Backend Monitoring -->
+    <string name="backend_notification_text_shizuku_not_running">في انتظار بدء Shizuku. انقر لإعادة المحاولة.</string>
+    <string name="backend_notification_text_shizuku_no_permission">في انتظار إذن Shizuku. انقر لإعادة المحاولة.</string>
+    <string name="backend_notification_text_switching">Shizuku متاح الآن. جارٍ التبديل إلى الواجهة الخلفية المفضلة...</string>
+    <string name="backend_notification_text_failed">فشل جدار حماية De1984 في تبديل الواجهة الخلفية. لا يزال يستخدم VPN.</string>
 
-    <string name="backend_notification_title_waiting">De1984 Firewall Active (VPN Mode)</string>
-    <string name="backend_notification_title_switching">De1984 is switching backend…</string>
-    <string name="backend_notification_title_success">De1984 Firewall backend switched</string>
-    <string name="backend_notification_title_failed">De1984 Firewall backend switch failed</string>
+    <string name="backend_action_button_retry">إعادة المحاولة</string>
 
-    <string name="backend_notification_text_shizuku_not_running">Waiting for Shizuku to start. Tap to retry.</string>
-    <string name="backend_notification_text_shizuku_no_permission">Waiting for Shizuku permission. Tap to retry.</string>
-    <string name="backend_notification_text_switching">Shizuku is now available. Switching to preferred backend…</string>
-    <string name="backend_notification_text_failed">De1984 Firewall failed to switch backend. Still using VPN.</string>
+    <string name="backend_switched_notification_title">تم تبديل الواجهة الخلفية لجدار الحماية</string>
+    <string name="backend_switched_notification_text">تم التبديل إلى %1$s — هناك VPN آخر نشط</string>
+    <string name="backend_switched_notification_big">تم توصيل تطبيق VPN آخر. تم التبديل من De1984 إلى %1$s تلقائيًا لمواصلة حمايتك. انقر لفتح الإعدادات.</string>
+    <string name="backend_upgraded_notification_title">تمت ترقية جدار الحماية</string>
+    <string name="backend_upgraded_notification_text">تم التبديل من VPN إلى %1$s</string>
+    <string name="backend_upgraded_notification_big">تم اكتشاف وصول الجذر. تمت ترقية De1984 من VPN إلى %1$s تلقائيًا لتوفير حماية أفضل. تم تعيين الوضع إلى تلقائي.</string>
+    <string name="backend_toast_success">تم تبديل جدار حماية De1984 إلى %1$s</string>
+    <string name="backend_notification_text_success">يستخدم جدار حماية De1984 الآن واجهة خلفية %1$s</string>
+    <string name="backend_unknown_name">غير معروف</string>
+    <string name="backend_toast_failed">فشل جدار حماية De1984 في تبديل الواجهة الخلفية</string>
 
-    <string name="backend_action_button_retry">Retry</string>
+    <string name="vpn_fallback_notification_title">De1984 جدار الحماية معطل</string>
+    <string name="vpn_fallback_notification_text">فشل الواجهة الخلفية المميزة. اضغط لتمكين VPN fallback واستعادة حماية جدار الحماية.</string>
+    <string name="vpn_fallback_notification_action_text">تفعيل VPN fallback</string>
 
-    <string name="backend_switched_notification_title">Firewall Backend Switched</string>
-    <string name="backend_switched_notification_text">Switched to %1$s — another VPN is active</string>
-    <string name="backend_switched_notification_big">Another VPN app connected. De1984 switched to %1$s automatically to keep protecting you. Tap to open settings.</string>
-    <string name="backend_upgraded_notification_title">Firewall Upgraded</string>
-    <string name="backend_upgraded_notification_text">Switched from VPN to %1$s</string>
-    <string name="backend_upgraded_notification_big">Root access detected. De1984 upgraded from VPN to %1$s automatically for better protection. Mode set to AUTO.</string>
-    <string name="backend_toast_success">De1984 Firewall switched to %1$s</string>
-    <string name="backend_notification_text_success">De1984 Firewall is now using the %1$s backend</string>
-    <string name="backend_unknown_name">Unknown</string>
-    <string name="backend_toast_failed">De1984 Firewall failed to switch backend</string>
+    <string name="vpn_permission_notification_title">بدء جدار حماية De1984</string>
+    <string name="vpn_permission_notification_text">يحتاج De1984 إلى إذنك لإنشاء اتصال VPN. اضغط للسماح بذلك وابدأ جدار الحماية.</string>
+    <string name="vpn_permission_notification_action_text">السماح والبدء</string>
 
-    <!-- VPN Fallback -->
-
-    <string name="vpn_fallback_notification_title">De1984 Firewall Down</string>
-    <string name="vpn_fallback_notification_text">Privileged backend failed. Tap to enable VPN fallback and restore firewall protection.</string>
-    <string name="vpn_fallback_notification_action_text">Enable VPN Fallback</string>
-    <!-- Widget/tile start that needs VPN permission. Distinct from the fallback strings
-         above: nothing has failed here, the user just asked to turn the firewall on. -->
-    <string name="vpn_permission_notification_title">Start De1984 Firewall</string>
-    <string name="vpn_permission_notification_text">De1984 needs your permission to create a VPN connection. Tap to allow it and start the firewall.</string>
-    <string name="vpn_permission_notification_action_text">Allow and start</string>
-
-    <!-- Firewall Down warning (in-app banner + notification) -->
     <string name="firewall_down_title">Firewall down — your apps are unblocked</string>
     <string name="firewall_down_reason_no_plan">No usable firewall backend is available on this device.</string>
     <string name="firewall_down_reason_fallback_failed">The backup backend did not start. Nothing is blocking network access.</string>
