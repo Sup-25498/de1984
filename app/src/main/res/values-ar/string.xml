@@ -237,37 +237,35 @@
     <string name="vpn_permission_notification_text">يحتاج De1984 إلى إذنك لإنشاء اتصال VPN. اضغط للسماح بذلك وابدأ جدار الحماية.</string>
     <string name="vpn_permission_notification_action_text">السماح والبدء</string>
 
-    <string name="firewall_down_title">Firewall down — your apps are unblocked</string>
-    <string name="firewall_down_reason_no_plan">No usable firewall backend is available on this device.</string>
-    <string name="firewall_down_reason_fallback_failed">The backup backend did not start. Nothing is blocking network access.</string>
-    <string name="firewall_down_reason_vpn_conflict">Another VPN app is using the VPN slot. De1984 must replace it to protect you.</string>
-    <string name="firewall_down_reason_start_failed">De1984 could not start the firewall. Nothing is blocking network access.</string>
-    <string name="firewall_down_reason_vpn_permission">De1984 needs VPN permission to restore protection.</string>
-    <string name="firewall_down_action_choose_backend">Choose backend</string>
-    <string name="firewall_down_action_retry">Try again</string>
-    <string name="firewall_down_action_enable_vpn">Enable VPN</string>
-    <string name="firewall_down_action_replace_vpn">Replace VPN</string>
-    <string name="firewall_switched_title">Backend switched</string>
-    <string name="firewall_switched_message_auto">The %1$s backend failed. De1984 switched to VPN and is still protecting you.</string>
-    <string name="firewall_switched_message_manual">The %1$s backend failed. De1984 switched to AUTO mode and is using VPN.</string>
-    <!-- Firewall would not stop: the mirror of "firewall down". The user asked for no blocking and
-         may still be getting some, with every control showing OFF. -->
-    <string name="firewall_stop_failed_title">Firewall did not stop</string>
-    <string name="firewall_stop_failed_message">The %1$s backend would not shut down. Some apps may still be blocked. Try again, or restart the device.</string>
-    <string name="firewall_stop_failed_message_unknown">The firewall would not shut down. Some apps may still be blocked. Try again, or restart the device.</string>
-    <string name="firewall_stop_failed_action_retry">Stop again</string>
-    <string name="firewall_down_notifications_off">Notifications are off, so this warning cannot reach you when De1984 is closed.</string>
-    <string name="firewall_down_action_enable_notifications">Turn on alerts</string>
-    <string name="firewall_status_down">DOWN</string>
-    <string name="firewall_status_stuck">STUCK</string>
+    <string name="firewall_down_title">جدار الحماية معطل — تطبيقاتك غير محظورة</string>
+    <string name="firewall_down_reason_no_plan">لا يتوفر أي واجهة خلفية لجدار حماية قابلة للاستخدام على هذا الجهاز.</string>
+    <string name="firewall_down_reason_fallback_failed">لم تبدأ الواجهة الخلفية للنسخ الاحتياطي. لا شيء يمنع الوصول إلى الشبكة.</string>
+    <string name="firewall_down_reason_vpn_conflict">يستخدم تطبيق VPN آخر فتحة VPN. يجب على De1984 استبداله لحمايتك.</string>
+    <string name="firewall_down_reason_start_failed">تعذّر على De1984 بدء تشغيل جدار الحماية. لا يوجد شيء يمنع الوصول إلى الشبكة.</string>
+    <string name="firewall_down_reason_vpn_permission">يحتاج De1984 إلى إذن VPN لاستعادة الحماية.</string>
+    <string name="firewall_down_action_choose_backend">اختر الواجهة الخلفية</string>
+    <string name="firewall_down_action_retry">حاول مجددًا</string>
+    <string name="firewall_down_action_enable_vpn">تفعيل الـVPN</string>
+    <string name="firewall_down_action_replace_vpn">استبدال الـVPN</string>
+    <string name="firewall_switched_title">تم تبديل الواجهة الخلفية</string>
+    <string name="firewall_switched_message_auto">فشلت واجهة خلفية %1$s. تم تبديل De1984 إلى VPN ولا يزال يحميك.</string>
+    <string name="firewall_switched_message_manual">فشلت واجهة خلفية %1$s. تم تحويل De1984 إلى الوضع التلقائي ويستخدم VPN.</string>
 
-    <!-- VPN Conflict Notification -->
+    <string name="firewall_stop_failed_title">لم يتوقف جدار الحماية</string>
+    <string name="firewall_stop_failed_message">لم يتم إيقاف تشغيل واجهة خلفية %1$s. قد تظل بعض التطبيقات محظورة. حاول مرة أخرى، أو أعد تشغيل الجهاز.</string>
+    <string name="firewall_stop_failed_message_unknown">لم يتم إيقاف تشغيل جدار الحماية. قد تظل بعض التطبيقات محظورة. حاول مرة أخرى، أو أعد تشغيل الجهاز.</string>
+    <string name="firewall_stop_failed_action_retry">توقف مرة أخرى</string>
+    <string name="firewall_down_notifications_off">الإشعارات متوقفة، لذلك لا يمكن لهذا التحذير الوصول إليك عند إغلاق De1984.</string>
+    <string name="firewall_down_action_enable_notifications">تشغيل التنبيهات</string>
+    <string name="firewall_status_down">معطل</string>
+    <string name="firewall_status_stuck">عالق</string>
+
     <string name="vpn_conflict_notification_title">De1984 Firewall Down - VPN Conflict</string>
     <string name="vpn_conflict_notification_text">Another VPN is active. De1984 needs VPN permission to restore firewall protection. This will replace your current VPN connection. Tap to grant permission.</string>
     <string name="vpn_conflict_notification_action_text">Replace VPN &amp; Enable Firewall</string>
 
     <string name="language_title">لغة التطبيق</string>
-    <string name="language_description">Choose your preferred language for the app</string>
+    <string name="language_description">اختر لغتك المفضلة للتطبيق</string>
     <string name="language_system_default">افتراضي النظام</string>
     <!-- Settings Screen -->
     <string name="settings_app_version">الإصدار %s</string>
