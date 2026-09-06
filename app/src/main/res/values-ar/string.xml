@@ -260,9 +260,9 @@
     <string name="firewall_status_down">معطل</string>
     <string name="firewall_status_stuck">عالق</string>
 
-    <string name="vpn_conflict_notification_title">De1984 Firewall Down - VPN Conflict</string>
-    <string name="vpn_conflict_notification_text">Another VPN is active. De1984 needs VPN permission to restore firewall protection. This will replace your current VPN connection. Tap to grant permission.</string>
-    <string name="vpn_conflict_notification_action_text">Replace VPN &amp; Enable Firewall</string>
+    <string name="vpn_conflict_notification_title">De1984 جدار الحماية معطل - تعارض VPN</string>
+    <string name="vpn_conflict_notification_text">هناك VPN آخر نشط. يحتاج De1984 إلى إذن VPN لاستعادة حماية جدار الحماية. سيحل هذا محل اتصال VPN الحالي. انقر لمنح الإذن.</string>
+    <string name="vpn_conflict_notification_action_text">استبدال &amp; VPN وتفعيل جدار الحماية</string>
 
     <string name="language_title">لغة التطبيق</string>
     <string name="language_description">اختر لغتك المفضلة للتطبيق</string>
@@ -271,82 +271,79 @@
     <string name="settings_app_version">الإصدار %s</string>
     <string name="settings_app_description">الخصوصية ليست افتراضية. استعدها باستخدام De1984 Firewall وPackage Control. مشروع مجاني ومفتوح المصدر حقًا تم إنشاؤه ب ♥️ من أجل الخصوصية. فكر في التبرع لدعم تطويره إذا وجدته مفيدًا.</string>
 
-    <string name="settings_options_title">Options</string>
-    <string name="settings_options_description">Configure behavior and settings</string>
+    <string name="settings_options_title">الخيارات</string>
+    <string name="settings_options_description">تكوين السلوك والإعدادات</string>
 
-    <string name="settings_firewall_policy_title">Firewall Blocks All by Default</string>
-    <string name="settings_firewall_policy_description_block_all">Block All, Allow Wanted</string>
-    <string name="settings_firewall_policy_description_allow_all">Allow All, Block Unwanted</string>
+    <string name="settings_firewall_policy_title">يحظر جدار الحماية الكل بشكل افتراضي</string>
+    <string name="settings_firewall_policy_description_block_all">حظر الكل، السماح بالمرغوب</string>
+    <string name="settings_firewall_policy_description_allow_all">السماح بالكل، حظر غير المرغوب</string>
 
-    <string name="settings_backend_title">Firewall Backend</string>
-    <string name="settings_backend_description">Select which backend to use for blocking apps</string>
-    <string name="settings_backend_active">Active: %s</string>
-    <string name="settings_backend_not_running">Firewall not running.</string>
-    <string name="settings_backend_loading">Loading...</string>
+    <string name="settings_backend_title">واجهة خلفية جدار الحماية</string>
+    <string name="settings_backend_description">حدد أيًّا الواجهة الخلفية لاستخدامها لحظر التطبيقات</string>
+    <string name="settings_backend_active">نشط: %s</string>
+    <string name="settings_backend_not_running">جدار الحماية لا يعمل.</string>
+    <string name="settings_backend_loading">جارٍ التحميل...</string>
 
-    <!-- Backend Options -->
-    <string name="backend_auto_name">AUTO (Recommended)</string>
-    <string name="backend_auto_description">Automatically select best available backend</string>
+    <string name="backend_auto_name">تلقائي (موصى به)</string>
+    <string name="backend_auto_description">تحديد أفضل واجهة خلفية متاحة تلقائيًا</string>
     <string name="backend_vpn_name">VPN</string>
-    <string name="backend_vpn_description">Always use VPN backend</string>
+    <string name="backend_vpn_description">استخدم دائمًا واجهة خلفية VPN</string>
     <string name="backend_connectivity_manager_name">ConnectivityManager</string>
-    <string name="backend_connectivity_manager_description">System-level blocking (requires Shizuku + Android 13+)</string>
-    <string name="backend_requires_android_13">Requires Android 13+</string>
-    <string name="backend_requires_shizuku">Requires Shizuku</string>
+    <string name="backend_connectivity_manager_description">الحظر على مستوى النظام (يتطلب Shizuku + أندرويد 13+)</string>
+    <string name="backend_requires_android_13">يتطلب أندوريد 13+</string>
+    <string name="backend_requires_shizuku">يتطلب Shizuku</string>
     <string name="backend_iptables_name">iptables</string>
-    <string name="backend_iptables_description">Kernel-level blocking (requires root)</string>
-    <string name="backend_iptables_requirement">Requires root or Shizuku in root mode</string>
+    <string name="backend_iptables_description">الحظر على مستوى النواة (يتطلب الجذر)</string>
+    <string name="backend_iptables_requirement">يتطلب الجذر أو Shizuku في وضع الجذر</string>
     <string name="backend_network_policy_manager_name">NetworkPolicyManager (Legacy)</string>
-    <string name="backend_network_policy_manager_description">For Android 12 and below (use ConnectivityManager on Android 13+)</string>
-    <string name="backend_network_policy_manager_requirement">Requires Shizuku</string>
-    <string name="backend_not_available_title">%s Not Available</string>
-    <string name="backend_not_available_message">This backend is not available on your device.</string>
+    <string name="backend_network_policy_manager_description">لنظام التشغيل أندرويد 12 وأقدم (استخدم ConnectivityManager على أندرويد 13+‎)</string>
+    <string name="backend_network_policy_manager_requirement">يتطلب Shizuku</string>
+    <string name="backend_not_available_title">%s غير متاح</string>
+    <string name="backend_not_available_message">هذه الواجهة الخلفية غير متوفرة على جهازك.</string>
 
-    <string name="settings_show_icons_title">Show App Icons</string>
-    <string name="settings_show_icons_description">Might speed up the app when disabled</string>
+    <string name="settings_show_icons_title">إظهار أيقونات التطبيقات</string>
+    <string name="settings_show_icons_description">قد يؤدي إلى تسريع التطبيق عند تعطيله</string>
 
-    <string name="settings_boot_protection_title">Boot Protection</string>
-    <string name="settings_boot_protection_description">Block all network traffic during device startup until firewall activates (requires root and Magisk)</string>
-    <string name="settings_boot_protection_unavailable">Requires root and Magisk boot scripts</string>
-    <string name="settings_boot_protection_stuck">⚠️ Boot protection is still installed and De1984 has lost root access, so it cannot remove it. Every boot blocks all apps for up to 2 minutes, then the script lifts itself. Try to remove it below — that works if root was only denied, not lost.</string>
-    <string name="settings_boot_protection_retry_remove">Try to remove</string>
-    <string name="boot_protection_remove_no_root">Could not remove it. De1984 still has no root access, so it cannot delete a file under /data/adb. Restore root and try again. Until then each boot blocks apps for up to 2 minutes, then clears itself.</string>
-    <string name="boot_protection_rebooting">Boot protection removed. Restarting your phone…</string>
+    <string name="settings_boot_protection_title">حماية التمهيد</string>
+    <string name="settings_boot_protection_description">حظر كل حركة مرور الشبكة أثناء بدء تشغيل الجهاز حتى يتم تنشيط جدار الحماية (يتطلب جذر وMagisk)</string>
+    <string name="settings_boot_protection_unavailable">يتطلب root and Magisk boot scripts</string>
+    <string name="settings_boot_protection_stuck">⚠️ لا تزال حماية التمهيد مثبتة وفقد De1984 الوصول إلى الجذر، لذلك لا يمكنه إزالتها. يحظر كل تمهيد جميع التطبيقات لمدة تصل إلى دقيقتين، ثم يرفع البرنامج النصي نفسه. حاول إزالته أدناه — وهذا يعمل إذا تم رفض الوصول إلى الجذر فقط، ولم يتم فقدانه.
+    <string name="settings_boot_protection_retry_remove">حاول للإزالة</string>
+    <string name="boot_protection_remove_no_root">تعذّر إزالته. لا يزال De1984 لا يتمتع بوصول الجذر، لذلك لا يمكنه حذف ملف ضمن /data/adb. استعد الجذر وحاول مرة أخرى. حتى ذلك الحين، يحظر كل تمهيد التطبيقات لمدة تصل إلى دقيقتين، ثم يمسح نفسه.</string>
+    <string name="boot_protection_rebooting">تمت إزالة حماية التمهيد. جارٍ إعادة تشغيل هاتفك...</string>
 
-    <string name="settings_new_app_notifications_title">New App Notifications</string>
-    <string name="settings_new_app_notifications_description">Show notifications when new apps with network permissions are installed</string>
+    <string name="settings_new_app_notifications_title">إشعارات التطبيق الجديدة</string>
+    <string name="settings_new_app_notifications_description">إظهار إشعارات عند تثبيت تطبيقات جديدة ذات أذونات شبكة</string>
 
-    <string name="settings_allow_uninstall_critical_title">Allow Uninstalling Critical Packages</string>
-    <string name="settings_allow_uninstall_critical_description">Show uninstall option for Essential and Important packages</string>
+    <string name="settings_allow_uninstall_critical_title">السماح بإلغاء تثبيت الحزم الأساسية</string>
+    <string name="settings_allow_uninstall_critical_description">إظهار خيار إلغاء التثبيت للحزم الأساسية والمهمة</string>
 
-    <string name="settings_allow_firewall_critical_title">Allow Firewall Critical Packages</string>
-    <string name="settings_allow_firewall_critical_description">Allow blocking network access for system-critical and VPN packages</string>
+    <string name="settings_allow_firewall_critical_title">السماح بجدار الحماية للحزم الأساسية</string>
+    <string name="settings_allow_firewall_critical_description">السماح بحظر الوصول إلى الشبكة لحزم النظام الأساسية وحزم VPN</string>
 
-    <string name="settings_show_firewall_prompt_title">Show Firewall Start Prompt</string>
-    <string name="settings_show_firewall_prompt_description">Show a prompt to start the firewall when the app opens and firewall is inactive</string>
+    <string name="settings_show_firewall_prompt_title">إظهار مطالبة بدء جدار الحماية</string>
+    <string name="settings_show_firewall_prompt_description">عرض مطالبة لبدء جدار الحماية عند فتح التطبيق وعدم نشاط جدار الحماية</string>
 
-    <string name="settings_confirm_rule_changes_title">Confirm Rule Changes</string>
-    <string name="settings_confirm_rule_changes_description">Show confirmation dialog when tapping network icons to toggle rules</string>
+    <string name="settings_confirm_rule_changes_title">تأكيد تغييرات القاعدة</string>
+    <string name="settings_confirm_rule_changes_description">إظهار مربع حوار التأكيد عند النقر على رموز الشبكة لتبديل القواعد</string>
 
-    <string name="settings_dynamic_color_title">Use Dynamic Color</string>
-    <string name="settings_dynamic_color_description">Adapt app colors to match your device wallpaper (Android 12+). Requires app restart.</string>
+    <string name="settings_dynamic_color_title">استخدام اللون الديناميكي</string>
+    <string name="settings_dynamic_color_description">تكييف ألوان التطبيق لتتناسب مع خلفية جهازك (أندرويد ١٢+). يتطلب إعادة تشغيل التطبيق.</string>
 
-    <string name="settings_backup_restore_title">Backup &amp; Restore</string>
-    <string name="settings_backup_restore_description">Save and restore your firewall rules</string>
-    <string name="settings_backup_button">Backup</string>
-    <string name="settings_restore_button">Restore</string>
+    <string name="settings_backup_restore_title">النسخ الاحتياطي والاستعادة</string>
+    <string name="settings_backup_restore_description">حفظ قواعد جدار الحماية واستعادتها</string>
+    <string name="settings_backup_button">نسخ احتياطي</string>
+    <string name="settings_restore_button">استعادة</string>
 
-    <!-- Export/Import Uninstalled Apps -->
-    <string name="settings_uninstalled_apps_title">Uninstalled Apps</string>
-    <string name="settings_uninstalled_apps_description">Export and import the list of uninstalled system packages</string>
-    <string name="button_export_uninstalled_apps">Export</string>
-    <string name="button_import_uninstalled_apps">Import</string>
+    <string name="settings_uninstalled_apps_title">التطبيقات غير المثبتة</string>
+    <string name="settings_uninstalled_apps_description">تصدير واستيراد قائمة حزم النظام التي تم إلغاء تثبيتها</string>
+    <string name="button_export_uninstalled_apps">تصدير</string>
+    <string name="button_import_uninstalled_apps">استيراد</string>
 
-    <!-- Export Messages -->
-    <string name="success_export_uninstalled">✅ Export successful: %d packages</string>
-    <string name="error_export_requires_privileges">❌ Root or Shizuku required to export uninstalled apps</string>
-    <string name="error_export_no_uninstalled_apps">No uninstalled system packages found</string>
-    <string name="error_export_failed">Export failed: %s</string>
+    <string name="success_export_uninstalled">✅ تم التصدير بنجاح: %d حزم</string>
+    <string name="error_export_requires_privileges">❌ مطلوب Root أو Shizuku لتصدير التطبيقات التي تم إلغاء تثبيتها</string>
+    <string name="error_export_no_uninstalled_apps">لم يتم العثور على حزم نظام تم إلغاء تثبيتها</string>
+    <string name="error_export_failed">فشل التصدير: %s</string>
 
     <!-- Import Messages -->
     <string name="dialog_import_preview_title">Import &amp; Uninstall Apps</string>
