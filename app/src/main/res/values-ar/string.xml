@@ -345,111 +345,102 @@
     <string name="error_export_no_uninstalled_apps">لم يتم العثور على حزم نظام تم إلغاء تثبيتها</string>
     <string name="error_export_failed">فشل التصدير: %s</string>
 
-    <!-- Import Messages -->
-    <string name="dialog_import_preview_title">Import &amp; Uninstall Apps</string>
-    <string name="dialog_import_preview_message">Found %1$d packages to uninstall:\n\n%2$s\n\n⚠️ This will uninstall all listed apps.</string>
-    <string name="dialog_import_warning_title">Some Packages Not Found</string>
-    <string name="dialog_import_warning_message">%1$d of %2$d packages found.\n\nFound:\n%3$s\n\nNot found:\n%4$s\n\nContinue with found packages?</string>
-    <string name="dialog_import_all_not_found">❌ None of the %d packages in the file are currently installed</string>
-    <string name="dialog_import_protected_section">🛡️ Skipped as protected (essential or required by De1984):\n%1$s</string>
-    <string name="dialog_import_empty_file">❌ The file is empty or contains no valid package names</string>
-    <string name="dialog_import_confirm">Uninstall All</string>
-    <string name="error_import_requires_privileges">❌ Root or Shizuku required to uninstall apps</string>
-    <string name="error_import_file_read_failed">Failed to read file: %s</string>
-    <string name="error_import_failed">Import failed: %s</string>
+    <string name="dialog_import_preview_title">استيراد &amp; تطبيقات غير مثبتة</string>
+    <string name="dialog_import_preview_message">تم العثور على %1$d حزم لإلغاء تثبيتها:\n\n%2$s\n\n⚠️ سيؤدي هذا إلى إلغاء تثبيت جميع التطبيقات المدرجة.</string>
+    <string name="dialog_import_warning_title">لم يتم العثور على بعض الحزم</string>
+    <string name="dialog_import_warning_message">تم العثور على %1$d من %2$d حزمة.\n\nتم العثور على:\n%3$s\n\nلم يتم العثور على:\n%4$s\n\nهل تريد المتابعة مع الحزم التي تم العثور عليها؟</string>
+    <string name="dialog_import_all_not_found">❌ لا يوجد أي من %d الحزم الموجودة في الملف مثبتة حاليًا</string>
+    <string name="dialog_import_protected_section">🛡️ تم التخطي لأنه محمي (أساسي أو مطلوب بواسطة De1984):\n%1$s</string>
+    <string name="dialog_import_empty_file">❌ الملف فارغ أو لا يحتوي على أسماء حزم صالحة</string>
+    <string name="dialog_import_confirm">إلغاء تثبيت الكل</string>
+    <string name="error_import_requires_privileges">❌ مطلوب جذر أو Shizuku لإلغاء تثبيت التطبيقات</string>
+    <string name="error_import_file_read_failed">فشل في قراءة الملف: %s</string>
+    <string name="error_import_failed">فشل الاستيراد: %s</string>
 
-    <string name="settings_captive_portal_title">Captive Portal Controller</string>
-    <string name="settings_captive_portal_description">Control Captive Portal detection system</string>
-    <string name="settings_captive_portal_current_settings">Current Settings</string>
-    <string name="settings_captive_portal_detection_mode">Detection Mode: %s</string>
+    <string name="settings_captive_portal_title">متحكم البوابة المقيدة</string>
+    <string name="settings_captive_portal_description">تحكم في نظام الكشف عن البوابة المقيدة</string>
+    <string name="settings_captive_portal_current_settings">الإعدادات الحالية</string>
+    <string name="settings_captive_portal_detection_mode">وضع الكشف: %s</string>
     <string name="settings_captive_portal_http_url">HTTP URL: %s</string>
     <string name="settings_captive_portal_https_url">HTTPS URL: %s</string>
-    <string name="settings_captive_portal_preset">Preset: %s</string>
-    <string name="settings_captive_portal_loading">Loading...</string>
-    <string name="settings_captive_portal_not_set">Not set</string>
+    <string name="settings_captive_portal_preset">إعداد مسبق: %s</string>
+    <string name="settings_captive_portal_loading">جارٍ التحميل...</string>
+    <string name="settings_captive_portal_not_set">غير محدد</string>
 
-    <!-- Captive Portal Mode Options -->
-    <string name="captive_portal_mode_forced_off">Forced Off</string>
-    <string name="captive_portal_mode_forced_off_description">Captive portal detection is completely disabled</string>
-    <string name="captive_portal_mode_disabled">Disabled</string>
-    <string name="captive_portal_mode_disabled_description">Captive portal detection is disabled</string>
-    <string name="captive_portal_mode_enabled">Enabled</string>
-    <string name="captive_portal_mode_enabled_description">Captive portal detection is enabled (default)</string>
+    <string name="captive_portal_mode_forced_off">متوقف إجباريًا</string>
+    <string name="captive_portal_mode_forced_off_description">تم تعطيل اكتشاف البوابة الخاصة تمامًا.</string>
+    <string name="captive_portal_mode_disabled">معطل</string>
+    <string name="captive_portal_mode_disabled_description">تم تعطيل اكتشاف البوابة المقيدة</string>
+    <string name="captive_portal_mode_enabled">مفعل</string>
+    <string name="captive_portal_mode_enabled_description">تم تفعيل اكتشاف البوابة المقيدة (افتراضي)</string>
 
-    <!-- Captive Portal Preset Options -->
-    <string name="captive_portal_preset_google">Google (Default)</string>
-    <string name="captive_portal_preset_google_description">Google\'s default captive portal detection servers</string>
+    <string name="captive_portal_preset_google">جوجل (افتراضي)</string>
+    <string name="captive_portal_preset_google_description">خوادم اكتشاف البوابة المقيدة الافتراضية من Google</string>
     <string name="captive_portal_preset_grapheneos">GrapheneOS</string>
-    <string name="captive_portal_preset_grapheneos_description">Privacy-focused servers from GrapheneOS project</string>
+    <string name="captive_portal_preset_grapheneos_description">خوادم تركز على الخصوصية من مشروع GrapheneOS</string>
     <string name="captive_portal_preset_kuketz">Kuketz</string>
-    <string name="captive_portal_preset_kuketz_description">Privacy-focused servers from Mike Kuketz (Germany)</string>
+    <string name="captive_portal_preset_kuketz_description">خوادم تركز على الخصوصية من Mike Kuketz (ألمانيا)</string>
     <string name="captive_portal_preset_cloudflare">Cloudflare</string>
-    <string name="captive_portal_preset_cloudflare_description">Cloudflare\'s captive portal detection servers</string>
-    <string name="captive_portal_preset_custom">Custom URLs</string>
-    <string name="captive_portal_preset_custom_description">Use your own custom captive portal URLs</string>
+    <string name="captive_portal_preset_cloudflare_description">خوادم الكشف عن البوابة المقيدة من Cloudflare</string>
+    <string name="captive_portal_preset_custom">URLs مخصص</string>
+    <string name="captive_portal_preset_custom_description">استخدم عناوين URL المخصصة لبوابة الدخول الخاصة بك</string>
 
-    <!-- Captive Portal Success Messages -->
-    <string name="captive_portal_preset_applied">Applied %s preset successfully</string>
-    <string name="captive_portal_mode_set">Detection mode set to %s</string>
-    <string name="settings_captive_portal_restore_original">Restore Original</string>
-    <string name="settings_captive_portal_reset_google">Reset to Google</string>
-    <string name="settings_captive_portal_no_privileges">Root or Shizuku access required to modify settings</string>
+    <string name="captive_portal_preset_applied">تم تطبيق الإعداد المسبق %s بنجاح</string>
+    <string name="captive_portal_mode_set">تم تعيين وضع الكشف إلى %s</string>
+    <string name="settings_captive_portal_restore_original">استعادة الأصلي</string>
+    <string name="settings_captive_portal_reset_google">إعادة الضبط لجوجل</string>
+    <string name="settings_captive_portal_no_privileges">يلزم الوصول إلى Root أو Shizuku لتعديل الإعدادات</string>
 
-    <string name="settings_permissions_title">Permissions</string>
-    <string name="settings_permissions_description">Status and advanced configuration</string>
+    <string name="settings_permissions_title">الأذونات</string>
+    <string name="settings_permissions_description">الحالة والتكوين المتقدم</string>
 
-    <string name="settings_contribute_title">Questions, features, bugs?</string>
-    <string name="settings_contribute_description">Get involved and help improve De1984</string>
-    <string name="settings_contribute_message">Contribute code, report bugs, or suggest features to make this app better for everyone.</string>
-    <string name="settings_contribute_button">Contribute on GitHub</string>
+    <string name="settings_contribute_title">أسئلة، ميزات أو أخطاء؟</string>
+    <string name="settings_contribute_description">شارك وساعد في تحسين De1984</string>
+    <string name="settings_contribute_message">ساهم بالكود أو أبلغ عن الأخطاء أو اقترح ميزات لجعل هذا التطبيق أفضل للجميع.</string>
+    <string name="settings_contribute_button">ساهم على GitHub</string>
 
-    <!-- Dialog Titles and Messages -->
     <string name="dialog_success">نجاح</string>
-    <string name="dialog_firewall_backends_title">Firewall Backends</string>
+    <string name="dialog_firewall_backends_title">الواجهات الخلفية لجدار الحماية</string>
     <string name="dialog_firewall_backends_message">💡 الوضع التلقائي (موصى به)\nيختار تلقائيًا أفضل واجهة خلفية متاحة:\n1. iptables (في حالة توفر root/Shizuku)\n2. ConnectivityManager (إذا كان Shizuku + Android 13+)\n3. VPN (الاحتياطي)\n\nيدعم De1984 أربع واجهات خلفية لجدار الحماية:\n\n🔹 واجهة خلفية VPN\n• متاحة دائمًا (لا يلزم وجود صلاحية الجذر)\n• تستخدم واجهة برمجة تطبيقات Android VpnService\n• تدعم التحكم الدقيق (WiFi/الجوال/التجوال)\n• تشغل فتحة VPN (لا يمكن استخدام تطبيقات VPN أخرى)\n• تصفية حزم مساحة المستخدم\n\n🔹 واجهة خلفية iptables\n• تتطلب صلاحية الجذر أو Shizuku في وضع الجذر\n• الحظر على مستوى النواة (الأكثر كفاءة)\n• تدعم التحكم الدقيق (WiFi/الجوال/التجوال)\n• لا تشغل فتحة VPN\n• يعمل مع تطبيقات VPN الأخرى\n\n🔹 الواجهة الخلفية ConnectivityManager\n• يتطلب Shizuku + Android 13+\n• الحظر على مستوى النظام (يحظر جميع الشبكات بشكل موثوق)\n• الحظر الكل أو لا شيء فقط (بدون تحكم دقيق)\n• لا يشغل فتحة VPN\n• يعمل مع تطبيقات VPN الأخرى\n\n🔹 الواجهة الخلفية NetworkPolicyManager (Legacy)\n• يتطلب Shizuku\n• لنظام Android 12 والإصدارات الأقدم\n• قد لا يحظر الواي فاي على بعض الأجهزة\n• استخدم ConnectivityManager على Android 13+ بدلاً من ذلك\n• لا يشغل فتحة VPN</string>
-    <string name="dialog_privileged_access_title">Privileged Access</string>
-    <string name="dialog_privileged_access_testing">🔄 Testing privileged access...\n\nPlease grant permission in the popup dialog if prompted.</string>
-    <string name="dialog_privileged_access_failed">❌ Root test failed.\n\nError: %s</string>
-    <string name="dialog_restore_rules_title">Restore Firewall Rules?</string>
-    <string name="dialog_restore_rules_message">📦 Backup Information:\n\n• Created: %1$s\n• App Version: %2$s\n• Rules Count: %3$d\n\nChoose restore mode:\n\n• Merge: Keep existing rules and add/update from backup\n• Replace All: Delete all existing rules first (⚠️ destructive)</string>
-    <string name="dialog_restore_rules_merge">Merge</string>
-    <string name="dialog_restore_rules_replace">Replace All</string>
-    <string name="dialog_replace_all_title">⚠️ Replace All Rules?</string>
-    <string name="dialog_replace_all_message">This will DELETE all existing firewall rules and replace them with the backup.\n\nThis action cannot be undone.\n\nAre you sure?</string>
-    <string name="dialog_replace_all_confirm">Replace All</string>
-    <string name="dialog_critical_uninstall_title">⚠️ Warning</string>
-    <string name="dialog_critical_uninstall_message">This allows uninstalling system-critical packages that may brick your device. Only enable if you know what you\'re doing.\n\nAre you sure you want to enable this?</string>
-    <string name="dialog_critical_uninstall_enable">Enable</string>
-    <string name="dialog_critical_firewall_title">⚠️ Warning</string>
-    <string name="dialog_critical_firewall_message">This allows blocking network access for system-critical packages (WiFi, Bluetooth, Download Manager, etc.) and VPN apps.\n\nBlocking these packages may:\n• Break network connectivity\n• Prevent WiFi/Bluetooth from working\n• Cause VPN reconnection issues\n• Require factory reset or ADB to fix\n\nOnly enable if you know what you\'re doing.\n\nAre you sure you want to enable this?</string>
-    <string name="dialog_critical_firewall_enable">Enable</string>
-    <string name="dialog_restart_title">Restart Required</string>
-    <string name="dialog_restart_message">The app needs to restart to apply the new color theme. Restart now?</string>
-    <string name="dialog_restart_confirm">Restart</string>
-    <string name="dialog_captive_portal_restore_title">Restore Original Settings?</string>
-    <string name="dialog_captive_portal_restore_message">This will restore your device\'s original captive portal settings that were captured when you first opened this feature.</string>
-    <string name="dialog_captive_portal_restore_confirm">Restore</string>
-    <string name="dialog_captive_portal_reset_title">Reset to Google Defaults?</string>
-    <string name="dialog_captive_portal_reset_message">This will reset captive portal settings to Google\'s default servers. Your original settings will remain saved and can be restored later.</string>
-    <string name="dialog_captive_portal_reset_confirm">Reset</string>
-    <string name="dialog_backup_read_error">Failed to read backup file: %s</string>
-    <string name="dialog_backup_load_error">Failed to load backup: %s</string>
-    <string name="dialog_loading_backup_title">Loading Backup...</string>
-    <string name="dialog_loading_backup_message">Please wait...</string>
-    <string name="dialog_vpn_permission_error_title">VPN Permission Error</string>
-    <string name="dialog_vpn_permission_error_message">Failed to request VPN permission: %s</string>
+    <string name="dialog_privileged_access_title">الوصول المميز</string>
+    <string name="dialog_privileged_access_testing">🔄 جارٍ اختبار الوصول المميز...\n\nيُرجى منح الإذن في مربع الحوار المنبثق إذا طُلب منك ذلك.</string>
+    <string name="dialog_privileged_access_failed">❌ فشل اختبار الجذر.\n\nالخطأ: %s</string>
+    <string name="dialog_restore_rules_title">استعادة قواعد جدار الحماية؟</string>
+    <string name="dialog_restore_rules_message">📦 معلومات النسخ الاحتياطي:\n\n• تاريخ الإنشاء: %1$s\n• إصدار التطبيق: %2$s\n• عدد القواعد: %3$d\n\nاختر وضع الاستعادة:\n\n• الدمج: الاحتفاظ بالقواعد الحالية والإضافة/التحديث من النسخ الاحتياطي\n• استبدال الكل: حذف جميع القواعد الحالية أولاً (⚠️ تدميري)</string>
+    <string name="dialog_restore_rules_merge">دمج</string>
+    <string name="dialog_restore_rules_replace">استبدال الكل</string>
+    <string name="dialog_replace_all_title">⚠️ استبدال جميع القواعد؟</string>
+    <string name="dialog_replace_all_message">سيؤدي هذا إلى حذف جميع قواعد جدار الحماية الحالية واستبدالها بالنسخة الاحتياطية.\n\nلا يمكن التراجع عن هذا الإجراء.\n\nهل أنت متأكد؟</string>
+    <string name="dialog_replace_all_confirm">استبدل الكل</string>
+    <string name="dialog_critical_uninstall_title">⚠️ تحذير</string>
+    <string name="dialog_critical_uninstall_message">يسمح هذا بإلغاء تثبيت الحزم الضرورية للنظام التي قد تتسبب في تعطيل جهازك. قم بالتفعيل فقط إذا كنت تعرف ما تفعله.\n\nهل أنت متأكد أنك تريد تفعيل هذا؟</string>
+    <string name="dialog_critical_uninstall_enable">تفعيل</string>
+    <string name="dialog_critical_firewall_title">⚠️ تحذير</string>
+    <string name="dialog_critical_firewall_message">يسمح هذا بحظر الوصول إلى الشبكة للحزم المهمة للنظام (WiFi وBluetooth و مدير التنزيلات وما إلى ذلك) وتطبيقات VPN.\n\nقد يؤدي حظر هذه الحزم إلى:\n• قطع الاتصال بالشبكة\n• منع WiFi/Bluetooth من العمل\n• التسبب في مشكلات في إعادة اتصال VPN\n• طلب إعادة الضبط إلى إعدادات المصنع أو ADB للإصلاح\n\nقم بالتفعيل فقط إذا كنت تعرف ما تفعله.\n\nهل أنت متأكد أنك تريد تفعيل هذا؟</string>
+    <string name="dialog_critical_firewall_enable">تفعيل</string>
+    <string name="dialog_restart_title">إعادة التشغيل مطلوبة</string>
+    <string name="dialog_restart_message">يحتاج التطبيق إلى إعادة التشغيل لتطبيق سمة اللون الجديد. هل تريد إعادة التشغيل الآن؟</string>
+    <string name="dialog_restart_confirm">إعادة التشغيل</string>
+    <string name="dialog_captive_portal_restore_title">استعادة الإعدادات الأصلية؟</string>
+    <string name="dialog_captive_portal_restore_message">سيؤدي هذا إلى استعادة الإعدادات الأصلية للبوابة التسجيل لجهازك التي تم التقاطها عند فتح هذه الميزة لأول مرة.</string>
+    <string name="dialog_captive_portal_restore_confirm">استعادة</string>
+    <string name="dialog_captive_portal_reset_title">إعادة التعيين إلى افتراضيات جوجل؟</string>
+    <string name="dialog_captive_portal_reset_message">سيؤدي هذا إلى إعادة تعيين إعدادات البوابة المقيدة إلى خوادم Google الافتراضية. ستظل إعداداتك الأصلية محفوظة ويمكن استعادتها لاحقًا.</string>
+    <string name="dialog_captive_portal_reset_confirm">إعادة الضبط</string>
+    <string name="dialog_backup_read_error">فشل في قراءة ملف النسخ الاحتياطي: %s</string>
+    <string name="dialog_backup_load_error">فشل في تحميل النسخة الاحتياطية: %s</string>
+    <string name="dialog_loading_backup_title">جارٍ تحميل النسخة الاحتياطية...</string>
+    <string name="dialog_loading_backup_message">يرجى الانتظار...</string>
+    <string name="dialog_vpn_permission_error_title">خطأ في إذن VPN</string>
+    <string name="dialog_vpn_permission_error_message">فشل في طلب إذن VPN: %s</string>
 
-    <!-- Licenses (unused but kept for future) -->
+    <string name="packages_empty_state_title">لم يتم العثور على حزم</string>
+    <string name="packages_empty_state_subtitle">حاول تعديل عوامل التصفية</string>
+    <string name="package_state_enabled">مُفعّل</string>
+    <string name="package_type_user">مستخدم</string>
 
-    <!-- Packages Screen -->
-    <string name="packages_empty_state_title">No packages found</string>
-    <string name="packages_empty_state_subtitle">Try adjusting your filters</string>
-    <string name="package_state_enabled">Enabled</string>
-    <string name="package_type_user">User</string>
-
-    <!-- Firewall Screen -->
-    <string name="firewall_empty_state_title">No packages found</string>
-    <string name="firewall_empty_state_subtitle">Try adjusting your filters</string>
+    <string name="firewall_empty_state_title">لم يتم العثور على حزم</string>
+    <string name="firewall_empty_state_subtitle">حاول تعديل عوامل التصفية</string>
     <string name="firewall_vpn_info_message">Using VPN-based firewall because your device is not rooted or doesn\'t have Shizuku. You cannot use another VPN app while De1984 Firewall is active.</string>
     <string name="firewall_network_label_wifi">WiFi</string>
     <string name="firewall_network_label_mobile">Mobile Data</string>
