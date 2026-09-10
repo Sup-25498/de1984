@@ -139,6 +139,7 @@
     <string name="multiselect_toast_limit_reached">يمكن تحديد %d حزم كحد أقصى في وقت واحد</string>
 
     <string name="firewall_multiselect_toast_cannot_select_critical">لا يمكن تحديد الحزم الحرجة/VPN</string>
+<string name="firewall_multiselect_toast_cannot_select_system_uid">لا يمكن حظر هذا التطبيق في وضع جدار الحماية الحالي</string>
     <string name="firewall_multiselect_toolbar_button_block">حظر</string>
     <string name="firewall_multiselect_toolbar_button_allow">سماح</string>
     <string name="firewall_multiselect_toolbar_button_rules">تغيير القواعد</string>
@@ -447,6 +448,13 @@
     <string name="firewall_network_label_roaming">التجوال</string>
     <string name="firewall_network_label_lan">وصول الشبكة المحلية</string>
     <string name="firewall_lan_requires_root">يتطلب الوصول إلى الجذر</string>
+<string name="firewall_backend_cannot_block_uid">لا يمكن الحظر</string>
+    <string name="firewall_system_uid_info">⚠️ جزء من نظام Android نفسه، وليس تطبيقًا عاديًا. لا يمكن لـ Shizuku حظره — يرفض Android قواعد جدار الحماية لمكوناته الخاصة. يمكن لـ Root ذلك، ولكن عندما تتم مشاركة معرف المستخدم مع تطبيق محمي، مثل الإعدادات، فإنه يحتاج أيضًا إلى تمكين \'السماح بالحزم الحرجة لجدار الحماية\' في الإعدادات وسيؤثر على تلك التطبيقات أيضًا.</string>
+    <string name="firewall_unknown_uid_info">⚠️ تعذّر على De1984 تحديد معرف مستخدم هذا التطبيق في ملفه التعريفي، لذلك لا يمكن تطبيق أي قاعدة جدار حماية عليه.</string>
+    <string name="firewall_other_profile_info">⚠️ هذا التطبيق في ملف تعريف آخر. يعمل وضع جدار الحماية الحالي مع أسماء التطبيقات داخل الملف التعريفي الذي يعمل فيه De1984، لذلك لا يمكنه الوصول إلى هذا التطبيق. يحظر الوصول إلى الجذر حسب معرف المستخدم ويمكنه الوصول إلى كل ملف تعريف.</string>
+    <string name="firewall_shared_uid_info">⚠️ يشارك هذا التطبيق معرّف مستخدم مع تطبيق محمي، ويحظر وضع جدار الحماية الحالي حسب معرّف المستخدم، وليس حسب التطبيق. سيؤدي حظره إلى قطع التطبيق المحمي أيضًا، لذلك يترك De1984 معرف المستخدم بالكامل دون تغيير. لحظره على أي حال، قم بتمكين \'السماح بالحزم الحرجة لجدار الحماية\' في الإعدادات ثم قم بتشغيل مفتاح التبديل لهذا التطبيق.</string>
+    <string name="firewall_no_rule_protected_uid_info">⚠️ يحمي De1984 معرف مستخدم هذا التطبيق، لذلك لا يتم تطبيق الإعداد الافتراضي "حظر الكل" عليه — قد يؤدي القيام بذلك إلى قطع تطبيق نظام محمي. مع تمكين \'السماح بالحزم الحرجة لجدار الحماية\'، لا يزال بإمكانك حظره: قم بتشغيل المفتاح لهذا التطبيق..</string>
+    <string name="firewall_sibling_rule_info">⚠️ يشارك تطبيق آخر معرّف مستخدم هذا التطبيق ولديه قاعدة جدار حماية خاصة به. يحظر وضع جدار الحماية الحالي حسب معرف المستخدم، لذلك تنطبق هذه القاعدة على هذا التطبيق أيضًا. المفاتيح أدناه هي إعداداتك الخاصة — تعرض قائمة التطبيقات ما يتم تطبيقه بالفعل.</string>
     <string name="firewall_network_label_background_access">السماح في الخلفية</string>
     <string name="firewall_network_label_internet_access">الوصول إلى الإنترنت</string>
     <string name="firewall_internet_access_subtitle">WiFi، بيانات الهاتف، التجوال</string>
@@ -676,4 +684,7 @@
     <string name="settings_confirm_firewall_stop_description">اسأل قبل إيقاف جدار الحماية من العنصر أو الأداة المصغرة</string>
     <string name="firewall_stopped_notification_title">تم إيقاف جدار الحماية</string>
     <string name="firewall_stopped_notification_text">يمكن لجميع التطبيقات الآن الوصول إلى الإنترنت. انقر لبدء تشغيله مرة أخرى.</string>
+<string name="error_package_scan_failed_title">تعذّر قراءة قائمة التطبيقات</string>
+    <string name="error_package_scan_failed_hint">إذا حدث هذا مرة أخرى، أغلق De1984 وأعد فتحه.</string>
+    <string name="error_package_scan_failed">تعذّر قراءة قائمة التطبيقات على هذا الجهاز. إذا استمر هذا في الحدوث، أغلق De1984 وأعد فتحه.</string>
 </resources>
